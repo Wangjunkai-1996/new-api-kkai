@@ -212,26 +212,23 @@ func (w *membershipBillingRecoveryWorker) discover(ctx context.Context, lane str
 	now := time.Now().Unix()
 	if lane == "conflict" {
 		var records []model.MembershipBillingRecovery
-		if err := model.DB.WithContext(ctx).Where("state = ? AND next_attempt_at <= ?", "conflict", now).Order("next_attempt_at, request_id").Limit(membershipRecoveryConflictBudget).Find(&records).Error; err != nil {
+		query := model.DB.WithContext(ctx).Where("state = ? AND next_attempt_at <= ?", "conflict", now)
+		if !observe {
+			// Unresolved conflicts need manual review, not repeated scheduling
+			// writes. Only a completed ledger needs its recovery cache finalized.
+			completed := model.DB.Model(&model.MembershipBillingRecord{}).Select("1").
+				Where("kkai_membership_billing.request_id = kkai_membership_billing_recovery.request_id").
+				Where("billing_scope = ? AND state IN ?", model.MembershipBillingScopeRelay, []string{"settled", "released"})
+			query = query.Where("EXISTS (?)", completed)
+		}
+		if err := query.Order("next_attempt_at, request_id").Limit(membershipRecoveryConflictBudget).Find(&records).Error; err != nil {
 			return err
 		}
 		for _, record := range records {
 			counts.scanned++
 			counts.conflicts++
 			if !observe {
-				var ledger model.MembershipBillingRecord
-				if err := model.DB.WithContext(ctx).Select("state").First(&ledger, "request_id = ?", record.RequestID).Error; err != nil {
-					return err
-				}
-				if ledger.State == "settled" || ledger.State == "released" {
-					// Manual review may already have closed the ledger. This
-					// call only moves its stale recovery row to cache_pending.
-					if _, err := model.ResolveMembershipRelayEvidence(ctx, record.RequestID); err != nil {
-						return err
-					}
-					continue
-				}
-				if err := model.DeferMembershipBillingRecovery(ctx, record.RequestID, record.Revision, "evidence_conflict", false, now); err != nil {
+				if _, err := model.ResolveMembershipRelayEvidence(ctx, record.RequestID); err != nil {
 					return err
 				}
 			}
@@ -345,6 +342,18 @@ func (w *membershipBillingRecoveryWorker) aged(ctx context.Context, counts *memb
 	if len(records) == 0 {
 		return model.AdvanceMembershipBillingScan(ctx, progress, nil, now)
 	}
+	ids := make([]string, len(records))
+	for i := range records {
+		ids[i] = records[i].RequestID
+	}
+	var recoveries []model.MembershipBillingRecovery
+	if err := model.DB.WithContext(workCtx).Select("request_id", "state").Where("request_id IN ?", ids).Find(&recoveries).Error; err != nil {
+		return err
+	}
+	recoveryStates := make(map[string]string, len(recoveries))
+	for _, recovery := range recoveries {
+		recoveryStates[recovery.RequestID] = recovery.State
+	}
 	logs, logErr := membershipRecoveryConsumeLogs(workCtx, records)
 	var last *model.MembershipBillingRecord
 	var failures []error
@@ -355,20 +364,17 @@ func (w *membershipBillingRecoveryWorker) aged(ctx context.Context, counts *memb
 		}
 		record := &records[i]
 		counts.scanned++
-		var recovery model.MembershipBillingRecovery
-		found := model.DB.WithContext(workCtx).First(&recovery, "request_id = ?", record.RequestID).Error
-		if found != nil && !errors.Is(found, gorm.ErrRecordNotFound) {
-			failures = append(failures, found)
-			break
-		}
+		// This page snapshot chooses work only; every financial operation
+		// revalidates the ledger and evidence under the existing row locks.
+		recoveryState := recoveryStates[record.RequestID]
 		var completed *model.MembershipBillingRecord
 		conflict := false
-		if found == nil && recovery.State == "conflict" {
+		if recoveryState == "conflict" {
 			counts.conflicts++
 			last = record
 			continue
 		}
-		if found == nil && recovery.State == "ready" {
+		if recoveryState == "ready" {
 			completed, err = model.ResolveMembershipRelayEvidence(workCtx, record.RequestID)
 			conflict = errors.Is(err, model.ErrMembershipConflict)
 		} else if logErr != nil {

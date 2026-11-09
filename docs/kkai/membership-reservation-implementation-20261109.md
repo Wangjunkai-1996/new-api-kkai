@@ -52,7 +52,7 @@ B 的服务进程、候选和 writer 每秒独立读取一次控制状态，正�
 
 新表存在但回执/形状/索引不完整时失败关闭，不回退到不识别旁表的旧补偿程序。A 包含历史 off/observe 的 schema 缺失兼容路径，但本次固定 paused 不会进入该路径；B 只有 canonical21 验证通过才允许非暂停模式。生产应先验证 schema 及兼容回退版本，再启用 apply。
 
-每分钟运行，发现阶段两个孤儿通道各最多 100 行，冲突延期最多 10 行，aged 最多 100 行/25 笔调整，ready/cache/pending 合计最多 100 行/25 笔资金调整。整体最多 410 行、50 笔调整；aged 和 ready 不互抢预留预算。扫描阶段在 1 秒/6 秒子预算中预留 200ms 保存已完成进度。
+每分钟运行，发现阶段两个孤儿通道各最多 100 行，已终结冲突收尾最多 10 行，aged 最多 100 行/25 笔调整，ready/cache/pending 合计最多 100 行/25 笔资金调整。整体最多 410 行、50 笔调整；aged 和 ready 不互抢预留预算。扫描阶段在 1 秒/6 秒子预算中预留 200ms 保存已完成进度。
 
 20 秒是合作取消预算：数据库和 Redis 调用传递 context，底层连接、网络超时及驱动取消仍需隔离验收。未引入脱离上下文继续执行的超时 goroutine，也未修改全局连接池或 Redis 超时配置。不能把该预算描述为任何故障下均精确 20 秒硬停止。
 
@@ -190,6 +190,14 @@ make -C /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/kkai-infra check
 
 控制器 `29e9a8e927ea35df939e912baa381e663591f4a2` 已通过本地 Git bundle 上传并在独占控制窗口安装。安装后独立 self-test 与 `make newapi-status` 通过，旧控制器源码保留；应用 pin 随后更新。此时应用仍是原版本，数据库仍为 canonical20（`sha256:aec42c828819055a9f678820802cc16e3ef47eee28ffb9308322a02063911a45`），未创建持久恢复控制行，未迁移或启用恢复。控制器安装不等同于本功能已上线。
 
+## 5.3 B 冲突积压的最小性能修复
+
+`cc99ff134` 的完整 64 格、12,800 次请求全部完成结算，但保留一项重复首内容延迟越界。`c6fc071f8` 将租约 no-op 写入限定 SQLite 后，12 格、2,400 次定向跟进全部成功；生产每分钟节拍下，501 条冲突积压仍出现同窗完成 P95 约 +15%、吞吐约 −9%，因此未以“没有双轮越界”代替性能验收。
+
+跟踪确认每轮额外约 203 条 SQL 来自未变化冲突的反复延期和 aged 页内逐条读取恢复状态。本次仅将 apply 冲突通道筛为主账本已 settled/released 的记录，仍保留到期时间和每轮 10 行限制；未解决冲突保留原证据和资金，人工终态仍经锁内重验后处理缓存。observe 保持只读分类。aged 页的恢复状态改成一次有界批量读取，快照只用于选择工作，真实结算/补偿继续在模型事务内重验。25+25 笔资金预算、72 小时政策、暂停屏障和前台路径均不变。本轮 counts.conflicts 是所处理记录数，不能代表总冲突积压。
+
+定向测试覆盖超过单页冲突预算时的人工终态收尾、未解决冲突证据/资金不变、observe 不写及重复执行不再动钱；最终精确提交的性能结果另行归档。先前所有样本和失败结果保留，不覆盖重写。
+
 ## 6. 尚未验收或实施
 
 1. **数据库覆盖边界**：本机 PostgreSQL 18.4/9.6、MySQL 5.7 已执行新表唯一性与 runtime gate、并发结算、真实行锁取消和 leader 保护。独立 Linux CLI root-proof 的 v20→v21 apply/失败回滚/重放仅在 PG18 验证；其 runtime 身份为合成数据，不证明生产控制器的现场进程采集。生产规模执行计划、迁移影响和精确正式镜像仍待验收。
@@ -198,4 +206,4 @@ make -C /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/kkai-infra check
 4. **P2 Sub2API**：只读核对登记仓库 `/Users/tokk/Documents/Codex/2026-08-09/li/work/sub2api`。`backend/internal/server/middleware/newapi_attribution.go` 验签后只向上下文保留归属，nonce 没有进入最终账单；`backend/internal/pkg/kkaiattribution/verifier.go` 的 nonce 用于短期防重；`backend/ent/schema/usage_log.go` 没有 NewAPI attempt 字段；`backend/internal/repository/usage_billing_repo.go` 的 `(request_id, api_key_id)` 不能当作该 attempt 的最终收据。未发现对应查询专用接口，所以未虚构 URL、未增加 HTTP 查账，也未修改 Sub2API。
 5. **其它分期能力**：未自动提前释放本地费用事实不全的未派发孤儿；其证据仍 unknown，走既有 72h 政策。未调整预占公式、输出上限、会员权益时长或收费规则；P3 的估算分析另行实施。
 
-当前交付顺序：完成 B 最终验收 → 安装精确控制器并更新 pin → 兼容 A/B 两次正式发布 → 执行已授权的独立 v21 迁移 → 观察、启用恢复并完成发布清理。P2 在双方最终收据协议落地后独立交付。
+当前交付顺序：已安装精确控制器并更新 pin → 完成 B 最终验收 → 兼容 A/B 两次正式发布 → 执行已授权的独立 v21 迁移 → 观察、启用恢复并完成发布清理。P2 在双方最终收据协议落地后独立交付。

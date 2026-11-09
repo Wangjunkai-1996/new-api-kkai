@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -129,6 +130,61 @@ func TestMembershipRecoveryWorkerRefusesPartialSchemaInsteadOfLegacyFallback(t *
 	record, err := model.GetMembershipBillingRecord("must-remain-held")
 	require.NoError(t, err)
 	assert.Equal(t, "reserved", record.State)
+}
+
+func TestMembershipRecoveryClosedConflictsAreNotBlockedByUnresolvedBacklog(t *testing.T) {
+	user := setupMembershipRecoveryWorkerTest(t)
+	require.NoError(t, model.DB.Model(&model.MembershipAccount{}).Where("user_id = ?", user.Id).Update("amount_total", 10000).Error)
+	now := time.Now().Unix()
+	var unresolved []model.MembershipBillingRecovery
+	for i := 0; i < 12; i++ {
+		record := reserveMembershipRecoveryWorkerTest(t, user, fmt.Sprintf("open-conflict-%02d", i), true, false)
+		recovery := model.MembershipBillingRecovery{RequestID: record.RequestID, State: model.MembershipRecoveryConflict,
+			EvidenceKind: model.MembershipEvidenceUnknown, Revision: 1, NextAttemptAt: now - 2}
+		require.NoError(t, model.DB.Create(&recovery).Error)
+		unresolved = append(unresolved, recovery)
+	}
+	for _, state := range []string{"settled", "released"} {
+		record := reserveMembershipRecoveryWorkerTest(t, user, "closed-"+state, false, false)
+		var err error
+		if state == "settled" {
+			_, err = model.SettleMembershipRelayBilling(record.RequestID, 1, 0, true)
+		} else {
+			_, err = model.ReleaseMembershipBilling(record.RequestID)
+		}
+		require.NoError(t, err)
+		require.NoError(t, model.DB.Create(&model.MembershipBillingRecovery{RequestID: record.RequestID,
+			State: model.MembershipRecoveryConflict, EvidenceKind: model.MembershipEvidenceUnknown,
+			Revision: 1, NextAttemptAt: now - 1}).Error)
+	}
+	var before model.MembershipAccount
+	require.NoError(t, model.DB.First(&before, "user_id = ?", user.Id).Error)
+	worker := &membershipBillingRecoveryWorker{workerID: "recovery-worker"}
+	require.NoError(t, worker.discover(context.Background(), "conflict", true, &membershipBillingRecoveryCounts{}))
+	var untouched int64
+	require.NoError(t, model.DB.Model(&model.MembershipBillingRecovery{}).Where("state = ? AND revision = 1", model.MembershipRecoveryConflict).Count(&untouched).Error)
+	assert.EqualValues(t, 14, untouched, "observe must not alter conflict records")
+	require.NoError(t, model.DB.Model(&model.Option{}).Where(map[string]any{"key": model.MembershipBillingRecoveryControlOption}).Update("value", "apply:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").Error)
+	for run := 0; run < 2; run++ {
+		require.NoError(t, worker.run(context.Background()))
+		for _, expected := range unresolved {
+			var actual model.MembershipBillingRecovery
+			require.NoError(t, model.DB.First(&actual, "request_id = ?", expected.RequestID).Error)
+			assert.Equal(t, expected, actual, "unresolved conflicts must retain evidence and scheduling")
+			record, err := model.GetMembershipBillingRecord(expected.RequestID)
+			require.NoError(t, err)
+			assert.Equal(t, "reserved", record.State, "aged conflicts must not become compensation")
+		}
+		for _, state := range []string{"settled", "released"} {
+			var recovery model.MembershipBillingRecovery
+			require.NoError(t, model.DB.First(&recovery, "request_id = ?", "closed-"+state).Error)
+			assert.Equal(t, model.MembershipRecoveryResolved, recovery.State)
+		}
+		var after model.MembershipAccount
+		require.NoError(t, model.DB.First(&after, before.ID).Error)
+		assert.Equal(t, before.AmountReserved, after.AmountReserved)
+		assert.Equal(t, before.AmountUsed, after.AmountUsed, "cleanup must not apply funds twice")
+	}
 }
 
 func TestMembershipRecoveryConsumeLogRejectsConflictingProof(t *testing.T) {
