@@ -1,0 +1,30 @@
+{
+  "cause": "The local MySQL container was OOM-killed at the exact time the client received EOF; application-level test assertions were not relaxed.",
+  "state_after_recovery": {
+    "Status": "running",
+    "Running": true,
+    "Paused": false,
+    "Restarting": false,
+    "OOMKilled": false,
+    "Dead": false,
+    "Pid": 11402,
+    "ExitCode": 0,
+    "Error": "",
+    "StartedAt": "2026-11-09T11:02:28.645531632Z",
+    "FinishedAt": "2026-11-09T10:57:43.210730208Z"
+  },
+  "memory_limit_bytes": 1073741824,
+  "address": "127.0.0.1:56329",
+  "cgroup_after_bounded_rerun": "611291136\n620453888\nlow 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+  "performance_interpretation": "Functional acceptance only; this run overlapped other checks and is not used for performance conclusions.",
+  "verification": {
+    "reservation_mysql_acceptance": "All four subtests passed (1.34 seconds)",
+    "last_failed_http_cell": "wallet/users-4/conflicts-501/off: 40/40 succeeded, SQL errors 0, unsettled 0, valid true"
+  },
+  "artifacts": {
+    "http-mysql57-oom-evidence.json": "2217f56ee560b593b6e83c99f185504677462ca645adb6305bd90acba0ccad2c",
+    "mysql-reservation-claim-final-pass.log": "ccc7c11098f835be3e565d94d912832a1f0c9c04d5967e59c1e9157f1abce5fc",
+    "http-mysql57-final-cell-recheck.log": "7fec188715cde2899910689369d1bb3a1be04fcf43f5a648727ea5f7858ec0d0",
+    "http-mysql57-final-cell-recheck.jsonl": "70f536ad335c42ed318cc3fdce355e7b226bb369712e6df11fb1cac30cbaf862"
+  }
+}

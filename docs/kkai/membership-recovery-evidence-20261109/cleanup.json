@@ -1,0 +1,27 @@
+{
+  "scope": "Local isolated membership recovery acceptance resources only",
+  "completed_at": "2026-11-09T11:09:26.518972+00:00",
+  "removed_containers": [
+    {
+      "name": "kkai-membership-v21-pg18-adc938",
+      "id": "8c7cec04a3c9d4c50c1c665ec9881b30a104f08c883cdfabd0e1e40c76d48810"
+    },
+    {
+      "name": "kkai-membership-v21-pg96-b57e99",
+      "id": "d61cf6a9dac76ba28b85ed3a321ec5189eeb899df6bbc7933d29f1ca7938f1d8"
+    },
+    {
+      "name": "kkai-membership-v21-mysql57-653afe",
+      "id": "2ea5757354a30bb5596740d36a56a2211ce32ac6cea79a15e05b108acabc75ac"
+    }
+  ],
+  "removed_temporary_files": [
+    "password",
+    "pg18.env",
+    "pg96.env",
+    "mysql57.env",
+    "kkai-migrate"
+  ],
+  "retained": "Sanitized logs and evidence; database images and unrelated Docker resources left intact",
+  "production_access": false
+}

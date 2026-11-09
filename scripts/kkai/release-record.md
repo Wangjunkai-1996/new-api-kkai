@@ -51,6 +51,24 @@ KKAI_RELEASE_SSH_MULTIPLEX=1 \
 避免同时改两个变量后无法归因。
 结果不明时仍只查询一次 candidate-status，不自动重传或重放 stage。
 
+## 会员暂占恢复模式
+
+已安装支持该配置的控制器后，可在 stage 时明确指定恢复模式：
+
+```bash
+scripts/kkai/deploy-manual-release.sh --stage "${verified_metadata}" \
+  --membership-billing-recovery-mode observe
+```
+
+允许值为 `off`、`observe`、`apply`、`paused`，可与 `--tenant-routing-enabled` 组合，
+参数顺序不限。未传时继承当前 active manifest 的模式，历史 manifest 缺字段时按 `off`
+处理；客户端不会擅自覆盖。显式空值、无效值和重复参数会在远程调用前拒绝。
+
+客户端将同一模式传给只读 preflight 和 stage。控制器把最终模式写入候选 manifest，
+promote 和 abort 不能重新指定模式。非 `off` 模式要求精确 max-v21 运行契约；
+`observe`/`apply` 还要求已验证的 canonical v21，`paused` 可在 v20/v21 使用。
+stage 不执行 schema 迁移；切换模式与迁移仍按独立授权和验收流程进行。
+
 ## 人工阶段计时
 
 用薄包装器计时现有命令，命令原输出继续显示，但不写入 sidecar：

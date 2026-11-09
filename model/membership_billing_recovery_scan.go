@@ -86,6 +86,13 @@ func membershipBillingScanQuery(db *gorm.DB, lane string, now int64) (*gorm.DB, 
 	default:
 		return nil, "", ErrMembershipInvalidInput
 	}
+	if lane != "aged" {
+		// Existing evidence has its own due queue. Rediscovering it as an
+		// orphan repeats account locks and bypasses conflict backoff.
+		existing := db.Model(&MembershipBillingRecovery{}).Select("1").
+			Where("kkai_membership_billing_recovery.request_id = kkai_membership_billing.request_id")
+		query = query.Where("NOT EXISTS (?)", existing)
+	}
 	return query, column, nil
 }
 
@@ -193,8 +200,20 @@ func DeferMembershipBillingRecovery(ctx context.Context, requestID string, revis
 		return ErrMembershipInvalidInput
 	}
 	return membershipRecoveryTransaction(ctx, func(tx *gorm.DB) error {
-		record, recovery, err := lockMembershipRecoveryTx(tx, requestID)
-		if err != nil {
+		// Scheduling never touches funds. Keep Ledger -> Recovery order, but
+		// do not block unrelated requests on this member's account lock.
+		var record MembershipBillingRecord
+		if err := lockForUpdate(tx).Select("state", "billing_scope").First(&record, "request_id = ?", requestID).Error; err != nil {
+			return err
+		}
+		if record.Scope != MembershipBillingScopeRelay {
+			return ErrMembershipConflict
+		}
+		var recovery MembershipBillingRecovery
+		if err := lockForUpdate(tx).First(&recovery, "request_id = ?", requestID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
 			return err
 		}
 		if recovery.Revision != revision || recovery.State == "resolved" {
@@ -205,6 +224,6 @@ func DeferMembershipBillingRecovery(ctx context.Context, requestID string, revis
 		if conflict && record.State == "reserved" {
 			updates["state"] = "conflict"
 		}
-		return tx.Model(recovery).Updates(updates).Error
+		return tx.Model(&recovery).Updates(updates).Error
 	})
 }

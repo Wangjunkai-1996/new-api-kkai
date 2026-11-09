@@ -55,6 +55,7 @@ validate_stage_output() {
   local output=$1
   local expected_version=$2
   local expected_frontend_mode=$3
+  local expected_recovery_mode=${4:-}
   local stage_result_count stage_version_count exact_stage_result_count exact_stage_version_count
   local stage_slot_count stage_tunnel_count stage_expires_count stage_frontend_mode_count
   local exact_stage_frontend_mode_count
@@ -103,6 +104,15 @@ validate_stage_output() {
     stage_validation_error="candidate stage did not report KKAI_CANDIDATE_FRONTEND_MODE=${expected_frontend_mode} exactly once"
     return 1
   fi
+  if [[ -n ${expected_recovery_mode} ]]; then
+    local recovery_count exact_recovery_count
+    recovery_count="$(grep -Ec '^KKAI_CANDIDATE_MEMBERSHIP_BILLING_RECOVERY_MODE=' <<<"${output}" || true)"
+    exact_recovery_count="$(grep -Fxc -- "KKAI_CANDIDATE_MEMBERSHIP_BILLING_RECOVERY_MODE=${expected_recovery_mode}" <<<"${output}" || true)"
+    if [[ ${recovery_count} -ne 1 || ${exact_recovery_count} -ne 1 ]]; then
+      stage_validation_error="candidate stage did not report KKAI_CANDIDATE_MEMBERSHIP_BILLING_RECOVERY_MODE=${expected_recovery_mode} exactly once"
+      return 1
+    fi
+  fi
 }
 
 sha256_file() {
@@ -113,19 +123,35 @@ sha256_file() {
   shasum -a 256 "$1" | awk '{print $1}'
 }
 
-[[ ( $# -eq 2 || $# -eq 4 ) && ( $1 == --stage || $1 == --stage-online ) ]] ||
-  die "usage: deploy-manual-release.sh --stage METADATA.json | --stage-online METADATA.json [--tenant-routing-enabled true|false]"
+[[ $# -ge 2 && ( $1 == --stage || $1 == --stage-online ) ]] ||
+  die "usage: deploy-manual-release.sh --stage METADATA.json | --stage-online METADATA.json [--tenant-routing-enabled true|false] [--membership-billing-recovery-mode off|observe|apply|paused]"
 stage_online=false
 [[ $1 != --stage-online ]] || stage_online=true
-tenant_routing_enabled=''
-if [[ $# -eq 4 ]]; then
-  [[ $3 == --tenant-routing-enabled && ( $4 == true || $4 == false ) ]] ||
-    die "tenant routing requires --tenant-routing-enabled true|false"
-  [[ ${stage_online} != true || $4 == false ]] || die "online bridge stage cannot enable tenant routing"
-  tenant_routing_enabled=$4
-fi
 METADATA="$(cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2")"
 readonly METADATA
+shift 2
+tenant_routing_enabled=''
+membership_billing_recovery_mode=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tenant-routing-enabled)
+      [[ $# -ge 2 && -z ${tenant_routing_enabled} && ( $2 == true || $2 == false ) ]] ||
+        die "tenant routing requires one --tenant-routing-enabled true|false"
+      [[ ${stage_online} != true || $2 == false ]] || die "online bridge stage cannot enable tenant routing"
+      tenant_routing_enabled=$2
+      ;;
+    --membership-billing-recovery-mode)
+      [[ $# -ge 2 && -z ${membership_billing_recovery_mode} ]] ||
+        die "membership billing recovery requires one --membership-billing-recovery-mode off|observe|apply|paused"
+      case "$2" in
+        off | observe | apply | paused) membership_billing_recovery_mode=$2 ;;
+        *) die "membership billing recovery requires --membership-billing-recovery-mode off|observe|apply|paused" ;;
+      esac
+      ;;
+    *) die "unknown stage option: $1" ;;
+  esac
+  shift 2
+done
 [[ -f "${METADATA}" ]] || die "metadata file is missing"
 [[ -f "${CONTRACT}" && ! -L "${CONTRACT}" ]] || die "deployment contract is missing or unsafe"
 for command_name in jq scp ssh; do
@@ -290,6 +316,8 @@ preflight_arguments=(
 )
 [[ "${frontend_mode}" == external ]] &&
   preflight_arguments+=(--defer-frontend-mode-gate)
+[[ -z ${membership_billing_recovery_mode} ]] ||
+  preflight_arguments+=(--membership-billing-recovery-mode "${membership_billing_recovery_mode}")
 if ! preflight_output="$(
   ssh "${SSH_OPTIONS[@]}" "${HOST}" \
     sudo -n /usr/local/sbin/kkai-newapi-manual-deploy preflight \
@@ -322,6 +350,13 @@ require_single_exact_line \
   KKAI_FRONTEND_MODE \
   "KKAI_FRONTEND_MODE=${frontend_mode}" \
   "production preflight frontend mode mismatch"
+if [[ -n ${membership_billing_recovery_mode} ]]; then
+  require_single_exact_line \
+    "${preflight_output}" \
+    KKAI_MEMBERSHIP_BILLING_RECOVERY_MODE \
+    "KKAI_MEMBERSHIP_BILLING_RECOVERY_MODE=${membership_billing_recovery_mode}" \
+    "production preflight membership billing recovery mode mismatch"
+fi
 printf '%s\n' "${preflight_output}"
 
 stage_stdout="$(mktemp "${TMPDIR:-/tmp}/kkai-newapi-stage-stdout.XXXXXX")" ||
@@ -344,6 +379,8 @@ stage_arguments=(
   --frontend-mode "${frontend_mode}"
 )
 [[ -z ${tenant_routing_enabled} ]] || stage_arguments+=(--tenant-routing-enabled "${tenant_routing_enabled}")
+[[ -z ${membership_billing_recovery_mode} ]] ||
+  stage_arguments+=(--membership-billing-recovery-mode "${membership_billing_recovery_mode}")
 stage_statuses=()
 kkai_record_phase load-stage
 if ssh "${SSH_OPTIONS[@]}" "${HOST}" \
@@ -360,7 +397,7 @@ if [[ "${stage_statuses[0]:-1}" -ne 0 || "${stage_statuses[1]:-1}" -ne 0 ]]; the
 fi
 [[ ! -s "${stage_stderr}" ]] || cat -- "${stage_stderr}" >&2
 stage_output="$(<"${stage_stdout}")"
-if ! validate_stage_output "${stage_output}" "${version}" "${frontend_mode}"; then
+if ! validate_stage_output "${stage_output}" "${version}" "${frontend_mode}" "${membership_billing_recovery_mode}"; then
   handle_uncertain_stage "${stage_validation_error}" "${stage_output}"
 fi
 kkai_record_identity target_slot "$(sed -n 's/^KKAI_CANDIDATE_SLOT=//p' <<<"${stage_output}")"

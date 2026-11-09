@@ -48,6 +48,9 @@ func main() {
 		observe                          bool
 		jsonOutput                       bool
 		timeout                          time.Duration
+
+		membershipBillingRecoveryMigration       string
+		membershipBillingRecoveryControllerProof string
 	)
 	flag.StringVar(&dsn, "dsn", firstNonEmpty(os.Getenv("KKAI_MIGRATION_DSN"), os.Getenv("SQL_DSN")), "database DSN")
 	flag.BoolVar(&dsnFromStdin, "dsn-stdin", false, "read one database DSN from stdin")
@@ -76,7 +79,17 @@ func main() {
 	flag.StringVar(&shopControllerProof, "shop-controller-proof", "", "fixed root shop controller proof mount for shop apply")
 	flag.StringVar(&membershipPaymentMigration, "membership-payment-migration", "", "independent v20 membership payment operation: plan/status are read-only; apply requires the installed membership payment controller proof")
 	flag.StringVar(&membershipPaymentControllerProof, "membership-payment-controller-proof", "", "fixed root membership payment controller proof mount for membership payment apply")
+	flag.StringVar(&membershipBillingRecoveryMigration, "membership-billing-recovery-migration", "", "independent v21 billing recovery operation: plan/status are read-only; apply requires the installed billing recovery controller proof")
+	flag.StringVar(&membershipBillingRecoveryControllerProof, "membership-billing-recovery-controller-proof", "", "fixed root billing recovery controller proof mount for billing recovery apply")
 	flag.Parse()
+	if membershipBillingRecoveryControllerProof != "" && membershipBillingRecoveryMigration != "apply" {
+		log.Fatal("--membership-billing-recovery-controller-proof is only valid for --membership-billing-recovery-migration apply")
+	}
+	if membershipBillingRecoveryMigration != "" {
+		if err := validateMembershipBillingRecoveryMigrationCommand(membershipBillingRecoveryMigration, membershipBillingRecoveryControllerProof, jsonOutput, tenantRuntime || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || shopMigration != "" || shopControllerProof != "" || membershipPaymentMigration != "" || membershipPaymentControllerProof != "" || tenantControllerProof != "" || flag.NArg() != 0); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if tenantRuntime {
 		if !jsonOutput || dialect == "" || membershipPaymentMigration != "" || membershipPaymentControllerProof != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || shopMigration != "" || shopControllerProof != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
 			log.Fatal("--tenant-runtime requires only --dialect and --json")
@@ -163,7 +176,7 @@ func main() {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
 			log.Fatal("--observe requires --current --json and cannot be combined with migration operations")
 		}
-	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" && invoiceMigration == "" && walletPaymentMigration == "" && shopMigration == "" && membershipPaymentMigration == "" || dialect != "" {
+	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" && invoiceMigration == "" && walletPaymentMigration == "" && shopMigration == "" && membershipPaymentMigration == "" && membershipBillingRecoveryMigration == "" || dialect != "" {
 		log.Fatal("--current and --json require --observe or --describe-contract")
 	}
 
@@ -188,6 +201,12 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if membershipBillingRecoveryMigration != "" {
+		if err := runMembershipBillingRecoveryMigration(ctx, db, membershipBillingRecoveryMigration, membershipBillingRecoveryControllerProof, os.Stdout); err != nil {
+			log.Fatalf("KKAI membership billing recovery migration operation failed: %v", err)
+		}
+		return
+	}
 	if membershipPaymentMigration != "" {
 		if err := runMembershipPaymentMigration(ctx, db, membershipPaymentMigration, membershipPaymentControllerProof, os.Stdout); err != nil {
 			log.Fatalf("KKAI membership payment migration operation failed: %v", err)
@@ -391,7 +410,7 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 		return kkaimigrate.ApplyMembershipPaymentExpand(ctx, db, options)
 	case kkaimigrate.MembershipBillingRecoverySchemaVersion:
 		if !options.DryRun {
-			return nil, fmt.Errorf("%w: target 21 is read-only; the membership billing recovery production controller is not implemented", kkaimigrate.ErrUnsafeMigration)
+			return nil, fmt.Errorf("%w: target 21 is read-only; use --membership-billing-recovery-migration apply with the installed controller proof", kkaimigrate.ErrUnsafeMigration)
 		}
 		return kkaimigrate.ApplyMembershipBillingRecoveryExpand(ctx, db, options)
 	case kkaimigrate.ShopSchemaVersion:

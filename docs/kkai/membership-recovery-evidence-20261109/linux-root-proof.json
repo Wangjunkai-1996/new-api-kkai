@@ -1,0 +1,88 @@
+{
+  "schema": "kkai_membership_recovery_cli_root_proof_rehearsal_v1",
+  "result": "pass",
+  "production_access": false,
+  "production_image_built": false,
+  "runtime_evidence": "synthetic",
+  "database": "kkai_test_shop_http_recovery_6b189192",
+  "binary_sha256": "0a3e399d8e187ada7978ef10671312df166128d8b0220505620a0445d8ed2aef",
+  "tests": [
+    {
+      "name": "readonly_plan_on_canonical20",
+      "result": "pass",
+      "migration_role": "NOLOGIN/0 sessions"
+    },
+    {
+      "name": "expired_rejected",
+      "result": "pass",
+      "migration_role": "NOLOGIN/0 sessions"
+    },
+    {
+      "name": "writable_mount_rejected",
+      "result": "pass",
+      "migration_role": "NOLOGIN/0 sessions"
+    },
+    {
+      "name": "wrong_owner_rejected",
+      "result": "pass",
+      "migration_role": "NOLOGIN/0 sessions"
+    },
+    {
+      "name": "wrong_mode_rejected",
+      "result": "pass",
+      "migration_role": "NOLOGIN/0 sessions"
+    },
+    {
+      "name": "old_rollback_rejected",
+      "result": "pass",
+      "migration_role": "NOLOGIN/0 sessions"
+    },
+    {
+      "name": "ddl_failure_rolls_back_tables_and_receipt",
+      "result": "pass",
+      "migration_role": "NOLOGIN/0 sessions"
+    },
+    {
+      "name": "root_readonly_proof_apply_succeeds",
+      "result": "pass",
+      "migration_role": "NOLOGIN/0 sessions"
+    },
+    {
+      "name": "completed_apply_replay_uses_readonly_identity",
+      "result": "pass",
+      "migration_role": "NOLOGIN/0 sessions"
+    }
+  ],
+  "limits": [
+    "Exercises real Linux CLI proof validation and PostgreSQL DDL, not production host process observations or installed-controller acceptance.",
+    "The local driver restores the disposable migration role in finally blocks; production signal recovery remains a separate controller gate."
+  ],
+  "database_image_id": "sha256:1961f96e6029a02c3812d7cb329a3b03a3ac2bb067058dec17b0f5596aca9296",
+  "cli_container_image_id": "sha256:1961f96e6029a02c3812d7cb329a3b03a3ac2bb067058dec17b0f5596aca9296",
+  "contract": {
+    "runtime_min_version": 14,
+    "runtime_max_version": 21,
+    "migration_target_version": 14,
+    "migration_kind": "none",
+    "migration_set_digest": "sha256:b831116798762d19219db564cac02fd293352f911d8b6b9d25e8c8db0001eccb",
+    "compatible_prefixes": {
+      "14": "sha256:b831116798762d19219db564cac02fd293352f911d8b6b9d25e8c8db0001eccb",
+      "15": "sha256:aac267b6e9b6f591aa30ed1ff7cd530ab85d40a621a67c0bc1164cbc55fc9b66",
+      "16": "sha256:a3aa3e80103389d77030a52cdc1bb8d67a947514af56fe08938df2ee688dbd7c",
+      "17": "sha256:4a3539505f44bb997cf361e570fd08a0b2b37bbb3a393b793a041278d37d6533",
+      "18": "sha256:1cc936d75de661fdd60967b86821156c2aa7e98503ba031fa7275bcc86f3b4ca",
+      "19": "sha256:da4be94d1722f760db437ede87abaf4b10d4a39822b0d4d7824c7d9bb4fd77fa",
+      "20": "sha256:aec42c828819055a9f678820802cc16e3ef47eee28ffb9308322a02063911a45",
+      "21": "sha256:84687631f06a71630ad6035a28ce29c91bd24fb5cf824e72e394b7f8fc0680f0"
+    },
+    "schema_management": "external"
+  },
+  "cleanup": {
+    "roles_closed": true,
+    "database_removed": true,
+    "roles_removed": true,
+    "proof_volume_removed": true
+  },
+  "cleanup_errors": [],
+  "elapsed_seconds": 67.549
+}

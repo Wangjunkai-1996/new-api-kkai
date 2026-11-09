@@ -1,0 +1,13 @@
+go test ./service -run ^TestMembershipReservationMySQLAcceptance$ -count=1 -timeout=60s -v
+=== RUN   TestMembershipReservationMySQLAcceptance
+=== RUN   TestMembershipReservationMySQLAcceptance/different_users_reserve_without_gap_deadlock
+=== RUN   TestMembershipReservationMySQLAcceptance/old_snapshot_replay_and_cross_user_conflict
+=== RUN   TestMembershipReservationMySQLAcceptance/funding_failure_rolls_back_draft_membership_false
+=== RUN   TestMembershipReservationMySQLAcceptance/funding_failure_rolls_back_draft_membership_true
+--- PASS: TestMembershipReservationMySQLAcceptance (1.34s)
+    --- PASS: TestMembershipReservationMySQLAcceptance/different_users_reserve_without_gap_deadlock (0.59s)
+    --- PASS: TestMembershipReservationMySQLAcceptance/old_snapshot_replay_and_cross_user_conflict (0.33s)
+    --- PASS: TestMembershipReservationMySQLAcceptance/funding_failure_rolls_back_draft_membership_false (0.19s)
+    --- PASS: TestMembershipReservationMySQLAcceptance/funding_failure_rolls_back_draft_membership_true (0.24s)
+PASS
+ok  	github.com/QuantumNous/new-api/service	1.383s

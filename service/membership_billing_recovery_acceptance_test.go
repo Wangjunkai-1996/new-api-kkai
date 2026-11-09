@@ -1,0 +1,554 @@
+package service
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/types"
+	mysqldriver "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+)
+
+type membershipRecoveryAcceptanceFixture struct {
+	db        *gorm.DB
+	pool      *sql.DB
+	dialect   string
+	namespace string
+	users     []model.User
+	tokens    []model.Token
+	channel   model.Channel
+}
+
+// MembershipRecoveryAcceptanceBridge exists only in the test binary. The
+// external test package can exercise relay.TextHelper without an import cycle.
+type MembershipRecoveryAcceptanceBridge struct {
+	DB        *gorm.DB
+	Pool      *sql.DB
+	Users     []model.User
+	Tokens    []model.Token
+	Channel   model.Channel
+	RunWorker func(context.Context) error
+	SetMode   func(string)
+}
+
+func NewMembershipRecoveryAcceptanceBridge(t *testing.T, dialect string, members bool, users, conflicts int) MembershipRecoveryAcceptanceBridge {
+	f := newMembershipRecoveryAcceptanceFixture(t, dialect, members, users)
+	aged := time.Now().Unix() - 73*3600
+	for i := 0; i < conflicts; i++ {
+		record := f.reserve(t, fmt.Sprintf("conflict-%04d", i), i%users, false)
+		require.NoError(t, f.db.Model(record).Updates(map[string]any{"created_at": aged, "review_started_at": aged + 1, "review_after": aged + 1, "review_reason": "acceptance_conflict"}).Error)
+		require.NoError(t, f.db.Create(&model.MembershipBillingRecovery{RequestID: record.RequestID, State: model.MembershipRecoveryConflict,
+			EvidenceKind: model.MembershipEvidenceUnknown, LastErrorCode: "acceptance_conflict", Revision: 1, CreatedAt: aged, UpdatedAt: aged, NextAttemptAt: aged}).Error)
+	}
+	worker := &membershipBillingRecoveryWorker{workerID: "acceptance-worker"}
+	return MembershipRecoveryAcceptanceBridge{DB: f.db, Pool: f.pool, Users: f.users, Tokens: f.tokens, Channel: f.channel,
+		RunWorker: worker.run, SetMode: func(mode string) { membershipBillingRecoveryMode.Store(mode) }}
+}
+
+// Opt-in real-database acceptance never opens a remote address or touches an
+// existing business namespace. These business fixtures use AutoMigrate; the
+// production canonical migration contract is validated separately.
+func newMembershipRecoveryAcceptanceFixture(t *testing.T, dialect string, members bool, userCount int) *membershipRecoveryAcceptanceFixture {
+	t.Helper()
+	variable := "KKAI_MEMBERSHIP_RECOVERY_" + strings.ToUpper(dialect) + "_DSN"
+	dsn := os.Getenv(variable)
+	if dsn == "" {
+		t.Skip(variable + " is not configured; real database acceptance was not run")
+	}
+	require.True(t, model.MembershipEnabled(), "run with KKAI_MEMBERSHIP_ENABLED=true")
+	name := "kkai_test_membership_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	var adminDialect, dataDialect gorm.Dialector
+	var pgConfig *pgx.ConnConfig
+	create, drop := "CREATE SCHEMA "+name, "DROP SCHEMA "+name+" CASCADE"
+	dbType := common.DatabaseTypePostgreSQL
+	if dialect == "postgres" {
+		var err error
+		pgConfig, err = pgx.ParseConfig(dsn)
+		require.NoError(t, err)
+		require.Contains(t, []string{"127.0.0.1", "::1", "localhost"}, pgConfig.Host)
+		for _, fallback := range pgConfig.Fallbacks {
+			require.Contains(t, []string{"127.0.0.1", "::1", "localhost"}, fallback.Host)
+		}
+		require.True(t, strings.HasPrefix(pgConfig.Database, "kkai_test_"))
+		pgConfig.RuntimeParams["statement_timeout"] = "10000"
+		pgConfig.RuntimeParams["lock_timeout"] = "5000"
+		pgConfig.RuntimeParams["application_name"] = name
+		adminDialect = postgres.New(postgres.Config{Conn: stdlib.OpenDB(*pgConfig)})
+	} else {
+		config, err := mysqldriver.ParseDSN(dsn)
+		require.NoError(t, err)
+		require.Equal(t, "tcp", config.Net)
+		host, _, err := net.SplitHostPort(config.Addr)
+		require.NoError(t, err)
+		require.Contains(t, []string{"127.0.0.1", "::1", "localhost"}, host)
+		require.True(t, strings.HasPrefix(config.DBName, "kkai_test_"))
+		config.Timeout, config.ReadTimeout, config.WriteTimeout = 5*time.Second, 15*time.Second, 15*time.Second
+		config.ParseTime = true
+		adminDialect = mysql.New(mysql.Config{DSN: config.FormatDSN(), DefaultStringSize: 191})
+		config.DBName = name
+		dataDialect = mysql.New(mysql.Config{DSN: config.FormatDSN(), DefaultStringSize: 191})
+		create, drop = "CREATE DATABASE "+name+" CHARACTER SET utf8mb4", "DROP DATABASE "+name
+		dbType = common.DatabaseTypeMySQL
+	}
+	admin, err := gorm.Open(adminDialect, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	adminSQL, err := admin.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, adminSQL.Close()) })
+	require.NoError(t, admin.Exec(create).Error)
+	t.Cleanup(func() { assert.NoError(t, admin.Exec(drop).Error) })
+	if pgConfig != nil {
+		pgConfig.RuntimeParams["search_path"] = name
+		dataDialect = postgres.New(postgres.Config{Conn: stdlib.OpenDB(*pgConfig)})
+	}
+	db, err := gorm.Open(dataDialect, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	pool, err := db.DB()
+	require.NoError(t, err)
+	pool.SetMaxOpenConns(8)
+	pool.SetMaxIdleConns(8)
+	t.Cleanup(func() { assert.NoError(t, pool.Close()) })
+	previousDB, previousLog, previousType, previousRedis := model.DB, model.LOG_DB, common.MainDatabaseType(), common.RedisEnabled
+	previousGroups, previousMode, previousCheck := ratio_setting.GroupRatio2JSONString(), MembershipBillingRecoveryMode(), membershipBillingRecoverySchemaCheck
+	model.DB, model.LOG_DB, common.RedisEnabled = db, db, false
+	common.SetMainDatabaseType(dbType)
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"gpt":0.2}`))
+	membershipBillingRecoveryMode.Store("apply")
+	// Tests of schema receipts live in kkaimigrate; this gate admits only the
+	// explicitly isolated business fixture created above.
+	membershipBillingRecoverySchemaCheck = func(_ context.Context, candidate *gorm.DB) error {
+		if candidate != db {
+			return model.ErrMembershipSchemaNotReady
+		}
+		return nil
+	}
+	membershipBillingRecoverySchema.Lock()
+	membershipBillingRecoverySchema.db = nil
+	membershipBillingRecoverySchema.Unlock()
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB, common.RedisEnabled = previousDB, previousLog, previousRedis
+		common.SetMainDatabaseType(previousType)
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroups))
+		membershipBillingRecoveryMode.Store(previousMode)
+		membershipBillingRecoverySchemaCheck = previousCheck
+		membershipBillingRecoverySchema.Lock()
+		membershipBillingRecoverySchema.db = nil
+		membershipBillingRecoverySchema.Unlock()
+	})
+	tables := append(model.MembershipModels(), &model.User{}, &model.Token{}, &model.Channel{}, &model.UserSubscription{}, &model.KKAIJobLease{}, &model.Log{}, &model.MembershipBillingRecovery{}, &model.MembershipBillingScanProgress{})
+	require.NoError(t, db.AutoMigrate(tables...))
+	if dialect == "mysql" {
+		// The fixture's indexed-string default must not cap log payloads. This
+		// isolated schema adjustment is not a production migration assertion.
+		require.NoError(t, db.Exec("ALTER TABLE logs MODIFY COLUMN other TEXT, MODIFY COLUMN content TEXT").Error)
+	}
+	catalog, err := model.PublishMembershipCatalog(model.MembershipCatalog{
+		ModelLimits:  map[string]model.MembershipModelLimit{"test-model": {MaxInputTokens: 100, MaxOutputTokens: 100, Evidence: "fixed acceptance fixture"}},
+		SalesEnabled: true, Tiers: []model.MembershipTier{{ID: "gold", Name: "Gold", Rank: 1, Style: "gold", Currency: "USD", PriceMinor: 1000, Quota: 1_000_000, Enabled: true, Discounts: map[string]float64{"gpt": 0.5}}},
+		Groups: []model.MembershipGroup{{Key: "gpt", Enabled: true, Published: true}},
+	}, 0, 1)
+	require.NoError(t, err)
+	fixture := &membershipRecoveryAcceptanceFixture{db: db, pool: pool, dialect: dialect, namespace: name,
+		channel: model.Channel{Name: "acceptance", Key: "local-test", Type: 1, Status: 1}}
+	require.NoError(t, db.Create(&fixture.channel).Error)
+	for i := 0; i < userCount; i++ {
+		user := model.User{Username: fmt.Sprintf("member-%d", i), AffCode: fmt.Sprintf("accept-%d", i), Group: "default", Quota: 1_000_000, Status: common.UserStatusEnabled}
+		require.NoError(t, db.Create(&user).Error)
+		token := model.Token{UserId: user.Id, Key: fmt.Sprintf("acceptance-token-%d", i), Status: common.TokenStatusEnabled, RemainQuota: 1_000_000, ExpiredTime: -1}
+		require.NoError(t, db.Create(&token).Error)
+		fixture.users, fixture.tokens = append(fixture.users, user), append(fixture.tokens, token)
+		if members {
+			order, err := model.CreateMembershipOrder(model.MembershipOrderInput{UserID: user.Id, TierID: "gold", ReleaseID: catalog.ReleaseID, Provider: model.PaymentProviderEpay, PaymentMethod: "alipay", TradeNo: fmt.Sprintf("acceptance-order-%d", i), ExpiresAt: common.GetTimestamp() + 600})
+			require.NoError(t, err)
+			_, err = model.CompleteMembershipPayment(model.MembershipPaymentInput{TradeNo: order.TradeNo, Provider: order.Provider, ReceiptID: fmt.Sprintf("acceptance-receipt-%d", i), AmountMinor: order.AmountMinor, Currency: order.Currency, OneTime: true, Paid: true})
+			require.NoError(t, err)
+		}
+	}
+	require.NoError(t, db.Create(&model.KKAIJobLease{LeaseName: "newapi-background-writer", Holder: "acceptance-worker", Fence: 1, LeaseUntil: time.Now().Unix() + 3600}).Error)
+	return fixture
+}
+
+func (f *membershipRecoveryAcceptanceFixture) reserve(t *testing.T, id string, userIndex int, ready bool) *model.MembershipBillingRecord {
+	t.Helper()
+	user, token := f.users[userIndex], f.tokens[userIndex]
+	record, err := model.ReserveMembershipBilling(f.reservationInput(t, id, userIndex, 100))
+	require.NoError(t, err)
+	require.NoError(t, model.MarkMembershipBillingDispatched(id, f.channel.Id, time.Now().Unix()+300))
+	record, err = model.GetMembershipBillingRecord(id)
+	require.NoError(t, err)
+	if ready {
+		actual := int64(3)
+		require.NoError(t, model.RecordMembershipRelayEvidence(context.Background(), model.MembershipRelayEvidenceInput{
+			Version: 1, Origin: model.MembershipEvidenceLocal, Kind: model.MembershipEvidenceFinalUsage,
+			RequestID: id, RequestHash: record.RequestHash, UserID: user.Id, TokenID: token.Id, ChannelID: f.channel.Id,
+			Source: record.Source, AccountID: record.AccountID, SnapshotHash: model.MembershipBillingSnapshotHash(record.Snapshot),
+			FinalizedAt: time.Now().Unix(), ObservedAt: time.Now().Unix(), AssessedQuota: &actual, BillableUsage: true, LocalFeesResolved: true,
+		}))
+	}
+	return record
+}
+
+func (f *membershipRecoveryAcceptanceFixture) reservationInput(t *testing.T, id string, userIndex int, maximum float64) model.MembershipReservationInput {
+	t.Helper()
+	user, token := f.users[userIndex], f.tokens[userIndex]
+	info := &relaycommon.RelayInfo{UserId: user.Id, TokenId: token.Id, TokenKey: token.Key, RequestId: id, UsingGroup: "gpt", OriginModelName: "test-model", ChannelMeta: &relaycommon.ChannelMeta{ChannelId: f.channel.Id}, PriceData: types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0.2}}}
+	input, err := PrepareMembershipReservation(info, maximum)
+	require.NoError(t, err)
+	return input
+}
+
+func TestMembershipReservationMySQLAcceptance(t *testing.T) {
+	t.Run("different_users_reserve_without_gap_deadlock", func(t *testing.T) {
+		f := newMembershipRecoveryAcceptanceFixture(t, "mysql", true, 4)
+		inputs := make([]model.MembershipReservationInput, len(f.users))
+		for i := range inputs {
+			inputs[i] = f.reservationInput(t, fmt.Sprintf("parallel-reserve-%d", i), i, 100)
+		}
+		// Synchronize at the actual ledger INSERT. The former missing-key
+		// FOR UPDATE made all four transactions hold the same gap here.
+		arrived := make(chan struct{}, len(inputs))
+		release := make(chan struct{}, len(inputs))
+		defer close(release)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, f.db.Callback().Create().Before("gorm:create").Register("acceptance_reservation_barrier", func(tx *gorm.DB) {
+			if tx.Statement.Table != (model.MembershipBillingRecord{}).TableName() {
+				return
+			}
+			arrived <- struct{}{}
+			select {
+			case <-release:
+			case <-ctx.Done():
+				tx.AddError(ctx.Err())
+			}
+		}))
+		defer f.db.Callback().Create().Remove("acceptance_reservation_barrier")
+		results := make(chan error, len(inputs))
+		for _, input := range inputs {
+			go func() {
+				results <- model.MembershipTransaction(ctx, func(tx *gorm.DB) error {
+					_, err := model.ReserveMembershipBillingTx(tx, input)
+					return err
+				})
+			}()
+		}
+		for range inputs {
+			select {
+			case <-arrived:
+			case <-ctx.Done():
+				t.Fatal("independent users did not reach the reservation insert")
+			}
+		}
+		for range inputs {
+			release <- struct{}{}
+		}
+		for range inputs {
+			assert.NoError(t, <-results)
+		}
+		if t.Failed() {
+			return
+		}
+		for _, input := range inputs {
+			stored, err := model.GetMembershipBillingRecord(input.RequestID)
+			require.NoError(t, err)
+			assert.Equal(t, model.MembershipSource, stored.Source)
+			assert.Equal(t, input.ExpectedAccountID, stored.AccountID)
+			assert.Equal(t, input.SubscriptionSnapshot, stored.Snapshot)
+			assert.Equal(t, input.SubscriptionQuota, stored.ReservedQuota)
+			assert.Equal(t, input.SubscriptionQuota, stored.TokenReserved)
+			assert.True(t, stored.TokenQuotaDebited)
+			var account model.MembershipAccount
+			var token model.Token
+			require.NoError(t, f.db.First(&account, stored.AccountID).Error)
+			require.NoError(t, f.db.First(&token, stored.TokenID).Error)
+			assert.Equal(t, input.SubscriptionQuota, account.AmountReserved)
+			assert.EqualValues(t, input.SubscriptionQuota, token.UsedQuota)
+			assert.EqualValues(t, 1_000_000-input.SubscriptionQuota, token.RemainQuota)
+		}
+	})
+	t.Run("old_snapshot_replay_and_cross_user_conflict", func(t *testing.T) {
+		f := newMembershipRecoveryAcceptanceFixture(t, "mysql", true, 2)
+		input := f.reservationInput(t, "snapshot-reservation", 0, 100)
+		tx := f.db.Begin(&sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+		require.NoError(t, tx.Error)
+		defer tx.Rollback()
+		var count int64
+		require.NoError(t, tx.Model(&model.MembershipBillingRecord{}).Count(&count).Error)
+		require.Zero(t, count)
+		_, err := model.ReserveMembershipBilling(input)
+		require.NoError(t, err)
+		settled, err := model.SettleMembershipBilling(input.RequestID, 3)
+		require.NoError(t, err)
+		require.NoError(t, tx.Model(&model.MembershipBillingRecord{}).Count(&count).Error)
+		require.Zero(t, count, "the outer RR snapshot must still predate the committed ledger")
+		replay, err := model.ReserveMembershipBillingTx(tx, input)
+		require.NoError(t, err)
+		assert.Equal(t, "settled", replay.State)
+		assert.EqualValues(t, 3, replay.ChargedQuota)
+		assert.EqualValues(t, 999_997, replay.RemainingQuota)
+		assert.Equal(t, settled.RequestHash, replay.RequestHash)
+		assert.False(t, replay.Applied)
+		require.NoError(t, tx.Commit().Error)
+		before, err := model.GetMembershipBillingRecord(input.RequestID)
+		require.NoError(t, err)
+		otherInput := f.reservationInput(t, input.RequestID, 1, 100)
+		err = model.MembershipTransaction(context.Background(), func(tx *gorm.DB) error {
+			if err := tx.Model(&model.User{}).Where("id = ?", otherInput.UserID).Update("quota", 123).Error; err != nil {
+				return err
+			}
+			_, err := model.ReserveMembershipBillingTx(tx, otherInput)
+			return err
+		})
+		require.ErrorIs(t, err, model.ErrMembershipConflict)
+		after, err := model.GetMembershipBillingRecord(input.RequestID)
+		require.NoError(t, err)
+		assert.Equal(t, before, after)
+		for i, user := range f.users {
+			var account model.MembershipAccount
+			var token model.Token
+			require.NoError(t, f.db.First(&user, user.Id).Error)
+			require.NoError(t, f.db.First(&token, f.tokens[i].Id).Error)
+			require.NoError(t, f.db.First(&account, "user_id = ?", user.Id).Error)
+			used := int64(0)
+			if i == 0 {
+				used = 3
+			}
+			assert.EqualValues(t, 1_000_000, user.Quota)
+			assert.Zero(t, account.AmountReserved)
+			assert.Equal(t, used, account.AmountUsed)
+			assert.EqualValues(t, used, token.UsedQuota)
+			assert.EqualValues(t, 1_000_000-used, token.RemainQuota)
+		}
+	})
+	for _, members := range []bool{false, true} {
+		t.Run(fmt.Sprintf("funding_failure_rolls_back_draft_membership_%t", members), func(t *testing.T) {
+			f := newMembershipRecoveryAcceptanceFixture(t, "mysql", members, 1)
+			input := f.reservationInput(t, "failed-token-reservation", 0, 100)
+			require.NoError(t, f.db.Model(&model.Token{}).Where("id = ?", input.TokenID).Update("remain_quota", 0).Error)
+			_, err := model.ReserveMembershipBilling(input)
+			require.ErrorIs(t, err, model.ErrTaskBillingInsufficientToken)
+			var count int64
+			require.NoError(t, f.db.Model(&model.MembershipBillingRecord{}).Count(&count).Error)
+			assert.Zero(t, count)
+			var user model.User
+			var token model.Token
+			require.NoError(t, f.db.First(&user, input.UserID).Error)
+			require.NoError(t, f.db.First(&token, input.TokenID).Error)
+			assert.EqualValues(t, 1_000_000, user.Quota)
+			assert.Zero(t, token.RemainQuota)
+			assert.Zero(t, token.UsedQuota)
+			if members {
+				var account model.MembershipAccount
+				require.NoError(t, f.db.First(&account, input.ExpectedAccountID).Error)
+				assert.Zero(t, account.AmountReserved)
+				assert.Zero(t, account.AmountUsed)
+				return
+			}
+			freeInput := f.reservationInput(t, "zero-cost-reservation", 0, 0)
+			free, err := model.ReserveMembershipBilling(freeInput)
+			require.NoError(t, err, "an unchanged zero-cost draft may report zero updated rows")
+			assert.Zero(t, free.ReservedQuota)
+			assert.True(t, free.Applied)
+		})
+	}
+}
+
+func TestMembershipRecoveryRealDatabaseAcceptance(t *testing.T) {
+	for _, dialect := range []string{"postgres", "mysql"} {
+		t.Run(dialect, func(t *testing.T) {
+			t.Run("foreground_and_recovery_settle_once", func(t *testing.T) {
+				f := newMembershipRecoveryAcceptanceFixture(t, dialect, true, 1)
+				record := f.reserve(t, "race-finalizers", 0, true)
+				start := make(chan struct{})
+				type outcome struct {
+					record *model.MembershipBillingRecord
+					err    error
+				}
+				outcomes := make(chan outcome, 2)
+				go func() {
+					<-start
+					r, err := model.ResolveMembershipRelayEvidence(context.Background(), record.RequestID)
+					outcomes <- outcome{r, err}
+				}()
+				go func() {
+					<-start
+					r, err := model.SettleMembershipRelayBilling(record.RequestID, 3, f.channel.Id, true)
+					outcomes <- outcome{r, err}
+				}()
+				close(start)
+				applied := 0
+				for range 2 {
+					result := <-outcomes
+					require.NoError(t, result.err)
+					if result.record.Applied {
+						applied++
+					}
+				}
+				assert.Equal(t, 1, applied)
+				var account model.MembershipAccount
+				require.NoError(t, f.db.First(&account, record.AccountID).Error)
+				assert.EqualValues(t, 3, account.AmountUsed)
+				assert.Zero(t, account.AmountReserved)
+				var user model.User
+				require.NoError(t, f.db.First(&user, record.UserID).Error)
+				assert.EqualValues(t, 3, user.UsedQuota)
+				assert.Equal(t, 1, user.RequestCount)
+				var token model.Token
+				require.NoError(t, f.db.First(&token, record.TokenID).Error)
+				assert.Equal(t, 999_997, token.RemainQuota)
+				assert.Equal(t, 3, token.UsedQuota)
+			})
+			t.Run("real_row_lock_cancellation", func(t *testing.T) {
+				f := newMembershipRecoveryAcceptanceFixture(t, dialect, false, 1)
+				record := f.reserve(t, "cancel-locked-finalizer", 0, true)
+				tx := f.db.Begin()
+				require.NoError(t, tx.Error)
+				defer tx.Rollback()
+				require.NoError(t, tx.Exec("SELECT id FROM users WHERE id = ? FOR UPDATE", record.UserID).Error)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				finished := make(chan error, 1)
+				go func() { _, err := model.ResolveMembershipRelayEvidence(ctx, record.RequestID); finished <- err }()
+				waitCtx, stop := context.WithTimeout(context.Background(), 3*time.Second)
+				defer stop()
+				ticker := time.NewTicker(10 * time.Millisecond)
+				defer ticker.Stop()
+				waiting := false
+				for !waiting {
+					if dialect == "mysql" {
+						// MySQL 5.7 can retain an empty INFORMATION_SCHEMA lock
+						// snapshot while InnoDB already reports this row wait.
+						var monitor struct{ Status string }
+						require.NoError(t, f.db.WithContext(waitCtx).Raw("SHOW ENGINE INNODB STATUS").Scan(&monitor).Error)
+						_, transactions, found := strings.Cut(monitor.Status, "\nTRANSACTIONS\n")
+						require.True(t, found)
+						transactions, _, found = strings.Cut(transactions, "\nFILE I/O\n")
+						require.True(t, found)
+						// Inspect only current transactions, excluding old deadlocks.
+						for _, transaction := range strings.Split(transactions, "\n---TRANSACTION ") {
+							if strings.Contains(transaction, "LOCK WAIT ") && strings.Contains(transaction, "FOR UPDATE") &&
+								strings.Contains(transaction, "of table `"+f.namespace+"`.`users`") &&
+								strings.Contains(transaction, "locks rec but not gap waiting") {
+								waiting = true
+								break
+							}
+						}
+					} else {
+						var count int64
+						require.NoError(t, f.db.WithContext(waitCtx).Raw("SELECT COUNT(*) FROM pg_stat_activity WHERE application_name = ? AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()", f.namespace).Scan(&count).Error)
+						waiting = count > 0
+					}
+					if waiting {
+						break
+					}
+					select {
+					case <-waitCtx.Done():
+						t.Fatal("no actual database lock wait was observed")
+					case err := <-finished:
+						t.Fatalf("resolver did not wait for the held user lock: %v", err)
+					case <-ticker.C:
+					}
+				}
+				cancel()
+				select {
+				case err := <-finished:
+					require.ErrorIs(t, err, context.Canceled)
+				case <-time.After(3 * time.Second):
+					t.Fatal("cancelled resolver failed to exit")
+				}
+				require.NoError(t, tx.Rollback().Error)
+				stored, err := model.GetMembershipBillingRecord(record.RequestID)
+				require.NoError(t, err)
+				assert.Equal(t, "reserved", stored.State)
+				resolved, err := model.ResolveMembershipRelayEvidence(context.Background(), record.RequestID)
+				require.NoError(t, err)
+				assert.True(t, resolved.Applied)
+				var user model.User
+				require.NoError(t, f.db.First(&user, record.UserID).Error)
+				assert.EqualValues(t, 999_997, user.Quota)
+			})
+			t.Run("deferred_recovery_does_not_lock_user", func(t *testing.T) {
+				f := newMembershipRecoveryAcceptanceFixture(t, dialect, true, 1)
+				record := f.reserve(t, "defer-with-user-locked", 0, true)
+				var beforeUser model.User
+				var beforeToken model.Token
+				var beforeAccount model.MembershipAccount
+				var beforeLedger model.MembershipBillingRecord
+				var beforeRecovery model.MembershipBillingRecovery
+				require.NoError(t, f.db.First(&beforeUser, record.UserID).Error)
+				require.NoError(t, f.db.First(&beforeToken, record.TokenID).Error)
+				require.NoError(t, f.db.First(&beforeAccount, record.AccountID).Error)
+				require.NoError(t, f.db.First(&beforeLedger, "request_id = ?", record.RequestID).Error)
+				require.NoError(t, f.db.First(&beforeRecovery, "request_id = ?", record.RequestID).Error)
+				require.NotEmpty(t, beforeRecovery.EvidencePayload)
+
+				tx := f.db.Begin()
+				require.NoError(t, tx.Error)
+				defer tx.Rollback()
+				require.NoError(t, tx.Exec("SELECT id FROM users WHERE id = ? FOR UPDATE", record.UserID).Error)
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				ctx = model.WithMembershipRecoveryGuard(ctx, func(tx *gorm.DB) error {
+					return model.RequireMembershipRecoveryLeaderTx(tx, model.MembershipRecoveryLeaderFence{Name: "newapi-background-writer", Holder: "acceptance-worker", Fence: 1})
+				})
+				now := time.Now().Unix()
+				require.NoError(t, model.DeferMembershipBillingRecovery(ctx, record.RequestID, beforeRecovery.Revision, "acceptance_retry", true, now), "scheduling must finish while the user row remains locked")
+
+				var afterUser model.User
+				var afterToken model.Token
+				var afterAccount model.MembershipAccount
+				var afterLedger model.MembershipBillingRecord
+				var afterRecovery model.MembershipBillingRecovery
+				require.NoError(t, f.db.First(&afterUser, record.UserID).Error)
+				require.NoError(t, f.db.First(&afterToken, record.TokenID).Error)
+				require.NoError(t, f.db.First(&afterAccount, record.AccountID).Error)
+				require.NoError(t, f.db.First(&afterLedger, "request_id = ?", record.RequestID).Error)
+				require.NoError(t, f.db.First(&afterRecovery, "request_id = ?", record.RequestID).Error)
+				assert.Equal(t, beforeUser, afterUser)
+				assert.Equal(t, beforeToken, afterToken)
+				assert.Equal(t, beforeAccount, afterAccount)
+				assert.Equal(t, beforeLedger, afterLedger)
+				expectedRecovery := beforeRecovery
+				expectedRecovery.State = model.MembershipRecoveryConflict
+				expectedRecovery.Revision++
+				expectedRecovery.AttemptCount++
+				expectedRecovery.NextAttemptAt = now + 60
+				expectedRecovery.LastCheckedAt, expectedRecovery.UpdatedAt = now, now
+				expectedRecovery.LastErrorCode = "acceptance_retry"
+				assert.Equal(t, expectedRecovery, afterRecovery, "scheduling may change only retry metadata, never saved evidence")
+				require.NoError(t, tx.Rollback().Error)
+			})
+			t.Run("stale_leader_cannot_settle", func(t *testing.T) {
+				f := newMembershipRecoveryAcceptanceFixture(t, dialect, false, 1)
+				record := f.reserve(t, "stale-worker", 0, true)
+				ctx := model.WithMembershipRecoveryGuard(context.Background(), func(tx *gorm.DB) error {
+					return model.RequireMembershipRecoveryLeaderTx(tx, model.MembershipRecoveryLeaderFence{Name: "newapi-background-writer", Holder: "replaced-worker", Fence: 1})
+				})
+				_, err := model.ResolveMembershipRelayEvidence(ctx, record.RequestID)
+				require.True(t, errors.Is(err, model.ErrMembershipRecoveryFenceLost), "%v", err)
+				stored, err := model.GetMembershipBillingRecord(record.RequestID)
+				require.NoError(t, err)
+				assert.Equal(t, "reserved", stored.State)
+			})
+		})
+	}
+}

@@ -11,9 +11,11 @@ import (
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
-func TestMembershipBillingRecoveryTargetPrecheckAndDryRunAreReadOnly(t *testing.T) {
+func newMembershipBillingRecoveryCommandFixture(t *testing.T) *gorm.DB {
+	t.Helper()
 	db := newInvoiceCommandFixture(t)
 	ctx := context.Background()
 	_, err := kkaimigrate.ApplyInvoiceExpand(ctx, db, kkaimigrate.Options{Offline: true})
@@ -27,6 +29,12 @@ func TestMembershipBillingRecoveryTargetPrecheckAndDryRunAreReadOnly(t *testing.
 	require.NoError(t, err)
 	_, err = kkaimigrate.ApplyMembershipPaymentExpand(ctx, db, kkaimigrate.Options{Offline: true})
 	require.NoError(t, err)
+	return db
+}
+
+func TestMembershipBillingRecoveryTargetPrecheckAndDryRunAreReadOnly(t *testing.T) {
+	db := newMembershipBillingRecoveryCommandFixture(t)
+	ctx := context.Background()
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	var output bytes.Buffer
 	require.NoError(t, runMigrationPrecheck(ctx, db, kkaimigrate.MembershipBillingRecoverySchemaVersion, &output))

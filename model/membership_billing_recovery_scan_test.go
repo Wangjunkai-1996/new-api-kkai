@@ -108,3 +108,22 @@ func TestMembershipRecoveryScanCannotWriteWithLostLeaderFence(t *testing.T) {
 	require.NoError(t, DB.Model(&MembershipBillingScanProgress{}).Count(&count).Error)
 	assert.Zero(t, count)
 }
+
+func TestMembershipRecoveryOrphanScanLeavesExistingEvidenceToItsQueue(t *testing.T) {
+	setupMembershipRecoveryScanTest(t)
+	now := time.Now().Unix()
+	for _, state := range []string{MembershipRecoveryPending, MembershipRecoveryReady, MembershipRecoveryConflict} {
+		require.NoError(t, DB.Create(&MembershipBillingRecord{RequestID: state, Scope: MembershipBillingScopeRelay, State: "reserved", CreatedAt: now - 73*3600, ReviewAfter: now - 1}).Error)
+		require.NoError(t, DB.Create(&MembershipBillingRecovery{RequestID: state, State: state, NextAttemptAt: now + 900}).Error)
+	}
+	require.NoError(t, DB.Create(&MembershipBillingRecord{RequestID: "orphan", Scope: MembershipBillingScopeRelay, State: "reserved", CreatedAt: now - 73*3600, ReviewAfter: now - 1}).Error)
+	for _, lane := range []string{"dispatched_orphan", "undispatched_orphan", "observe_dispatched_orphan", "observe_undispatched_orphan"} {
+		page, _, err := MembershipBillingScanPage(context.Background(), lane, now, 100)
+		require.NoError(t, err)
+		require.Len(t, page, 1)
+		assert.Equal(t, "orphan", page[0].RequestID, "queued evidence must respect its own retry schedule")
+	}
+	page, _, err := MembershipBillingScanPage(context.Background(), "aged", now, 100)
+	require.NoError(t, err)
+	assert.Len(t, page, 4, "the aged lane must still honor existing evidence")
+}

@@ -1,0 +1,32 @@
+{
+  "Id": "2ea5757354a30bb5596740d36a56a2211ce32ac6cea79a15e05b108acabc75ac",
+  "Name": "/kkai-membership-v21-mysql57-653afe",
+  "State": {
+    "Status": "exited",
+    "Running": false,
+    "Paused": false,
+    "Restarting": false,
+    "OOMKilled": true,
+    "Dead": false,
+    "Pid": 0,
+    "ExitCode": 137,
+    "Error": "",
+    "StartedAt": "2026-11-09T10:05:51.915478671Z",
+    "FinishedAt": "2026-11-09T10:57:43.210730208Z"
+  },
+  "RestartCount": 0,
+  "HostConfig": {
+    "Memory": 1073741824,
+    "MemorySwap": 2147483648,
+    "OomKillDisable": null,
+    "RestartPolicy": {
+      "Name": "no",
+      "MaximumRetryCount": 0
+    },
+    "ShmSize": 67108864
+  },
+  "Image": "mysql:5.7",
+  "Command": [
+    "mysqld"
+  ]
+}

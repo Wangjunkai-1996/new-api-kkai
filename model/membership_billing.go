@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -65,8 +66,33 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 	if err != nil {
 		return nil, err
 	}
+	now := common.GetTimestamp()
+	record := &MembershipBillingRecord{RequestID: input.RequestID, Scope: input.Scope, UserID: input.UserID, TokenID: input.TokenID, Source: MembershipWalletSource, GroupKey: input.GroupKey, Snapshot: input.WalletSnapshot, RequestHash: fingerprint, ReservedQuota: input.WalletQuota, State: "reserved", CreatedAt: now, Applied: true}
+	claimed := false
 	var existing MembershipBillingRecord
-	err = lockForUpdate(tx).First(&existing, "request_id = ?", input.RequestID).Error
+	if tx.Dialector.Name() == "mysql" {
+		// A missing-key FOR UPDATE takes an InnoDB gap lock, making unrelated
+		// users deadlock when both insert into that gap. Claim the unique key
+		// first; the draft and funds remain in the caller's one transaction.
+		err = tx.Create(record).Error
+		if err == nil {
+			claimed = true
+			err = gorm.ErrRecordNotFound
+		} else {
+			var duplicate *mysqldriver.MySQLError
+			if !errors.As(err, &duplicate) || duplicate.Number != 1062 {
+				return nil, err
+			}
+			// MySQL keeps the transaction usable after a duplicate-key error.
+			// A locking read also sees rows newer than an outer RR snapshot.
+			err = lockForUpdate(tx).First(&existing, "request_id = ?", input.RequestID).Error
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		err = lockForUpdate(tx).First(&existing, "request_id = ?", input.RequestID).Error
+	}
 	if err == nil {
 		if existing.UserID != input.UserID || existing.RequestHash != fingerprint {
 			return nil, ErrMembershipConflict
@@ -85,7 +111,6 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 	if err := checkMembershipGroupTx(tx, input.GroupKey); err != nil {
 		return nil, err
 	}
-	now := common.GetTimestamp()
 	if legacy, err := hasLegacyMembershipTx(tx, input.UserID, now); err != nil {
 		return nil, err
 	} else if legacy {
@@ -110,7 +135,6 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 	} else if input.ExpectedAccountID != 0 || input.ExpectedRevision != 0 || input.ExpectedReleaseID != 0 {
 		return nil, ErrMembershipQuoteChanged
 	}
-	record := &MembershipBillingRecord{RequestID: input.RequestID, Scope: input.Scope, UserID: input.UserID, TokenID: input.TokenID, Source: MembershipWalletSource, GroupKey: input.GroupKey, Snapshot: input.WalletSnapshot, RequestHash: fingerprint, ReservedQuota: input.WalletQuota, State: "reserved", CreatedAt: now, Applied: true}
 	if active && account.Available() >= input.SubscriptionQuota {
 		record.Source, record.AccountID, record.AccountRevision, record.Snapshot, record.ReservedQuota = MembershipSource, account.ID, account.Revision, input.SubscriptionSnapshot, input.SubscriptionQuota
 		update := tx.Model(&MembershipAccount{}).Where("id = ? AND revision = ? AND amount_total - amount_used - amount_reserved >= ? AND status = ? AND expires_at > ?", account.ID, account.Revision, input.SubscriptionQuota, MembershipActive, now).Update("amount_reserved", gorm.Expr("amount_reserved + ?", input.SubscriptionQuota))
@@ -160,7 +184,15 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 			return nil, err
 		}
 	}
-	if err := tx.Create(record).Error; err != nil {
+	if claimed {
+		// Zero-valued fields are part of the frozen funding record too. A
+		// zero-quota wallet draft can already be identical, so MySQL may report
+		// zero changed rows; the successful INSERT owns its row until commit.
+		err = tx.Model(record).Select("*").Updates(record).Error
+	} else {
+		err = tx.Create(record).Error
+	}
+	if err != nil {
 		return nil, err
 	}
 	return record, nil
@@ -307,16 +339,21 @@ func completeMembershipBillingTx(tx *gorm.DB, requestID string, actualQuota int6
 }
 
 func membershipRemainingTx(tx *gorm.DB, record *MembershipBillingRecord) error {
+	query := tx
+	if tx.Dialector.Name() == "mysql" {
+		// Existing reservations may be replayed inside an older RR snapshot.
+		query = lockForShare(tx)
+	}
 	if record.Source == MembershipSource {
 		var account MembershipAccount
-		if err := tx.First(&account, record.AccountID).Error; err != nil {
+		if err := query.First(&account, record.AccountID).Error; err != nil {
 			return err
 		}
 		record.RemainingQuota = account.Available()
 		return nil
 	}
 	var user User
-	if err := tx.Select("id", "quota").First(&user, record.UserID).Error; err != nil {
+	if err := query.Select("id", "quota").First(&user, record.UserID).Error; err != nil {
 		return err
 	}
 	record.RemainingQuota = user.Quota

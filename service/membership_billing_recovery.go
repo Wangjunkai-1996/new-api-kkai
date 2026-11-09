@@ -22,6 +22,7 @@ const (
 	MembershipBillingRecoveryModeEnvironment = "KKAI_MEMBERSHIP_BILLING_RECOVERY_MODE"
 	membershipRecoveryPageSize               = 100
 	membershipRecoveryAdjustmentBudget       = 25
+	membershipRecoveryConflictBudget         = 10
 )
 
 var membershipBillingRecoveryMode atomic.Value
@@ -197,7 +198,7 @@ func (w *membershipBillingRecoveryWorker) discover(ctx context.Context, lane str
 	now := time.Now().Unix()
 	if lane == "conflict" {
 		var records []model.MembershipBillingRecovery
-		if err := model.DB.WithContext(ctx).Where("state = ? AND next_attempt_at <= ?", "conflict", now).Order("next_attempt_at, request_id").Limit(membershipRecoveryPageSize).Find(&records).Error; err != nil {
+		if err := model.DB.WithContext(ctx).Where("state = ? AND next_attempt_at <= ?", "conflict", now).Order("next_attempt_at, request_id").Limit(membershipRecoveryConflictBudget).Find(&records).Error; err != nil {
 			return err
 		}
 		for _, record := range records {

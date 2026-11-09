@@ -1,8 +1,8 @@
-# 会员请求暂占优化：首批实施与验证记录
+# 会员请求暂占优化：实施与验证记录
 
-日期：2026-11-09。依据：[开发文档](membership-reservation-development-plan-20261109.md)。
+日期：2026-11-09（含第二轮本地迁移与数据库验收）。依据：[开发文档](membership-reservation-development-plan-20261109.md)。
 
-本记录是本地代码交付，不是生产发布回执。首批实现 P0/P1 的本地异常恢复与公平核账，未修改生产数据库、构建生产镜像、执行迁移或启用线上开关。后续代码提交与推送按用户授权独立执行，不代表生产能力已启用。工作区其他任务的改动不属于本记录。
+本记录是本地代码交付，不是生产发布回执。已实现 P0/P1 的本地异常恢复、公平核账和 v21 专用迁移入口，完整性能验收及事故暂停通道仍待补齐；仅在本机隔离数据库演练迁移，未修改生产数据库、构建生产镜像或启用线上开关。后续代码提交与推送按用户授权独立执行，不代表生产能力已启用。工作区其他任务的改动不属于本记录。
 
 ## 1. 已实现行为
 
@@ -47,7 +47,7 @@
 
 新表存在但回执/形状/索引不完整时失败关闭，不回退到不识别旁表的旧补偿程序。两表都缺失且模式为 off/observe 时，保留原 72h 核账入口。生产应先验证 schema 及兼容回退版本，再启用 apply。
 
-每分钟运行，发现阶段三个通道各最多 100 行，aged 最多 100 行/25 笔调整，ready/cache/pending 合计最多 100 行/25 笔资金调整。整体最多 500 行、50 笔调整；aged 和 ready 不互抢预留预算。扫描阶段在 1 秒/6 秒子预算中预留 200ms 保存已完成进度。
+每分钟运行，发现阶段两个孤儿通道各最多 100 行，冲突延期最多 10 行，aged 最多 100 行/25 笔调整，ready/cache/pending 合计最多 100 行/25 笔资金调整。整体最多 410 行、50 笔调整；aged 和 ready 不互抢预留预算。扫描阶段在 1 秒/6 秒子预算中预留 200ms 保存已完成进度。
 
 20 秒是合作取消预算：数据库和 Redis 调用传递 context，底层连接、网络超时及驱动取消仍需隔离验收。未引入脱离上下文继续执行的超时 goroutine，也未修改全局连接池或 Redis 超时配置。不能把该预算描述为任何故障下均精确 20 秒硬停止。
 
@@ -57,11 +57,11 @@ v21 只新增 `kkai_membership_billing_recovery` 和 `kkai_membership_billing_sc
 
 feature 合约最大兼容版本为 21，最低/默认迁移目标仍为 14；bridge 合约保持原范围。已有 v1–v20 迁移回执与摘要保留。旧 v15–v19 控制器继续按各自冻结合约校验；当前 v21 二进制不能借 v20 凭证执行 v20 生产迁移。历史凭证篡改测试通过固定 v20 合约保留，新生产入口拒绝 v21 冒用旧授权。
 
-已提供 canonical/表列/主键/索引检查、离线扩展 API，以及 CLI 的 `--target 21` 预检/dry-run。**v21 专用生产迁移控制器尚未实现；CLI 真实 apply 明确拒绝。** 不能直接拿本批代码启用生产恢复。后续先完成控制器与可回退版本，单独取得迁移授权，按版本 runbook 验证后才能迁移、灰度及放量。
+已提供 canonical/表列/主键/索引检查、离线扩展 API，以及独立 `--membership-billing-recovery-migration plan|status|apply` 入口。generic `--target 21` 仍只允许预检/dry-run，真实 apply 必须携带专用 root 只读凭证。控制器已在同级 infra 实现并通过完整本地 policy；Linux CLI + PG18 真实迁移演练已通过，但未安装到生产、未更改应用 controller pin。正式前提和兼容 A/B 版本顺序见 [infra runbook 32](../../../kkai-infra/docs/runbooks/32-newapi-membership-billing-recovery-schema.md)。
 
-## 5. 已执行验证
+## 5. 首批已执行验证
 
-以下均在本地临时 SQLite 或现有隔离测试夹具执行。带会员行为的命令显式启用会员开关，避免因默认关闭而跳过。所有命令退出码均为 0；未执行全仓库测试、全量构建、生产写入或端到端负载压测。
+本节是第一批历史验证，以下均在本地临时 SQLite 或现有隔离测试夹具执行。第二轮真实数据库/性能结果另见本节之后。带会员行为的命令显式启用会员开关，避免因默认关闭而跳过。所有命令退出码均为 0；未执行全仓库测试、全量构建、生产写入或端到端负载压测。
 
 ```sh
 # 初始账务、核账与原有收尾回归：model/service PASS
@@ -99,12 +99,90 @@ git diff --check
 
 `TestMembershipEvidenceSuccessAddsNoSynchronousSQL` 对相同的预占→派发→成功结算流程比较 off/apply，SQL 总数相同，恢复 schema 检查次数为零，恢复表无新增行。它证明正常流程未新增数据库步骤；它不是真实客户端首内容延迟或吞吐测试。
 
+## 5.1 第二轮本地验收与性能修复
+
+本轮真实数据库全部为 Docker 本机回环端口、独立临时命名空间及合成数据。测试使用 PostgreSQL 18.4、PostgreSQL 9.6 和 MySQL 5.7；MySQL 镜像在 Apple Silicon 上运行 AMD64 仿真，不将其耗时外推到生产。
+
+- v21 runtime shape、收据唯一性及未知收据允许 NULL：SQLite、PG18、PG9.6、MySQL5.7 通过。
+- 前台结算与后台恢复竞争：资金、令牌、用户统计只生效一次；真实用户行锁等待后取消、旧 leader 拒绝资金操作通过。
+- Linux ARM64 CLI：9 项实际 root-proof/PG18 演练通过，包含只读 plan、过期/可写挂载/错误 owner/mode/旧 rollback 合约拒绝、DDL 中途失败原子回滚、有效 apply、只读身份重放。每次写操作后确认迁移角色 NOLOGIN 且零会话，独占数据库/角色/凭证 volume 已清理。它是本地开发二进制，运行身份为合成数据，不能替代正式 Linux AMD64 镜像或生产控制器验收。
+- 迁移控制器基础版本完整本地 `make policy` 通过，279.6 秒；随后新增生产模式配置需要另行 `make check`，不能沿用该通过记录覆盖新配置。
+
+HTTP 试验经过真实 `PrepareMembershipBudget → PreConsumeBilling → TextHelper → OpenAI adapter → StreamScanner → PostTextConsumeQuota`，固定 4 并发、连接池 8、4 次预热。客户端验证 role-only 事件后才出现实际 `hello world` 内容。SQL 总量包含并行 worker；后台只执行一轮，记录实际 worker 时长，不能称持续高压。
+
+实际发现并修复了两处争用：
+
+1. 孤儿扫描重复选取已有 pending/ready/conflict 记录，再次申请用户账本锁。现在以 `NOT EXISTS recovery` 只发现未入列账本，aged 仍读取既有证据，冲突保持自身退避。
+2. 纯重试调度曾走 `User → Ledger → recovery`；现在保持 `Lease → Ledger → recovery`，不锁用户/账户/令牌、不改资金或证据。PG18/MySQL5.7 的回归在用户行锁未释放时执行延期，并逐字段核对金额及原证据不变。
+
+初次 501 冲突试验中 apply 的后台阶段超时，40/40 请求仍成功；修复后超时消失。随后 16 格 PG18 矩阵（每格 200 次，总计 3,200 次）均正确完成和结算，但多用户积压重复试验仍可见吞吐下降，因此将冲突延期预算由每轮 100 降至 10，不改变 aged/ready 的资金处理配额。相同场景后台时间从约 684–738ms 降至 161–189ms。修订后会员场景不再重现原来的同向吞吐下降，钱包尾延迟仍有波动；这些结果不构成完整性能验收通过。
+
+MySQL HTTP 矩阵初次执行在 180 秒上限结束，且发现测试夹具把 `logs.other` 建成 VARCHAR(191)，以及恢复 off 时已有的多用户预占死锁。该批数据已明确标为无效，不参与性能判断。夹具已恢复 TEXT 日志列；InnoDB 证明预占对不存在 request_id 的锁定查询导致主键 gap 锁互相阻塞。
+
+MySQL 预占已改为在原外层事务内先 INSERT 占住唯一 request_id，再按原流程预占资金并 UPDATE 冻结账本；正常账本 SQL 仍为两条。只有确切的 MySQL 1062 重复键错误进入锁定读取和身份/指纹幂等检查，失败时草稿和资金一起回滚。MySQL 重放使用 current-read 读取余额，避免 Image 等外层旧 RR 快照返回陈旧额度；PG/SQLite 保留原查询路径。真实 MySQL 的 4 项回归全部通过：四用户并发占键、旧 RR 快照幂等与跨用户冲突整体回滚、钱包和会员令牌不足整体回滚。历史的 MySQL 会员零额度预占 RowsAffected 行为未在本轮修改。
+
+修复后的短验收为 8/8 成功；随后功能矩阵的前七格共 280 次请求全部成功、SQL 错误为零、账本全部结算。最后一格预热时隔离 MySQL 容器因 1GiB 内存上限触发 OOM（退出 137），整次命令失败。恢复同一测试容器、重新发现动态端口后，仅复测最后一格，40/40 成功、SQL 错误和未结算账本均为零；保留 1GiB 上限，峰值约 592MiB，无新 OOM。八种功能场景已覆盖，结果是“七格成功 + 失败格复测通过”，不是一次完整矩阵命令通过。此轮与 infra 检查并行，只作功能验收。
+
+原始逐请求样本（gzip）、全部汇总及 Linux 演练结果保存在 [本地验收证据](membership-recovery-evidence-20261109/measurements.json) 与 [Linux root-proof 回执](membership-recovery-evidence-20261109/linux-root-proof.json)。失败样本和修复前样本均保留，未事后删除或改写。
+
+执行命令如下。DSN 仅由本机权限 0600 的临时文件注入环境，未存入仓库；下列命令需配置对应的 `KKAI_SHOP_*_TEST_DSN` 或 `KKAI_MEMBERSHIP_RECOVERY_*_DSN`。
+
+```sh
+# v20/v21 迁移与 CLI；PG18/MySQL fixture 启用：PASS
+go test ./cmd/kkai-migrate ./pkg/kkaimigrate -run 'TestMembership(BillingRecovery|Payment)' -count=1 -timeout=120s
+
+# PG9.6 新表 gate：PASS
+go test ./pkg/kkaimigrate -run '^TestMembershipBillingRecoveryRuntimeSchemaAndReceiptOwnership$/postgres' -v -count=1 -timeout=90s
+
+# PG18/PG9.6/MySQL5.7 账务验收：分方言执行；MySQL夹具/观测修正后失败项重跑 PASS
+KKAI_MEMBERSHIP_ENABLED=true go test ./service -run '^TestMembershipRecoveryRealDatabaseAcceptance$' -v -count=1 -timeout=120s
+KKAI_MEMBERSHIP_ENABLED=true go test ./service -run '^TestMembershipRecoveryRealDatabaseAcceptance$/postgres' -v -count=1 -timeout=90s
+KKAI_MEMBERSHIP_ENABLED=true go test ./service -run '^TestMembershipRecoveryRealDatabaseAcceptance$/mysql' -v -count=1 -timeout=90s
+KKAI_MEMBERSHIP_ENABLED=true go test ./service -run '^TestMembershipRecoveryRealDatabaseAcceptance/postgres/deferred_recovery_does_not_lock_user$' -count=1 -timeout=45s -v
+KKAI_MEMBERSHIP_ENABLED=true go test ./service -run '^TestMembershipRecoveryRealDatabaseAcceptance/mysql/(deferred_recovery_does_not_lock_user|real_row_lock_cancellation)$' -count=1 -timeout=45s -v
+
+# 最终调度修复及正常路径无新增SQL：model/service PASS
+KKAI_MEMBERSHIP_ENABLED=true go test ./model ./service -run '^TestMembership(Recovery|Evidence)' -count=1 -timeout=120s
+
+# MySQL预占改动的直接调用方与账务回归：model/relay/service PASS
+KKAI_MEMBERSHIP_ENABLED=true go test ./model ./relay ./service -run '^Test(Membership(Snapshot|WalletFallback|Preauthorization|Billing|ConcurrentCallback|TokenRefund|UnlimitedToken|FiniteToken|NoDiscount|LegacyContracts|OwningTransaction|Task|Image|RelayStatistics|Recovery|Evidence)|ImageBilling|MidjourneyMembership|PrepareWalletRequestBillingWithoutMembershipAccount)' -count=1 -timeout=120s
+KKAI_MEMBERSHIP_ENABLED=true go test ./service -run '^(TestImageAsyncFundingUsesAcceptanceTransaction|TestImageMembershipSignedQuoteRequiresCurrentPublishedDiscount|TestMembership(Reservation|ResponsesRejectsInsufficientAPIKeyQuotaWithoutChargingMember|InsufficientReservationUsesWalletPrice))' -count=1 -timeout=90s
+
+# MySQL唯一键占用和RR幂等：4项PASS，1.34秒
+KKAI_MEMBERSHIP_ENABLED=true go test ./service -run '^TestMembershipReservationMySQLAcceptance$' -count=1 -timeout=60s -v
+
+# 修复后MySQL功能矩阵：七格/280请求PASS，最后一格预热遇本地容器OOM，命令FAIL
+KKAI_MEMBERSHIP_ENABLED=true KKAI_MEMBERSHIP_RECOVERY_MEASURE=1 KKAI_MEMBERSHIP_RECOVERY_SAMPLES=40 KKAI_MEMBERSHIP_RECOVERY_CONCURRENCY=4 go test -tags membership_acceptance ./service -run '^TestMembershipRecoveryHTTPMeasurement$/mysql/(membership|wallet)/users-4/conflicts-(0|501)/(off|apply)$' -count=1 -timeout=150s
+# 恢复本机MySQL后仅复测失败格：40/40、SQL0、未结算0，PASS
+KKAI_MEMBERSHIP_ENABLED=true KKAI_MEMBERSHIP_RECOVERY_MEASURE=1 KKAI_MEMBERSHIP_RECOVERY_SAMPLES=40 KKAI_MEMBERSHIP_RECOVERY_CONCURRENCY=4 go test -tags membership_acceptance ./service -run '^TestMembershipRecoveryHTTPMeasurement/mysql/wallet/users-4/conflicts-501/off$' -count=1 -timeout=90s -v
+
+# 显式 opt-in：PG18 16格/200次，与4用户501冲突重复对照；功能PASS，性能不自动判PASS
+KKAI_MEMBERSHIP_ENABLED=true KKAI_MEMBERSHIP_RECOVERY_MEASURE=1 KKAI_MEMBERSHIP_RECOVERY_SAMPLES=200 KKAI_MEMBERSHIP_RECOVERY_CONCURRENCY=4 go test -tags membership_acceptance ./service -run '^TestMembershipRecoveryHTTPMeasurement$/postgres' -count=1 -timeout=180s
+KKAI_MEMBERSHIP_ENABLED=true KKAI_MEMBERSHIP_RECOVERY_MEASURE=1 KKAI_MEMBERSHIP_RECOVERY_SAMPLES=200 KKAI_MEMBERSHIP_RECOVERY_CONCURRENCY=4 go test -tags membership_acceptance ./service -run '^TestMembershipRecoveryHTTPMeasurement$/postgres/(membership|wallet)/users-4/conflicts-501' -count=3 -timeout=180s
+
+# Linux CLI独立演练：9项PASS，67.549秒；TEMP是本机独占临时目录
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 GOPROXY=off GOTOOLCHAIN=local go build -ldflags='-X github.com/QuantumNous/new-api/common.SchemaManagementMode=external' -o TEMP/kkai-migrate ./cmd/kkai-migrate
+python3 scripts/kkai/membership-recovery-linux-acceptance.py --container kkai-membership-v21-pg18-adc938 --binary TEMP/kkai-migrate --output TEMP --password-file TEMP/password
+
+# 基础迁移控制器：完整本地policy PASS（不覆盖随后模式配置）
+make -C /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/kkai-infra policy
+
+# 最终配置、控制器、真实stage/status协议：完整本地check PASS，320.702秒
+make -C /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/kkai-infra check
+```
+
+应用发布 wrapper 的 `bash scripts/kkai/deploy-manual-release_test.sh`、`bash -n scripts/kkai/deploy-manual-release.sh scripts/kkai/deploy-manual-release_test.sh` 均通过。新增生产模式配置的 40 个定向 Python 用例、相关发布/回退 Shell 回归、实际 Compose 渲染和本机 `ansible-playbook ... --check --diff` 通过；精确命令见 [infra 配置验收记录](../../../kkai-infra/docs/evidence/2026-11-09-membership-recovery-config.json)。
+
+完整 `make check` 已按用户授权执行。首轮因旧 console contract 测试夹具缺少每槽恢复模式字段而失败；仅补齐夹具，未放宽生产校验，3 个相关用例及下一轮完整检查通过。最终互审又发现真实 stage 成功输出缺少恢复模式回执，导致应用 wrapper 误判结果；已改为从冻结 manifest 读取、核对并唯一输出模式，补充真实 stage 函数与 manifest reader 回归。随后对最终全部可执行输入再次运行完整检查：**PASS，320.702 秒**。三次完整检查分别记账，精确输入哈希与日志见 [最终 infra 门禁证据](../../../kkai-infra/docs/evidence/2026-11-09-membership-recovery-check.json)。这些是本地检查，不是生产主机 dry-run。
+
+应用全仓测试/全量构建未运行；本轮无生产访问。性能验收文件使用 `membership_acceptance` build tag，避免普通 service 测试仅因这些 opt-in 测试而编译所有 Relay provider。三个本轮独占的数据库容器、临时密码/env 文件及 Linux 测试二进制已清理，保留脱敏日志与原始样本；详见 [本地资源清理回执](membership-recovery-evidence-20261109/cleanup.json)。
+
 ## 6. 尚未验收或实施
 
-1. **真实数据库**：`KKAI_SHOP_MYSQL_TEST_DSN` 与 `KKAI_SHOP_POSTGRES_TEST_DSN` 均未配置；对应真实数据库子测试跳过。已验证 SQLite 与三方言 DDL 的静态兼容规则，未证明 MySQL 5.7.8/PostgreSQL 9.6 的实际锁、超时、执行计划及迁移性能。
-2. **首字与后台压力**：未做真实客户端首个内容事件的 P50/P95/P99、吞吐、连接池/锁等待、积压扫描开关对照；未以 first_sse/role-only 事件代替首字。该项和生产同方言并发验收是启用门槛。
-3. **生产迁移/发布**：v21 专用控制器、迁移批准、兼容回退版本、exact image 合约验证与完整灰度均未完成；未使用历史对话推断当前生产状态。
+1. **数据库覆盖边界**：本机 PostgreSQL 18.4/9.6、MySQL 5.7 已执行新表唯一性与 runtime gate、并发结算、真实行锁取消和 leader 保护。独立 Linux CLI root-proof 的 v20→v21 apply/失败回滚/重放仅在 PG18 验证；其 runtime 身份为合成数据，不证明生产控制器的现场进程采集。生产规模执行计划、迁移影响和精确正式镜像仍待验收。
+2. **首字与后台压力**：已建立真实 TextHelper/adapter/StreamScanner 的本地 HTTP 测量，解析首个非空 content，单独保留首 SSE。已测 off/apply、会员/钱包、单/多用户、0/501 冲突；结果见第二轮记录。尚不覆盖完整鉴权/选渠道/输入分词、非流式、无限令牌、历史基线提交或持续恢复负载；不能宣称全部性能门槛通过。
+3. **生产迁移/发布**：专用控制器的本地实现及演练已完成；生产安装、迁移批准、真实兼容回退版本、exact image 合约与完整灰度尚未执行。恢复模式的 manifest/候选/回退冻结链路已在本地实现并通过定向检查；应用 wrapper 支持显式模式并校验 preflight/stage 回执，新增配置完整 `make check` 已授权执行，最终结果见上节。没有仅模式热切换或立即 paused 的独立入口，不能用手工改容器启用。实现与剩余门禁已写入 infra runbook 32。HTTP 灰度比例不等于后台核账用户比例；现 worker 没有用户白名单。
 4. **P2 Sub2API**：只读核对登记仓库 `/Users/tokk/Documents/Codex/2026-08-09/li/work/sub2api`。`backend/internal/server/middleware/newapi_attribution.go` 验签后只向上下文保留归属，nonce 没有进入最终账单；`backend/internal/pkg/kkaiattribution/verifier.go` 的 nonce 用于短期防重；`backend/ent/schema/usage_log.go` 没有 NewAPI attempt 字段；`backend/internal/repository/usage_billing_repo.go` 的 `(request_id, api_key_id)` 不能当作该 attempt 的最终收据。未发现对应查询专用接口，所以未虚构 URL、未增加 HTTP 查账，也未修改 Sub2API。
 5. **其它分期能力**：未自动提前释放本地费用事实不全的未派发孤儿；其证据仍 unknown，走既有 72h 政策。未调整预占公式、输出上限、会员权益时长或收费规则；P3 的估算分析另行实施。
 
-下一交付顺序：完成隔离数据库及性能验收 → 实现并审查 v21 生产迁移控制器与兼容回退版本 → 单独授权迁移 → 按正常发布流程部署并 observe/apply；P2 在双方最终收据协议落地后独立交付。
+下一交付顺序：补齐性能覆盖与事故暂停通道 → 验收并安装精确控制器、准备兼容 A/B 发布 → 单独授权迁移 → 按正式发布流程观察和启用；P2 在双方最终收据协议落地后独立交付。

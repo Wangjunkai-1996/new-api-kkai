@@ -142,7 +142,7 @@ CompensateExpiredMembershipRelay(ctx context.Context, requestID string) (*Member
   → 提交后刷新缓存；失败只重试缓存，不重做资金调整
 ```
 
-- 前台异常 A 与 B 的业务锁序为 `User → Ledger → recovery`，使用 `lockForUpdate` 和 `MembershipTransaction(ctx, ...)`。后台事务先取得 leader 租约行锁或项目既有等价事务 fence，再进入相同业务锁序；以数据库时间验证 holder/fence/有效期，并持有 ownership 保护至提交，不能仅在事务外检查一次。SQLite 使用项目可验证的条件事务等价实现。短事务期限须小于剩余租约，提交前再次验证；正常前台不增加租约锁。既有账户/令牌子锁保持原顺序。checkpoint 独立短事务同样保护 ownership，再 CAS 进度，不让正常请求等待后台游标锁。
+- 前台异常 A 与 B 的业务锁序为 `User → Ledger → recovery`，使用 `lockForUpdate` 和 `MembershipTransaction(ctx, ...)`。后台事务先取得 leader 租约行锁或项目既有等价事务 fence，再进入相同业务锁序；以数据库时间验证 holder/fence/有效期，并持有 ownership 保护至提交，不能仅在事务外检查一次。SQLite 使用项目可验证的条件事务等价实现。短事务期限须小于剩余租约，提交前再次验证；正常前台不增加租约锁。既有账户/令牌子锁保持原顺序。checkpoint 独立短事务同样保护 ownership，再 CAS 进度，不让正常请求等待后台游标锁。仅修改重试调度的事务使用 `Lease → Ledger → recovery`，不取得用户、账户或令牌锁；它不得转入资金处理，仍在锁内检查账本终态与 recovery revision。
 - 必须把 A/B 分开：若证据与首次失败的资金事务同进同退，结算失败仍会丢失凭证。A 只记录事实，不扣款；B 内资金、统计、账本审计和 recovery `cache_pending` 原子提交；缓存确认后才标 recovery resolved。主账本的 settled/released 始终是资金终态。
 - B 复用现有 `settleMembershipRelayBillingTx` / `ReleaseMembershipBillingTx`。`charged=min(assessed,reserved)`、平台差额、冻结价格、原会员账户/钱包/令牌归属均保持。
 - unknown 标记与恢复行在现有异常事务内保存。即使先前已标记 unknown，也应幂等补建缺失的恢复行，不能被现有提前 return 漏掉；异常保存使用有界、脱离已取消客户端请求但受进程停止控制的上下文。
@@ -167,7 +167,7 @@ CompensateExpiredMembershipRelay(ctx context.Context, requestID string) (*Member
 | `undispatched_orphan` | relay、reserved、dispatched_at=0、创建已满现有 1h 门槛；按 created_at/request_id | 锁内确认尚未派发；与派发入口禁止老授权发送的规则共同保证安全 |
 | recovery 到期行 | pending/ready/cache_pending/conflict 分别按 next_attempt_at/request_id 取小批 | 实际已停止的传输直接入列，早于派发 deadline 也可取证；cache_pending 仅刷新缓存，conflict 单独预算 |
 
-孤儿扫描只负责发现并持久入列。`undispatched_orphan` 只有在锁内重读 dispatched_at=0、确认达到既有禁止再派发年龄，并确认本地费用规则也不收费后，才可形成本地零费证据；本地费用事实不全则仍未知。“派发已标记但查不到上游记录”仍是 unknown。Realtime/WS 没有逐轮远端身份时不进入 P2 查账，孤儿发现本身不授予额外退款权限。
+孤儿扫描只负责发现尚无 recovery 记录的账本并持久入列；已有记录由到期队列按退避处理，不能重新入列绕过冲突退避。aged 通道仍读取已有证据。`undispatched_orphan` 只有在锁内重读 dispatched_at=0、确认达到既有禁止再派发年龄，并确认本地费用规则也不收费后，才可形成本地零费证据；本地费用事实不全则仍未知。“派发已标记但查不到上游记录”仍是 unknown。Realtime/WS 没有逐轮远端身份时不进入 P2 查账，孤儿发现本身不授予额外退款权限。
 
 ### 5.2 扫描算法与公平性
 
@@ -182,7 +182,7 @@ CompensateExpiredMembershipRelay(ctx context.Context, requestID string) (*Member
 以下是开发初值，需隔离负载验收后确定，不能当成现网吞吐承诺：
 
 - 继续每分钟执行，单执行器；每页至多 100、单轮总扫描至多 500、资金终态调整至多 50、整轮上限 20 秒。
-- 先为已派发孤儿、未派发孤儿、冲突队列各执行一次至多 100 行/1 秒的发现或持久延期，三个步骤轮换起始顺序，不在此阶段动钱。随后 aged 最多 100 行/25 笔调整/6 秒，再处理 ready/cache_pending/pending 队列合计最多 100 行/25 笔资金调整/6 秒，三类各保留轮转机会。每个阶段有独立子上下文，前一阶段不能耗尽下一阶段预算。
+- 先为已派发孤儿、未派发孤儿各执行一次至多 100 行/1 秒的发现，冲突队列只延期至多 10 行/1 秒；三个步骤轮换起始顺序，不在此阶段动钱。随后 aged 最多 100 行/25 笔调整/6 秒，再处理 ready/cache_pending/pending 队列合计最多 100 行/25 笔资金调整/6 秒，三类各保留轮转机会。每个阶段有独立子上下文，前一阶段不能耗尽下一阶段预算。
 - 两个资金阶段都获得一次执行机会后，空闲的笔数/时间预算才可互借，仍守总上限；持续 ready 压力不能借走尚未执行的 aged 份额。查询失败或租约失效停止相应写入，不为保证处理数绕过限制。
 - 最后才进行远端取证，并发 1、每轮至多 2 次、单次超时 2 秒，总远端预算最多 4 秒且不超过整轮剩余时间；从已经选出的 pending 中取，不另扫一批。取到证据先持久保存，下轮资金阶段处理；远端慢查不能占用前述份额。
 - 资金事务逐条进行，取证网络调用全部在事务外；查询/锁等待设置已验证的方言适配超时。不得通过无限增大连接池或 goroutine 数量追赶积压。

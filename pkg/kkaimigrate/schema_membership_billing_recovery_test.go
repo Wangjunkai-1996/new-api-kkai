@@ -2,6 +2,7 @@ package kkaimigrate
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/QuantumNous/new-api/model"
@@ -34,9 +35,27 @@ func TestMembershipBillingRecoveryExpandPreservesPriorState(t *testing.T) {
 
 	_, err = ApplyMembershipBillingRecoveryExpand(ctx, db, Options{})
 	require.ErrorIs(t, err, ErrUnsafeMigration)
-	_, err = ApplyMembershipBillingRecoveryExpand(ctx, db, Options{AuthorizeMutation: func(context.Context, *gorm.DB) error { return nil }})
-	require.ErrorIs(t, err, ErrUnsafeMigration, "an unreviewed production controller callback is not adoption")
-	plan, err := ApplyMembershipBillingRecoveryExpand(ctx, db, Options{DryRun: true})
+	denied := errors.New("controller proof expired")
+	_, err = ApplyMembershipBillingRecoveryExpand(ctx, db, Options{AuthorizeMutation: func(ctx context.Context, locked *gorm.DB) error {
+		_, nestedErr := ApplyMembershipBillingRecoveryExpand(ctx, locked, Options{Offline: true})
+		assert.ErrorIs(t, nestedErr, ErrUnsafeMigration, "authorization runs while competing migrations are excluded")
+		return denied
+	}})
+	require.ErrorIs(t, err, denied)
+	checks := 0
+	_, err = ApplyMembershipBillingRecoveryExpand(ctx, db, Options{AuthorizeMutation: func(context.Context, *gorm.DB) error {
+		checks++
+		if checks == 2 {
+			return denied
+		}
+		return nil
+	}})
+	require.ErrorIs(t, err, denied, "authorization is checked again immediately before DDL")
+	assert.Equal(t, 2, checks)
+	plan, err := ApplyMembershipBillingRecoveryExpand(ctx, db, Options{DryRun: true, AuthorizeMutation: func(context.Context, *gorm.DB) error {
+		t.Error("dry-run must not request mutation authorization")
+		return denied
+	}})
 	require.NoError(t, err)
 	require.Len(t, plan.Pending, 1)
 	assert.Equal(t, MembershipBillingRecoverySchemaVersion, plan.Pending[0].Version)
@@ -71,6 +90,8 @@ func TestMembershipBillingRecoveryExpandPreservesPriorState(t *testing.T) {
 	}
 	_, err = ApplyMembershipBillingRecoveryExpand(ctx, db, Options{Offline: true})
 	require.NoError(t, err)
+	_, err = ApplyMembershipBillingRecoveryExpand(ctx, db, Options{AuthorizeMutation: func(context.Context, *gorm.DB) error { return denied }})
+	require.ErrorIs(t, err, denied, "a completed receipt never bypasses current controller authorization")
 	var after []AppliedMigration
 	require.NoError(t, db.Order("version").Find(&after).Error)
 	require.Len(t, after, len(before)+1)

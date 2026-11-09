@@ -22,7 +22,7 @@ func TestShopHTTPFixtureSchema(t *testing.T) {
 		t.Skip("local HTTP harness DSN is not set")
 	}
 	target := os.Getenv("KKAI_SHOP_HTTP_FIXTURE_SCHEMA")
-	require.Contains(t, []string{"", "18", "19"}, target)
+	require.Contains(t, []string{"", "18", "19", "20"}, target)
 	config, err := pgx.ParseConfig(raw)
 	require.NoError(t, err)
 	require.Equal(t, "127.0.0.1", config.Host)
@@ -66,4 +66,9 @@ func TestShopHTTPFixtureSchema(t *testing.T) {
 	_, err = ApplyShopExpand(ctx, db, Options{Offline: true})
 	require.NoError(t, err)
 	require.NoError(t, CheckShopSchema(ctx, db))
+	if target == "20" {
+		_, err = ApplyMembershipPaymentExpand(ctx, db, Options{Offline: true})
+		require.NoError(t, err)
+		require.NoError(t, CheckMembershipPaymentSchema(ctx, db))
+	}
 }

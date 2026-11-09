@@ -68,6 +68,12 @@ case "$*" in
         printf 'KKAI_INFRA_SHA=%s\n' "${KKAI_TEST_EXPECTED_INFRA_SHA}"
         printf 'KKAI_SCHEMA_CONTRACT=%s\n' "${KKAI_TEST_EXPECTED_SCHEMA_CONTRACT}"
         printf 'KKAI_FRONTEND_MODE=%s\n' "${KKAI_TEST_EXPECTED_FRONTEND_MODE}"
+        if [[ ${KKAI_TEST_PREFLIGHT_RECOVERY_OUTPUT:-ready} != missing ]]; then
+          printf 'KKAI_MEMBERSHIP_BILLING_RECOVERY_MODE=%s\n' "${KKAI_TEST_EXPECTED_RECOVERY_MODE:-off}"
+          if [[ ${KKAI_TEST_PREFLIGHT_RECOVERY_OUTPUT:-ready} == duplicate ]]; then
+            printf 'KKAI_MEMBERSHIP_BILLING_RECOVERY_MODE=%s\n' "${KKAI_TEST_EXPECTED_RECOVERY_MODE:-off}"
+          fi
+        fi
         exit 0
         ;;
       wrong-sha)
@@ -146,6 +152,12 @@ case "$*" in
         printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
         printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
         printf 'KKAI_CANDIDATE_FRONTEND_MODE=%s\n' "${KKAI_TEST_EXPECTED_FRONTEND_MODE}"
+        if [[ ${KKAI_TEST_STAGE_RECOVERY_OUTPUT:-ready} != missing ]]; then
+          printf 'KKAI_CANDIDATE_MEMBERSHIP_BILLING_RECOVERY_MODE=%s\n' "${KKAI_TEST_STAGE_RECOVERY_MODE:-${KKAI_TEST_EXPECTED_RECOVERY_MODE:-off}}"
+          if [[ ${KKAI_TEST_STAGE_RECOVERY_OUTPUT:-ready} == duplicate ]]; then
+            printf 'KKAI_CANDIDATE_MEMBERSHIP_BILLING_RECOVERY_MODE=%s\n' "${KKAI_TEST_EXPECTED_RECOVERY_MODE:-off}"
+          fi
+        fi
         exit 0
         ;;
       wrong-status)
@@ -517,6 +529,85 @@ test_invalid_frontend_mode_prevents_remote_calls() {
   [[ ! -s "${call_log}" ]] || fail "invalid frontend mode made a remote call"
 }
 
+test_membership_recovery_mode_is_explicit_and_shared_with_preflight() {
+  local external_metadata="${test_root}/membership-recovery.json" output value order
+  local -a options
+  jq '.frontend_mode = "external"' "${metadata}" > "${external_metadata}"
+  output="$(run_stage ready)"
+  ! grep -F -- '--membership-billing-recovery-mode' "${call_log}" >/dev/null ||
+    fail 'omitted recovery mode overwrote the host inherited setting'
+  for value in off observe apply paused; do
+    for order in recovery-first tenant-first; do
+      options=(--membership-billing-recovery-mode "${value}" --tenant-routing-enabled true)
+      [[ ${order} != tenant-first ]] || options=(--tenant-routing-enabled true --membership-billing-recovery-mode "${value}")
+      : > "${call_log}"
+      output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+        KKAI_TEST_EXPECTED_FRONTEND_MODE=external KKAI_TEST_EXPECTED_RECOVERY_MODE="${value}" \
+        "${DEPLOY_SCRIPT}" --stage "${external_metadata}" "${options[@]}")"
+      grep -Fx 'KKAI_CANDIDATE_STAGE_RESULT=staged' <<<"${output}" >/dev/null || fail 'explicit recovery mode did not stage'
+      [[ $(grep -Ec -- "/kkai-newapi-manual-deploy (preflight|stage) .* --membership-billing-recovery-mode ${value}$" "${call_log}") == 2 ]] ||
+        fail 'preflight and stage did not receive the same explicit recovery mode'
+      grep -F -- '--tenant-routing-enabled true' "${call_log}" >/dev/null || fail 'combined options lost tenant routing'
+      ! grep -Eq '/kkai-newapi-manual-deploy (promote|abort)' "${call_log}" || fail 'stage client advanced the frozen candidate'
+    done
+  done
+}
+
+test_explicit_membership_recovery_mode_requires_matching_receipts() {
+  local phase receipt output expected stage_expected preflight_receipt stage_receipt
+  for phase in preflight stage; do
+    for receipt in wrong missing duplicate; do
+      expected=observe stage_expected=observe preflight_receipt=ready stage_receipt=ready
+      if [[ ${phase} == preflight ]]; then
+        preflight_receipt=${receipt}
+        [[ ${receipt} != wrong ]] || expected=off
+      else
+        stage_receipt=${receipt}
+        [[ ${receipt} != wrong ]] || stage_expected=off
+      fi
+      : > "${call_log}"
+      if output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+        KKAI_TEST_EXPECTED_RECOVERY_MODE="${expected}" \
+        KKAI_TEST_STAGE_RECOVERY_MODE="${stage_expected}" \
+        KKAI_TEST_PREFLIGHT_RECOVERY_OUTPUT="${preflight_receipt}" \
+        KKAI_TEST_STAGE_RECOVERY_OUTPUT="${stage_receipt}" \
+        "${DEPLOY_SCRIPT}" --stage "${metadata}" --membership-billing-recovery-mode observe 2>&1)"; then
+        fail 'explicit recovery mode accepted a missing, duplicate or mismatched receipt'
+      fi
+      if [[ ${phase} == preflight ]]; then
+        ! grep -q '^scp ' "${call_log}" || fail 'invalid recovery preflight allowed upload'
+      else
+        [[ $(grep -Fc '/kkai-newapi-manual-deploy candidate-status' "${call_log}") == 1 ]] ||
+          fail 'uncertain recovery mode did not query candidate status once'
+      fi
+    done
+  done
+}
+
+test_invalid_membership_recovery_options_prevent_remote_calls() {
+  local value output
+  for value in '' invalid APPLY; do
+    : > "${call_log}"
+    if output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+      "${DEPLOY_SCRIPT}" --stage "${metadata}" --membership-billing-recovery-mode "${value}" 2>&1)"; then
+      fail 'invalid recovery mode was accepted'
+    fi
+    [[ ! -s ${call_log} ]] || fail 'invalid recovery mode made a remote call'
+  done
+  : > "${call_log}"
+  if output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+    "${DEPLOY_SCRIPT}" --stage "${metadata}" --membership-billing-recovery-mode 2>&1)"; then
+    fail 'recovery mode without a value was accepted'
+  fi
+  [[ ! -s ${call_log} ]] || fail 'missing recovery mode made a remote call'
+  : > "${call_log}"
+  if output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+    "${DEPLOY_SCRIPT}" --stage "${metadata}" --membership-billing-recovery-mode observe --membership-billing-recovery-mode apply 2>&1)"; then
+    fail 'duplicate recovery mode was accepted'
+  fi
+  [[ ! -s ${call_log} ]] || fail 'duplicate recovery mode made a remote call'
+}
+
 test_preflight_output_must_match_contract() {
   local output
 
@@ -877,6 +968,9 @@ test_uncertain_stage_uses_opt_in_status_once() {
      $(grep -Fc -- '-o ControlMaster=auto' "${call_log}") == 5 ]] || fail 'uncertain stage status or cleanup lost opt-in SSH settings'
 }
 
+test_membership_recovery_mode_is_explicit_and_shared_with_preflight
+test_explicit_membership_recovery_mode_requires_matching_receipts
+test_invalid_membership_recovery_options_prevent_remote_calls
 test_tenant_routing_override_is_explicit_and_validated_before_remote_calls
 test_contract_pins_staged_controller
 test_requires_explicit_stage_action

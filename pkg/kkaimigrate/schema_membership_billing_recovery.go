@@ -197,18 +197,25 @@ func CheckMembershipBillingRecoveryRuntimeSchema(ctx context.Context, db *gorm.D
 	return ctx.Err()
 }
 
-// ApplyMembershipBillingRecoveryExpand is for isolated offline migration work.
-// Production adoption needs a separate controller that verifies every runtime's
-// v21 compatibility; no such controller is supplied by this migration.
+// ApplyMembershipBillingRecoveryExpand requires the independent v21 controller
+// authorizer in production. Offline migration remains available for isolated
+// fixtures; application startup never invokes this expansion.
 func ApplyMembershipBillingRecoveryExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
-	if !options.DryRun && !options.Offline {
-		return nil, fmt.Errorf("%w: membership billing recovery production controller is not implemented; use isolated offline mode only", ErrUnsafeMigration)
+	if !options.DryRun && !options.Offline && options.AuthorizeMutation == nil {
+		return nil, fmt.Errorf("%w: membership billing recovery expansion requires explicit controller authorization or isolated offline mode", ErrUnsafeMigration)
 	}
 	result := &Result{}
 	err := withTenantOnlineLock(ctx, db, options.Offline, func(locked *gorm.DB) error {
 		precheck, err := PrecheckMembershipBillingRecoveryExpand(ctx, locked)
 		if err != nil {
 			return err
+		}
+		// Revalidate after acquiring the migration lock, including completed
+		// targets. A canonical receipt does not extend expired authorization.
+		if !options.DryRun && options.AuthorizeMutation != nil {
+			if err := options.AuthorizeMutation(ctx, locked); err != nil {
+				return err
+			}
 		}
 		item := migrationSet()[MembershipBillingRecoverySchemaVersion-1]
 		entry := planItems([]migration{item})[0]
