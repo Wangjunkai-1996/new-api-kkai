@@ -22,9 +22,12 @@ func RequireMembershipRecoveryLeaderTx(tx *gorm.DB, fence MembershipRecoveryLead
 	if tx == nil || fence.Name == "" || fence.Holder == "" || fence.Fence <= 0 {
 		return ErrMembershipRecoveryFenceLost
 	}
-	if err := tx.Model(&KKAIJobLease{}).Where("lease_name = ?", fence.Name).
-		UpdateColumn("updated_at", gorm.Expr("updated_at")).Error; err != nil {
-		return err
+	// SQLite has no FOR UPDATE; acquire its writer lock before reading the lease.
+	if tx.Dialector.Name() == "sqlite" {
+		if err := tx.Model(&KKAIJobLease{}).Where("lease_name = ?", fence.Name).
+			UpdateColumn("updated_at", gorm.Expr("updated_at")).Error; err != nil {
+			return err
+		}
 	}
 	var lease KKAIJobLease
 	if err := lockForUpdate(tx).First(&lease, "lease_name = ?", fence.Name).Error; err != nil {
