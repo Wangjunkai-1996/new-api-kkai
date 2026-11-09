@@ -175,7 +175,12 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 			}
 		}
 		if currentVersion >= MembershipPaymentSchemaVersion {
-			return validateMembershipPaymentSchema(db, true)
+			if err := validateMembershipPaymentSchema(db, true); err != nil {
+				return err
+			}
+		}
+		if currentVersion >= MembershipBillingRecoverySchemaVersion {
+			return validateMembershipBillingRecoverySchema(db, true)
 		}
 		return nil
 	}

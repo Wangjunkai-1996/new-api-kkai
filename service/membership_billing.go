@@ -156,8 +156,7 @@ func (s *membershipBillingSession) Settle(actualQuota int) error {
 	record, err := model.SettleMembershipRelayBilling(s.requestID, int64(actualQuota), s.info.ChannelId, s.info.MembershipHasBillableUsage || s.info.MembershipViolationFee > 0)
 	if err != nil {
 		s.state = "settlement_pending"
-		_ = model.MarkMembershipBillingUncertain(s.requestID, s.info.ChannelId, "settlement_failed")
-		return err
+		return errors.Join(err, persistMembershipTerminalFailure(s.info, s.requestID, int64(actualQuota), false))
 	}
 	s.state = record.State
 	s.info.MembershipAssessedQuota = int(record.ActualQuota)
@@ -170,8 +169,17 @@ func (s *membershipBillingSession) Refund(c *gin.Context) {
 	if s.state != "reserved" {
 		return
 	}
+	if s.info.BillingOutcomeUnknown || membershipStreamIncomplete(s.info) || s.info.MembershipHasBillableUsage || s.info.MembershipViolationFee != 0 || s.info.MembershipAssessedQuota > 0 {
+		s.state = "settlement_pending"
+		if err := MarkMembershipBillingUncertain(s.requestID, s.info.ChannelId, "refund_without_confirmed_zero"); err != nil {
+			logger.LogError(c, "membership release deferred: "+err.Error())
+		}
+		return
+	}
 	record, err := model.ReleaseMembershipBilling(s.requestID)
 	if err != nil {
+		s.state = "settlement_pending"
+		err = errors.Join(err, persistMembershipTerminalFailure(s.info, s.requestID, 0, true))
 		logger.LogError(c, "membership release failed: "+err.Error())
 		return
 	}

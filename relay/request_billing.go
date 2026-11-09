@@ -134,7 +134,7 @@ func RefundFailedRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, api
 	}
 	if info.MembershipBillingRequestID != "" && info.BillingOutcomeUnknown {
 		types.ErrOptionWithSkipRetry()(apiErr)
-		if err := model.MarkMembershipBillingUncertain(info.MembershipBillingRequestID, info.ChannelId, "upstream_outcome_unknown"); err != nil {
+		if err := service.MarkMembershipBillingUncertain(info.MembershipBillingRequestID, info.ChannelId, "upstream_outcome_unknown"); err != nil {
 			logger.LogError(c, "failed to flag membership billing for review: "+err.Error())
 		}
 		logger.LogWarn(c, "membership billing outcome unknown; reservation retained for review: "+info.MembershipBillingRequestID)

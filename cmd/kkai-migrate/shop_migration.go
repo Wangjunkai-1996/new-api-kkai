@@ -130,6 +130,7 @@ func validateShopControllerProof(proof *shopControllerProof, status *shopMigrati
 	// Keep the installed v19 mutation protocol frozen when this binary can read v20.
 	expected.RuntimeMaxVersion = 19
 	delete(expected.CompatiblePrefixes, "20")
+	delete(expected.CompatiblePrefixes, "21")
 	if expected.RuntimeMinVersion != 14 || expected.RuntimeMaxVersion != 19 || expected.MigrationTargetVersion != 14 ||
 		status.Schema != "kkai_shop_migration_status_v1" || (status.CurrentVersion != 18 && status.CurrentVersion != 19) ||
 		status.TargetVersion != 19 || !status.Safe ||

@@ -498,7 +498,7 @@ func PrecheckInvoiceExpand(ctx context.Context, db *gorm.DB) (*InvoiceExpandPrec
 // CheckInvoiceSchema is read-only: manually created tables without a canonical
 // receipt never enable financial endpoints.
 func CheckInvoiceSchema(ctx context.Context, db *gorm.DB) error {
-	return checkThroughVersion(ctx, db, InvoiceSchemaVersion, InvoiceSchemaVersion, MembershipPaymentSchemaVersion)
+	return checkThroughVersion(ctx, db, InvoiceSchemaVersion, InvoiceSchemaVersion, KnownCatalogVersion)
 }
 
 // CheckInvoiceRuntimeSchema validates only invoice storage and its canonical

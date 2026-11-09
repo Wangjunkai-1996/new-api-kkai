@@ -208,7 +208,7 @@ func PrecheckMembershipPaymentExpand(ctx context.Context, db *gorm.DB) (*Members
 
 // CheckMembershipPaymentSchema is the complete read-only maintenance audit.
 func CheckMembershipPaymentSchema(ctx context.Context, db *gorm.DB) error {
-	return checkThroughVersion(ctx, db, MembershipPaymentSchemaVersion, MembershipPaymentSchemaVersion, MembershipPaymentSchemaVersion)
+	return checkThroughVersion(ctx, db, MembershipPaymentSchemaVersion, MembershipPaymentSchemaVersion, KnownCatalogVersion)
 }
 
 // CheckMembershipPaymentRuntimeSchema requires canonical receipts and exact

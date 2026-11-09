@@ -27,6 +27,7 @@ func resellerPrefixProofFixture(t *testing.T) (*resellerPrefixControllerProof, *
 	delete(contract.CompatiblePrefixes, "18")
 	delete(contract.CompatiblePrefixes, "19")
 	delete(contract.CompatiblePrefixes, "20")
+	delete(contract.CompatiblePrefixes, "21")
 	now := time.Unix(1800000000, 0)
 	status := &resellerPrefixStatus{SourceDigest: contract.CompatiblePrefixes["14"], TargetDigest: contract.CompatiblePrefixes["15"],
 		PlanChecksum: kkaimigrate.ResellerApplicationPlanChecksum(), DatabaseName: "newapi", DatabaseSchema: "public"}
@@ -56,6 +57,7 @@ func TestResellerPrefixProofRequiresEveryRuntimeToAcceptExactTarget(t *testing.T
 		name string
 		edit func(*resellerPrefixControllerProof)
 	}{
+		{"unreviewed-v21", func(p *resellerPrefixControllerProof) { p.Runtimes[1].SchemaContract.RuntimeMaxVersion = 21 }},
 		{"old-runtime", func(p *resellerPrefixControllerProof) { p.Runtimes[1].SchemaContract.RuntimeMaxVersion = 14 }},
 		{"unknown-target-digest", func(p *resellerPrefixControllerProof) {
 			p.Runtimes[1].SchemaContract.CompatiblePrefixes = map[string]string{"14": p.SourceDigest, "15": "other"}
@@ -116,12 +118,12 @@ func TestResellerPrefixInspectionAndTenantCheckReadFinalV15(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	var output bytes.Buffer
-	require.NoError(t, runResellerPrefix(ctx, db, "plan", "", &output))
-	var status resellerPrefixStatus
+	assert.ErrorIs(t, runResellerPrefix(ctx, db, "plan", "", &output), kkaimigrate.ErrUnsafeMigration, "v21 cannot impersonate the installed v15 controller")
+	require.NoError(t, runMigrationPrecheck(ctx, db, kkaimigrate.ResellerApplicationSchemaVersion, &output))
+	var status kkaimigrate.ResellerApplicationExpandPrecheck
 	require.NoError(t, common.Unmarshal(output.Bytes(), &status))
 	assert.EqualValues(t, 14, status.CurrentVersion)
 	assert.False(t, status.ColumnPresent)
-	assert.NotEmpty(t, status.TargetDigest)
 	require.NoError(t, db.Exec("PRAGMA query_only=OFF").Error)
 	assert.Error(t, runResellerPrefix(ctx, db, "apply", tenantControllerProofPath, &output), "no production mutation fallback on SQLite")
 	assert.False(t, db.Migrator().HasColumn("reseller_applications", "desired_domain_prefix"))
@@ -129,7 +131,8 @@ func TestResellerPrefixInspectionAndTenantCheckReadFinalV15(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	output.Reset()
-	require.NoError(t, runResellerPrefix(ctx, db, "status", "", &output))
+	assert.ErrorIs(t, runResellerPrefix(ctx, db, "status", "", &output), kkaimigrate.ErrUnsafeMigration)
+	require.NoError(t, runMigrationPrecheck(ctx, db, kkaimigrate.ResellerApplicationSchemaVersion, &output))
 	require.NoError(t, common.Unmarshal(output.Bytes(), &status))
 	assert.EqualValues(t, 15, status.CurrentVersion)
 	assert.True(t, status.ColumnPresent)

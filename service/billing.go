@@ -75,7 +75,7 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 		if relayInfo.MembershipBillingRequestID != "" {
 			if relayInfo.BillingOutcomeUnknown || membershipStreamIncomplete(relayInfo) {
 				relayInfo.BillingOutcomeUnknown = true
-				if err := model.MarkMembershipBillingUncertain(relayInfo.MembershipBillingRequestID, relayInfo.ChannelId, "upstream_final_usage_unknown"); err != nil {
+				if err := MarkMembershipBillingUncertain(relayInfo.MembershipBillingRequestID, relayInfo.ChannelId, "upstream_final_usage_unknown"); err != nil {
 					return err
 				}
 				return fmt.Errorf("membership authorization retained pending final usage")

@@ -85,7 +85,7 @@ func membershipRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (res
 			drainTimer.Stop()
 		}
 		if active != nil {
-			if err := model.MarkMembershipBillingUncertain(active.info.MembershipBillingRequestID, active.info.ChannelId, "realtime_response_outcome_unknown"); err != nil {
+			if err := service.MarkMembershipBillingUncertain(active.info.MembershipBillingRequestID, active.info.ChannelId, "realtime_response_outcome_unknown"); err != nil {
 				logger.LogError(c, "failed to flag realtime authorization: "+err.Error())
 			}
 		}

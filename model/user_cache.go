@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -67,10 +68,17 @@ func userCacheTTLSeconds() int {
 
 // invalidateUserCache clears user cache
 func invalidateUserCache(userId int) error {
+	return invalidateUserCacheContext(context.Background(), userId)
+}
+
+func invalidateUserCacheContext(ctx context.Context, userId int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !common.RedisEnabled {
 		return nil
 	}
-	return common.RedisDelKey(getUserCacheKey(userId))
+	return common.RDB.Del(ctx, getUserCacheKey(userId)).Err()
 }
 
 // InvalidateUserCache lets transactional callers invalidate a completed

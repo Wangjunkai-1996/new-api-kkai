@@ -61,6 +61,13 @@ return ARGV[1]`
 // writes to the database: it raises the fence and drops the cached hash so no
 // reader can act on (or re-publish) the pre-mutation state.
 func invalidateTokenCacheForMutation(key string) error {
+	return invalidateTokenCacheForMutationContext(context.Background(), key)
+}
+
+func invalidateTokenCacheForMutationContext(ctx context.Context, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !common.RedisEnabled || key == "" {
 		return nil
 	}
@@ -68,7 +75,7 @@ func invalidateTokenCacheForMutation(key string) error {
 redis.call('SET', KEYS[2], 1, 'EX', ARGV[1])
 redis.call('DEL', KEYS[1], KEYS[3])
 return 1`
-	return common.RDB.Eval(context.Background(), script, []string{
+	return common.RDB.Eval(ctx, script, []string{
 		getTokenCacheKey(key), getTokenCacheFenceKey(key), getTokenCacheGenerationKey(key),
 	}, tokenCacheFenceSeconds).Err()
 }

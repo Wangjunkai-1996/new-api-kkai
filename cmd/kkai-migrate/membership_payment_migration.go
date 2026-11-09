@@ -103,12 +103,21 @@ func inspectMembershipPaymentMigration(ctx context.Context, db *gorm.DB) (*membe
 }
 
 func validateMembershipPaymentControllerProof(proof *membershipPaymentControllerProof, status *membershipPaymentMigrationStatus, now time.Time) error {
-	if proof == nil || status == nil || proof.Schema != "kkai_membership_payment_migration_proof_v1" || proof.Protocol != "membership-payment-migration-v1" || proof.Operation != "apply" {
-		return fmt.Errorf("invalid membership payment controller proof protocol or operation")
-	}
 	expected, err := kkaimigrate.ContractForDialect(kkaimigrate.DialectPostgres)
 	if err != nil {
 		return err
+	}
+	if expected.RuntimeMinVersion != 14 || expected.RuntimeMaxVersion != 20 || expected.MigrationTargetVersion != 14 {
+		return fmt.Errorf("membership payment controller requires the exact compiled v14-v20 compatibility runtime")
+	}
+	return validateMembershipPaymentProofAgainstContract(proof, status, now, expected)
+}
+
+// The installed protocol binds database and process evidence to one exact
+// runtime contract. The production wrapper supplies only its compiled contract.
+func validateMembershipPaymentProofAgainstContract(proof *membershipPaymentControllerProof, status *membershipPaymentMigrationStatus, now time.Time, expected kkaimigrate.SchemaContract) error {
+	if proof == nil || status == nil || proof.Schema != "kkai_membership_payment_migration_proof_v1" || proof.Protocol != "membership-payment-migration-v1" || proof.Operation != "apply" {
+		return fmt.Errorf("invalid membership payment controller proof protocol or operation")
 	}
 	if expected.RuntimeMinVersion != 14 || expected.RuntimeMaxVersion != 20 || expected.MigrationTargetVersion != 14 ||
 		status.Schema != "kkai_membership_payment_migration_status_v1" || (status.CurrentVersion != 19 && status.CurrentVersion != 20) ||

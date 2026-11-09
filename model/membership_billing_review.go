@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"math"
 	"strings"
@@ -100,17 +101,29 @@ func ClearMembershipBillingRejectedAttempt(requestID string, channelID int) erro
 // MarkMembershipBillingUncertain is called only after the submitting transport
 // has stopped. It retains the full authorization until evidence establishes usage.
 func MarkMembershipBillingUncertain(requestID string, channelID int, reason string) error {
+	return MarkMembershipBillingUncertainContext(context.Background(), requestID, channelID, reason)
+}
+
+// MarkMembershipBillingUncertainContext bounds failed-request cleanup without
+// tying accounting recovery to an already disconnected downstream client.
+func MarkMembershipBillingUncertainContext(ctx context.Context, requestID string, channelID int, reason string) error {
+	if ctx == nil {
+		return ErrMembershipInvalidInput
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(requestID) == "" || channelID < 0 || strings.TrimSpace(reason) == "" || len(reason) > 512 {
 		return ErrMembershipInvalidInput
 	}
 	if err := CheckMembershipSchema(); err != nil {
 		return err
 	}
-	initial, err := GetMembershipBillingRecord(requestID)
-	if err != nil {
+	var initial MembershipBillingRecord
+	if err := DB.WithContext(ctx).First(&initial, "request_id = ?", requestID).Error; err != nil {
 		return err
 	}
-	return membershipTransaction(func(tx *gorm.DB) error {
+	return MembershipTransaction(ctx, func(tx *gorm.DB) error {
 		if _, _, err := lockMembershipUserTx(tx, initial.UserID); err != nil {
 			return err
 		}

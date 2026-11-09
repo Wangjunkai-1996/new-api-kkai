@@ -80,17 +80,7 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 	if err := RegisterResellerFinanceBackgroundJobs(registry); err != nil {
 		return err
 	}
-	if err := registry.Register(BackgroundJob{
-		Name: "membership-relay-reconcile", Interval: time.Minute, RunOnStart: true,
-		WritesData: true, RequiresLeaderLease: true,
-		Run: func(ctx context.Context) error {
-			if !model.MembershipEnabled() {
-				return nil
-			}
-			_, err := model.ReconcileDueMembershipRelayBilling(ctx, 50)
-			return err
-		},
-	}); err != nil {
+	if err := RegisterMembershipBillingRecoveryJob(registry, workerID); err != nil {
 		return err
 	}
 

@@ -25,6 +25,7 @@ func invoiceProofFixture(t *testing.T) (*invoiceControllerProof, *invoiceMigrati
 	delete(contract.CompatiblePrefixes, "18")
 	delete(contract.CompatiblePrefixes, "19")
 	delete(contract.CompatiblePrefixes, "20")
+	delete(contract.CompatiblePrefixes, "21")
 	now := time.Unix(1800000000, 0)
 	status := &invoiceMigrationStatus{
 		Schema: "kkai_invoice_migration_status_v1", CurrentVersion: 16, TargetVersion: 17, Safe: true,
@@ -77,6 +78,7 @@ func TestInvoiceProofBindsDatabasePlanProcessAndEveryRuntime(t *testing.T) {
 		name string
 		edit func(*invoiceControllerProof)
 	}{
+		{"unreviewed-v21", func(p *invoiceControllerProof) { p.Runtimes[1].SchemaContract.RuntimeMaxVersion = 21 }},
 		{"historical-proof-schema", func(p *invoiceControllerProof) { p.Schema = "kkai_request_ticket_proof_v1" }},
 		{"historical-protocol", func(p *invoiceControllerProof) { p.Protocol = "request-ticket-v1" }},
 		{"wrong-operation", func(p *invoiceControllerProof) { p.Operation = "status" }},
@@ -193,14 +195,12 @@ func TestInvoiceInspectionIsReadOnlyAndRequiresCompleteReceiptAndShape(t *testin
 	ctx := context.Background()
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	var output bytes.Buffer
-	require.NoError(t, runInvoiceMigration(ctx, db, "plan", "", &output))
-	var status invoiceMigrationStatus
+	assert.ErrorIs(t, runInvoiceMigration(ctx, db, "plan", "", &output), kkaimigrate.ErrUnsafeMigration, "v21 is outside the installed controller contract")
+	require.NoError(t, runMigrationPrecheck(ctx, db, kkaimigrate.InvoiceSchemaVersion, &output))
+	var status kkaimigrate.InvoiceExpandPrecheck
 	require.NoError(t, common.Unmarshal(output.Bytes(), &status))
 	assert.EqualValues(t, 16, status.CurrentVersion)
 	assert.False(t, status.InvoicesPresent)
-	assert.Equal(t, kkaimigrate.InvoicePlanChecksum(), status.PlanChecksum)
-	assert.NotEmpty(t, status.SourceDigest)
-	assert.NotEmpty(t, status.TargetDigest)
 	assert.Error(t, runInvoiceMigration(ctx, db, "apply", invoiceControllerProofPath, &output), "production mutation has no SQLite fallback")
 	assert.False(t, db.Migrator().HasTable("invoice_requests"))
 	require.NoError(t, db.Exec("PRAGMA query_only=OFF").Error)
@@ -214,7 +214,8 @@ func TestInvoiceInspectionIsReadOnlyAndRequiresCompleteReceiptAndShape(t *testin
 	require.NoError(t, db.Create(&receipt).Error)
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	output.Reset()
-	require.NoError(t, runInvoiceMigration(ctx, db, "status", "", &output))
+	assert.ErrorIs(t, runInvoiceMigration(ctx, db, "status", "", &output), kkaimigrate.ErrUnsafeMigration)
+	require.NoError(t, runMigrationPrecheck(ctx, db, kkaimigrate.InvoiceSchemaVersion, &output))
 	require.NoError(t, common.Unmarshal(output.Bytes(), &status))
 	assert.EqualValues(t, 17, status.CurrentVersion)
 	assert.True(t, status.InvoicesPresent)

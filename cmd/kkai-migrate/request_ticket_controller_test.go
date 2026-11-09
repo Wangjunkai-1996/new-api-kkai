@@ -27,6 +27,7 @@ func requestTicketProofFixture(t *testing.T) (*requestTicketControllerProof, *re
 	delete(contract.CompatiblePrefixes, "18")
 	delete(contract.CompatiblePrefixes, "19")
 	delete(contract.CompatiblePrefixes, "20")
+	delete(contract.CompatiblePrefixes, "21")
 	now := time.Unix(1800000000, 0)
 	status := &requestTicketStatus{
 		Schema: "kkai_request_ticket_v1", CurrentVersion: 15, TargetVersion: 16, Safe: true,
@@ -74,6 +75,7 @@ func TestRequestTicketProofBindsDatabasePlanEveryRuntimeAndActiveImage(t *testin
 		name string
 		edit func(*requestTicketControllerProof)
 	}{
+		{"unreviewed-v21", func(p *requestTicketControllerProof) { p.Runtimes[1].SchemaContract.RuntimeMaxVersion = 21 }},
 		{"historical-schema", func(p *requestTicketControllerProof) { p.Schema = "kkai_reseller_prefix_proof_v1" }},
 		{"historical-protocol", func(p *requestTicketControllerProof) { p.Protocol = "reseller-prefix-v1" }},
 		{"read-only-operation", func(p *requestTicketControllerProof) { p.Operation = "status" }},
@@ -173,15 +175,13 @@ func TestRequestTicketInspectionIsReadOnlyAndRefusesUnreceiptedTablesAndDrift(t 
 	require.NoError(t, err)
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	var output bytes.Buffer
-	require.NoError(t, runRequestTicket(ctx, db, "plan", "", &output))
-	var status requestTicketStatus
+	assert.ErrorIs(t, runRequestTicket(ctx, db, "plan", "", &output), kkaimigrate.ErrUnsafeMigration, "v21 is outside the installed controller contract")
+	require.NoError(t, runMigrationPrecheck(ctx, db, kkaimigrate.RequestTicketSchemaVersion, &output))
+	var status kkaimigrate.RequestTicketExpandPrecheck
 	require.NoError(t, common.Unmarshal(output.Bytes(), &status))
 	assert.EqualValues(t, 15, status.CurrentVersion)
 	assert.False(t, status.TicketsPresent)
 	assert.False(t, status.EventsPresent)
-	assert.NotEmpty(t, status.SourceDigest)
-	assert.NotEmpty(t, status.TargetDigest)
-	assert.Equal(t, kkaimigrate.RequestTicketPlanChecksum(), status.PlanChecksum)
 	assert.Error(t, runRequestTicket(ctx, db, "apply", tenantControllerProofPath, &output), "production mutation has no SQLite fallback")
 	assert.False(t, db.Migrator().HasTable("request_tickets"))
 	assert.False(t, db.Migrator().HasTable("request_ticket_events"))
@@ -196,7 +196,8 @@ func TestRequestTicketInspectionIsReadOnlyAndRefusesUnreceiptedTablesAndDrift(t 
 	require.NoError(t, db.Create(&receipt).Error)
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	output.Reset()
-	require.NoError(t, runRequestTicket(ctx, db, "status", "", &output))
+	assert.ErrorIs(t, runRequestTicket(ctx, db, "status", "", &output), kkaimigrate.ErrUnsafeMigration)
+	require.NoError(t, runMigrationPrecheck(ctx, db, kkaimigrate.RequestTicketSchemaVersion, &output))
 	require.NoError(t, common.Unmarshal(output.Bytes(), &status))
 	assert.EqualValues(t, 16, status.CurrentVersion)
 	assert.True(t, status.TicketsPresent)

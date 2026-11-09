@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -323,18 +324,37 @@ func membershipRemainingTx(tx *gorm.DB, record *MembershipBillingRecord) error {
 }
 
 func MembershipBillingAfterCommit(record *MembershipBillingRecord) {
-	if record == nil || !record.Applied {
-		return
+	if err := MembershipBillingAfterCommitErr(record); err != nil {
+		common.SysError(err.Error())
 	}
-	if err := InvalidateUserCache(record.UserID); err != nil {
-		common.SysError(fmt.Sprintf("membership user cache invalidation user=%d: %v", record.UserID, err))
+}
+
+// MembershipBillingAfterCommitErr lets recovery retry cache invalidation after
+// the money transaction has committed. It never repeats a funding adjustment.
+func MembershipBillingAfterCommitErr(record *MembershipBillingRecord) error {
+	return MembershipBillingAfterCommitContext(context.Background(), record)
+}
+
+func MembershipBillingAfterCommitContext(ctx context.Context, record *MembershipBillingRecord) error {
+	if record == nil || !record.Applied {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var failures []error
+	if err := invalidateUserCacheContext(ctx, record.UserID); err != nil {
+		failures = append(failures, fmt.Errorf("membership user cache invalidation user=%d: %w", record.UserID, err))
 	}
 	if record.TokenID > 0 {
 		var token Token
-		if DB.Select("id", "key").First(&token, record.TokenID).Error == nil {
-			if err := cacheDeleteToken(token.Key); err != nil {
-				common.SysError(fmt.Sprintf("membership token cache invalidation token=%d: %v", record.TokenID, err))
+		err := DB.WithContext(ctx).Select("id", "key").First(&token, record.TokenID).Error
+		if err == nil {
+			if err := invalidateTokenCacheForMutationContext(ctx, token.Key); err != nil {
+				failures = append(failures, fmt.Errorf("membership token cache invalidation token=%d: %w", record.TokenID, err))
 			}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			failures = append(failures, fmt.Errorf("membership token cache lookup token=%d: %w", record.TokenID, err))
 		}
 	}
 	if record.TokenRefundUnapplied > 0 || record.TokenUsedRefundUnapplied > 0 {
@@ -343,4 +363,5 @@ func MembershipBillingAfterCommit(record *MembershipBillingRecord) {
 	if record.ExcessQuota > 0 {
 		common.SysError(fmt.Sprintf("membership billing overrun request=%s user=%d source=%s authorized=%d actual=%d charged=%d platform_excess=%d", record.RequestID, record.UserID, record.Source, record.ReservedQuota, record.ActualQuota, record.ChargedQuota, record.ExcessQuota))
 	}
+	return errors.Join(failures...)
 }

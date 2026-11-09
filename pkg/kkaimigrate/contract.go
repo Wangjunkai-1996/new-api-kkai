@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	KnownCatalogVersion     int64 = MembershipPaymentSchemaVersion
+	KnownCatalogVersion     int64 = MembershipBillingRecoverySchemaVersion
 	MigrationContractSchema       = 1
 
 	MigrationKindNone     = "none"

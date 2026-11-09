@@ -19,6 +19,8 @@ func membershipPaymentProofFixture(t *testing.T) (*membershipPaymentControllerPr
 	t.Helper()
 	contract, err := kkaimigrate.ContractForDialect(kkaimigrate.DialectPostgres)
 	require.NoError(t, err)
+	contract.RuntimeMaxVersion = 20
+	delete(contract.CompatiblePrefixes, "21")
 	now := time.Unix(1800000000, 0)
 	status := &membershipPaymentMigrationStatus{
 		Schema: "kkai_membership_payment_migration_status_v1", CurrentVersion: 19, TargetVersion: 20, Safe: true,
@@ -54,17 +56,31 @@ func membershipPaymentProofFixture(t *testing.T) (*membershipPaymentControllerPr
 	return proof, status, now
 }
 
+func TestMembershipPaymentProofRejectsV21AndHistoricalRuntimeSubstitution(t *testing.T) {
+	proof, status, now := membershipPaymentProofFixture(t)
+	require.Error(t, validateMembershipPaymentControllerProof(proof, status, now), "historical runtime evidence cannot disguise the v21 migration binary")
+	current, err := kkaimigrate.ContractForDialect(kkaimigrate.DialectPostgres)
+	require.NoError(t, err)
+	for i := range proof.Runtimes {
+		proof.Runtimes[i].SchemaContract.SchemaContract = current
+	}
+	require.Error(t, validateMembershipPaymentControllerProof(proof, status, now), "v21 is outside the installed v20 controller contract")
+	status.CurrentVersion, status.MembershipPaymentSchemaPresent = 20, true
+	require.Error(t, validateMembershipPaymentControllerProof(proof, status, now), "a completed v20 receipt does not broaden controller authority")
+}
+
 func TestMembershipPaymentProofRejectsDriftAndIncompatibleRuntimes(t *testing.T) {
 	proof, status, now := membershipPaymentProofFixture(t)
-	require.NoError(t, validateMembershipPaymentControllerProof(proof, status, now))
+	expected := proof.Runtimes[0].SchemaContract.SchemaContract
+	require.NoError(t, validateMembershipPaymentProofAgainstContract(proof, status, now, expected))
 	encoded, err := common.Marshal(proof)
 	require.NoError(t, err)
 	var decoded membershipPaymentControllerProof
 	require.NoError(t, common.Unmarshal(encoded, &decoded))
-	require.NoError(t, validateMembershipPaymentControllerProof(&decoded, status, now))
+	require.NoError(t, validateMembershipPaymentProofAgainstContract(&decoded, status, now, expected))
 	status.CurrentVersion, status.MembershipPaymentSchemaPresent = 20, true
-	require.NoError(t, validateMembershipPaymentControllerProof(proof, status, now), "a completed canonical target remains idempotent")
-	assert.Error(t, validateMembershipPaymentControllerProof(proof, status, now.Add(119*time.Second)))
+	require.NoError(t, validateMembershipPaymentProofAgainstContract(proof, status, now, expected), "a completed canonical target remains idempotent")
+	assert.Error(t, validateMembershipPaymentProofAgainstContract(proof, status, now.Add(119*time.Second), expected))
 	for _, test := range []struct {
 		name string
 		edit func(*membershipPaymentControllerProof)
@@ -110,7 +126,7 @@ func TestMembershipPaymentProofRejectsDriftAndIncompatibleRuntimes(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			proof, status, now := membershipPaymentProofFixture(t)
 			test.edit(proof)
-			assert.Error(t, validateMembershipPaymentControllerProof(proof, status, now))
+			assert.Error(t, validateMembershipPaymentProofAgainstContract(proof, status, now, expected))
 		})
 	}
 	for _, test := range []struct {
@@ -130,7 +146,7 @@ func TestMembershipPaymentProofRejectsDriftAndIncompatibleRuntimes(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			proof, status, now := membershipPaymentProofFixture(t)
 			test.edit(status)
-			assert.Error(t, validateMembershipPaymentControllerProof(proof, status, now))
+			assert.Error(t, validateMembershipPaymentProofAgainstContract(proof, status, now, expected))
 		})
 	}
 }
@@ -173,12 +189,7 @@ func TestMembershipPaymentInspectionIsReadonlyAndRejectsUnreceiptedObjects(t *te
 	require.Len(t, planned.Pending, 1)
 	assert.EqualValues(t, 20, planned.Pending[0].Version)
 	output.Reset()
-	require.NoError(t, runMembershipPaymentMigration(ctx, db, "plan", "", &output))
-	var status membershipPaymentMigrationStatus
-	require.NoError(t, common.Unmarshal(output.Bytes(), &status))
-	assert.EqualValues(t, 19, status.CurrentVersion)
-	assert.False(t, status.MembershipPaymentSchemaPresent)
-	assert.Equal(t, kkaimigrate.MembershipPaymentPlanChecksum(), status.PlanChecksum)
+	assert.ErrorIs(t, runMembershipPaymentMigration(ctx, db, "plan", "", &output), kkaimigrate.ErrUnsafeMigration, "v21 is outside the installed v20 controller contract")
 	assert.Error(t, runMembershipPaymentMigration(ctx, db, "apply", membershipPaymentControllerProofPath, &output), "production mutation has no SQLite fallback")
 	assert.False(t, db.Migrator().HasTable("kkai_membership_payment_checks"))
 	require.NoError(t, db.Exec("PRAGMA query_only=OFF").Error)
@@ -190,10 +201,12 @@ func TestMembershipPaymentInspectionIsReadonlyAndRejectsUnreceiptedObjects(t *te
 	require.NoError(t, tx.Rollback().Error)
 	_, err = kkaimigrate.ApplyMembershipPaymentExpand(ctx, db, kkaimigrate.Options{Offline: true})
 	require.NoError(t, err)
-	statusAfter, err := inspectMembershipPaymentMigration(ctx, db)
+	_, err = inspectMembershipPaymentMigration(ctx, db)
+	require.ErrorIs(t, err, kkaimigrate.ErrUnsafeMigration)
+	statusAfter, err := kkaimigrate.PrecheckMembershipPaymentExpand(ctx, db)
 	require.NoError(t, err)
 	assert.EqualValues(t, 20, statusAfter.CurrentVersion)
-	assert.True(t, statusAfter.MembershipPaymentSchemaPresent)
+	require.NoError(t, kkaimigrate.CheckMembershipPaymentSchema(ctx, db))
 	var receipt kkaimigrate.AppliedMigration
 	require.NoError(t, db.Where("version = ?", 20).Take(&receipt).Error)
 	require.NoError(t, db.Where("version = ?", 20).Delete(&receipt).Error)

@@ -58,7 +58,7 @@ func main() {
 	flag.BoolVar(&describe, "describe-contract", false, "describe the runtime schema contract")
 	flag.StringVar(&dialect, "dialect", "", "database dialect for --describe-contract")
 	flag.Int64Var(&minimumVersion, "min-version", 0, "minimum schema version for --check; defaults to the dialect requirement")
-	flag.Int64Var(&targetVersion, "target", 0, "explicit target: 3 (new database baseline), 4, 5, 6, 7, 8, 9, 10, 11, or 13; 15/16/17/18/19/20 permit precheck/dry-run only; target 12 is retired; omitted keeps the runtime target")
+	flag.Int64Var(&targetVersion, "target", 0, "explicit target: 3 (new database baseline), 4, 5, 6, 7, 8, 9, 10, 11, or 13; 15/16/17/18/19/20/21 permit precheck/dry-run only; target 12 is retired; omitted keeps the runtime target")
 	flag.BoolVar(&observe, "observe", false, "read and validate the current database migration prefix")
 	flag.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
@@ -156,8 +156,8 @@ func main() {
 		return
 	}
 	if precheck {
-		if !jsonOutput || (targetVersion != kkaimigrate.AuthenticationSchemaVersion && targetVersion != kkaimigrate.TenantSchemaVersion && targetVersion != kkaimigrate.TenantCompatibilitySchemaVersion && targetVersion != kkaimigrate.ResellerApplicationSchemaVersion && targetVersion != kkaimigrate.RequestTicketSchemaVersion && targetVersion != kkaimigrate.InvoiceSchemaVersion && targetVersion != kkaimigrate.WalletPaymentSchemaVersion && targetVersion != kkaimigrate.ShopSchemaVersion && targetVersion != kkaimigrate.MembershipPaymentSchemaVersion) || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
-			log.Fatal("--precheck requires --target 8, 12, 13, 15, 16, 17, 18, 19, or 20 and --json and cannot be combined with other operations")
+		if !jsonOutput || (targetVersion != kkaimigrate.AuthenticationSchemaVersion && targetVersion != kkaimigrate.TenantSchemaVersion && targetVersion != kkaimigrate.TenantCompatibilitySchemaVersion && targetVersion != kkaimigrate.ResellerApplicationSchemaVersion && targetVersion != kkaimigrate.RequestTicketSchemaVersion && targetVersion != kkaimigrate.InvoiceSchemaVersion && targetVersion != kkaimigrate.WalletPaymentSchemaVersion && targetVersion != kkaimigrate.ShopSchemaVersion && targetVersion != kkaimigrate.MembershipPaymentSchemaVersion && targetVersion != kkaimigrate.MembershipBillingRecoverySchemaVersion) || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
+			log.Fatal("--precheck requires --target 8, 12, 13, 15, 16, 17, 18, 19, 20, or 21 and --json and cannot be combined with other operations")
 		}
 	} else if observe {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
@@ -316,12 +316,14 @@ func runMigrationPrecheck(ctx context.Context, db *gorm.DB, target int64, output
 		result, err = kkaimigrate.PrecheckInvoiceExpand(ctx, db)
 	case kkaimigrate.MembershipPaymentSchemaVersion:
 		result, err = kkaimigrate.PrecheckMembershipPaymentExpand(ctx, db)
+	case kkaimigrate.MembershipBillingRecoverySchemaVersion:
+		result, err = kkaimigrate.PrecheckMembershipBillingRecoveryExpand(ctx, db)
 	case kkaimigrate.ShopSchemaVersion:
 		result, err = kkaimigrate.PrecheckShopExpand(ctx, db)
 	case kkaimigrate.WalletPaymentSchemaVersion:
 		result, err = kkaimigrate.PrecheckWalletPaymentExpand(ctx, db)
 	default:
-		return fmt.Errorf("unsupported precheck target %d; expected 8, 12, 13, 15, 16, 17, 18, 19, or 20", target)
+		return fmt.Errorf("unsupported precheck target %d; expected 8, 12, 13, 15, 16, 17, 18, 19, 20, or 21", target)
 	}
 	if err != nil {
 		return err
@@ -387,6 +389,11 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 			return nil, fmt.Errorf("%w: target 20 is read-only; use the separately authorized installed membership payment migration controller", kkaimigrate.ErrUnsafeMigration)
 		}
 		return kkaimigrate.ApplyMembershipPaymentExpand(ctx, db, options)
+	case kkaimigrate.MembershipBillingRecoverySchemaVersion:
+		if !options.DryRun {
+			return nil, fmt.Errorf("%w: target 21 is read-only; the membership billing recovery production controller is not implemented", kkaimigrate.ErrUnsafeMigration)
+		}
+		return kkaimigrate.ApplyMembershipBillingRecoveryExpand(ctx, db, options)
 	case kkaimigrate.ShopSchemaVersion:
 		if !options.DryRun {
 			return nil, fmt.Errorf("%w: target 19 is read-only; use the separately authorized installed shop migration controller", kkaimigrate.ErrUnsafeMigration)
@@ -398,7 +405,7 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 		}
 		return kkaimigrate.ApplyWalletPaymentExpand(ctx, db, options)
 	default:
-		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, or read-only 15/16/17/18/19/20", targetVersion)
+		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, or read-only 15/16/17/18/19/20/21", targetVersion)
 	}
 }
 

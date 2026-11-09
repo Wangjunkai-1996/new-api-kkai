@@ -173,6 +173,14 @@ func migrationSet() []migration {
 			ChecksumVersion:  migrationChecksumSchemaCurrent,
 			Statements:       membershipPaymentSchemaStatements,
 		},
+		{
+			Version:          MembershipBillingRecoverySchemaVersion,
+			Name:             "membership_billing_recovery",
+			Kind:             MigrationKindExpand,
+			ImplementationID: "membership_billing_recovery_v21",
+			ChecksumVersion:  migrationChecksumSchemaCurrent,
+			Statements:       membershipBillingRecoverySchemaStatements,
+		},
 	}
 }
 

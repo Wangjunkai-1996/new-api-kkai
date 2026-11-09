@@ -110,6 +110,7 @@ func validateRequestTicketProof(proof *requestTicketControllerProof, status *req
 	delete(expected.CompatiblePrefixes, "18")
 	delete(expected.CompatiblePrefixes, "19")
 	delete(expected.CompatiblePrefixes, "20")
+	delete(expected.CompatiblePrefixes, "21")
 	if expected.RuntimeMinVersion != 14 || expected.RuntimeMaxVersion != 16 || expected.MigrationTargetVersion != 14 || status.Schema != "kkai_request_ticket_v1" || (status.CurrentVersion != 15 && status.CurrentVersion != 16) || status.TargetVersion != 16 || !status.Safe || status.SourceDigest != expected.CompatiblePrefixes["15"] || status.TargetDigest != expected.CompatiblePrefixes["16"] || status.PlanChecksum != kkaimigrate.RequestTicketPlanChecksum() {
 		return fmt.Errorf("request ticket controller requires the exact compiled v15/v16 contract")
 	}

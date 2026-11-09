@@ -394,7 +394,7 @@ func PrecheckWalletPaymentExpand(ctx context.Context, db *gorm.DB) (*WalletPayme
 func CheckWalletPaymentSchema(ctx context.Context, db *gorm.DB) error {
 	// Later application schemas must have canonical receipts, but their physical shape
 	// does not gate wallet payments.
-	return checkThroughMigrationSet(ctx, db, WalletPaymentSchemaVersion, WalletPaymentSchemaVersion, MembershipPaymentSchemaVersion, migrationSet(), WalletPaymentSchemaVersion)
+	return checkThroughMigrationSet(ctx, db, WalletPaymentSchemaVersion, WalletPaymentSchemaVersion, KnownCatalogVersion, migrationSet(), WalletPaymentSchemaVersion)
 }
 
 // WalletPaymentLedgerVersion validates canonical receipts without running the
@@ -412,7 +412,7 @@ func WalletPaymentLedgerVersion(ctx context.Context, db *gorm.DB) (int64, error)
 	if err != nil {
 		return 0, err
 	}
-	if err := validateAppliedAgainstMigrationSet(applied, dialect, MembershipPaymentSchemaVersion, set); err != nil {
+	if err := validateAppliedAgainstMigrationSet(applied, dialect, KnownCatalogVersion, set); err != nil {
 		return 0, err
 	}
 	var version int64

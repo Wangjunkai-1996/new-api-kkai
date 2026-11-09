@@ -119,6 +119,7 @@ func validateInvoiceControllerProof(proof *invoiceControllerProof, status *invoi
 	delete(expected.CompatiblePrefixes, "18")
 	delete(expected.CompatiblePrefixes, "19")
 	delete(expected.CompatiblePrefixes, "20")
+	delete(expected.CompatiblePrefixes, "21")
 	if expected.RuntimeMinVersion != 14 || expected.RuntimeMaxVersion != 17 || expected.MigrationTargetVersion != 14 || status.Schema != "kkai_invoice_migration_status_v1" || (status.CurrentVersion != 16 && status.CurrentVersion != 17) || status.TargetVersion != 17 || !status.Safe || status.SourceDigest != expected.CompatiblePrefixes["16"] || status.TargetDigest != expected.CompatiblePrefixes["17"] || status.PlanChecksum != kkaimigrate.InvoicePlanChecksum() || status.InvoicesPresent != (status.CurrentVersion == 17) {
 		return fmt.Errorf("invoice controller requires the exact canonical v16/v17 database and compiled plan")
 	}

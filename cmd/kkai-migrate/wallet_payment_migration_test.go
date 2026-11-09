@@ -22,6 +22,7 @@ func walletPaymentProofFixture(t *testing.T) (*walletPaymentControllerProof, *wa
 	contract.RuntimeMaxVersion = 18
 	delete(contract.CompatiblePrefixes, "19")
 	delete(contract.CompatiblePrefixes, "20")
+	delete(contract.CompatiblePrefixes, "21")
 	now := time.Unix(1800000000, 0)
 	status := &walletPaymentMigrationStatus{
 		Schema: "kkai_wallet_payment_migration_status_v1", CurrentVersion: 17, TargetVersion: 18, Safe: true,
@@ -72,6 +73,7 @@ func TestWalletPaymentProofRejectsDriftAndIncompatibleRuntimes(t *testing.T) {
 		name string
 		edit func(*walletPaymentControllerProof)
 	}{
+		{"unreviewed-v21", func(p *walletPaymentControllerProof) { p.Runtimes[1].SchemaContract.RuntimeMaxVersion = 21 }},
 		{"invoice-protocol", func(p *walletPaymentControllerProof) { p.Protocol = "invoice-migration-v1" }},
 		{"invoice-schema", func(p *walletPaymentControllerProof) { p.Schema = "kkai_invoice_migration_proof_v1" }},
 		{"wrong-operation", func(p *walletPaymentControllerProof) { p.Operation = "status" }},
@@ -163,12 +165,11 @@ func TestWalletPaymentInspectionRejectsUnreceiptedObjects(t *testing.T) {
 	}
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	var output bytes.Buffer
-	require.NoError(t, runWalletPaymentMigration(ctx, db, "plan", "", &output))
-	var status walletPaymentMigrationStatus
+	assert.ErrorIs(t, runWalletPaymentMigration(ctx, db, "plan", "", &output), kkaimigrate.ErrUnsafeMigration, "v21 is outside the installed controller contract")
+	require.NoError(t, runMigrationPrecheck(ctx, db, kkaimigrate.WalletPaymentSchemaVersion, &output))
+	var status kkaimigrate.WalletPaymentExpandPrecheck
 	require.NoError(t, common.Unmarshal(output.Bytes(), &status))
 	assert.EqualValues(t, 17, status.CurrentVersion)
-	assert.False(t, status.WalletSchemaPresent)
-	assert.Equal(t, kkaimigrate.WalletPaymentPlanChecksum(), status.PlanChecksum)
 	assert.Error(t, runWalletPaymentMigration(ctx, db, "apply", walletPaymentControllerProofPath, &output))
 	require.NoError(t, db.Exec("PRAGMA query_only=OFF").Error)
 	for _, ddl := range []string{
@@ -183,7 +184,7 @@ func TestWalletPaymentInspectionRejectsUnreceiptedObjects(t *testing.T) {
 		require.NoError(t, tx.Rollback().Error)
 	}
 	_, err = inspectWalletPaymentMigration(ctx, db)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, kkaimigrate.ErrUnsafeMigration)
 	_, err = kkaimigrate.ApplyWalletPaymentExpand(ctx, db, kkaimigrate.Options{Offline: true})
 	require.NoError(t, err)
 	var receipt kkaimigrate.AppliedMigration
@@ -194,10 +195,11 @@ func TestWalletPaymentInspectionRejectsUnreceiptedObjects(t *testing.T) {
 	require.NoError(t, db.Create(&receipt).Error)
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	output.Reset()
-	require.NoError(t, runWalletPaymentMigration(ctx, db, "status", "", &output))
+	assert.ErrorIs(t, runWalletPaymentMigration(ctx, db, "status", "", &output), kkaimigrate.ErrUnsafeMigration)
+	require.NoError(t, runMigrationPrecheck(ctx, db, kkaimigrate.WalletPaymentSchemaVersion, &output))
 	require.NoError(t, common.Unmarshal(output.Bytes(), &status))
 	assert.EqualValues(t, 18, status.CurrentVersion)
-	assert.True(t, status.WalletSchemaPresent)
+	require.NoError(t, kkaimigrate.CheckWalletPaymentSchema(ctx, db))
 	require.NoError(t, db.Exec("PRAGMA query_only=OFF").Error)
 	require.NoError(t, db.Exec("DROP INDEX idx_wallet_topup_request").Error)
 	_, err = inspectWalletPaymentMigration(ctx, db)

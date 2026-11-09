@@ -21,6 +21,7 @@ func shopProofFixture(t *testing.T) (*shopControllerProof, *shopMigrationStatus,
 	require.NoError(t, err)
 	contract.RuntimeMaxVersion = 19
 	delete(contract.CompatiblePrefixes, "20")
+	delete(contract.CompatiblePrefixes, "21")
 	now := time.Unix(1800000000, 0)
 	status := &shopMigrationStatus{
 		Schema: "kkai_shop_migration_status_v1", CurrentVersion: 18, TargetVersion: 19, Safe: true,
@@ -71,6 +72,7 @@ func TestShopProofRejectsDriftAndIncompatibleRuntimes(t *testing.T) {
 		name string
 		edit func(*shopControllerProof)
 	}{
+		{"unreviewed-v21", func(p *shopControllerProof) { p.Runtimes[1].SchemaContract.RuntimeMaxVersion = 21 }},
 		{"invoice-protocol", func(p *shopControllerProof) { p.Protocol = "invoice-migration-v1" }},
 		{"invoice-schema", func(p *shopControllerProof) { p.Schema = "kkai_invoice_migration_proof_v1" }},
 		{"wrong-operation", func(p *shopControllerProof) { p.Operation = "status" }},
@@ -161,12 +163,11 @@ func TestShopInspectionIsReadonlyAndRejectsUnreceiptedObjects(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	var output bytes.Buffer
-	require.NoError(t, runShopMigration(ctx, db, "plan", "", &output))
-	var status shopMigrationStatus
+	assert.ErrorIs(t, runShopMigration(ctx, db, "plan", "", &output), kkaimigrate.ErrUnsafeMigration, "v21 is outside the installed controller contract")
+	require.NoError(t, runMigrationPrecheck(ctx, db, kkaimigrate.ShopSchemaVersion, &output))
+	var status kkaimigrate.ShopExpandPrecheck
 	require.NoError(t, common.Unmarshal(output.Bytes(), &status))
 	assert.EqualValues(t, 18, status.CurrentVersion)
-	assert.False(t, status.ShopSchemaPresent)
-	assert.Equal(t, kkaimigrate.ShopPlanChecksum(), status.PlanChecksum)
 	assert.Error(t, runShopMigration(ctx, db, "apply", shopControllerProofPath, &output), "production mutation has no SQLite fallback")
 	assert.False(t, db.Migrator().HasTable("shop_orders"))
 	require.NoError(t, db.Exec("PRAGMA query_only=OFF").Error)
@@ -178,10 +179,12 @@ func TestShopInspectionIsReadonlyAndRejectsUnreceiptedObjects(t *testing.T) {
 	require.NoError(t, tx.Rollback().Error)
 	_, err = kkaimigrate.ApplyShopExpand(ctx, db, kkaimigrate.Options{Offline: true})
 	require.NoError(t, err)
-	statusAfter, err := inspectShopMigration(ctx, db)
+	_, err = inspectShopMigration(ctx, db)
+	require.ErrorIs(t, err, kkaimigrate.ErrUnsafeMigration)
+	statusAfter, err := kkaimigrate.PrecheckShopExpand(ctx, db)
 	require.NoError(t, err)
 	assert.EqualValues(t, 19, statusAfter.CurrentVersion)
-	assert.True(t, statusAfter.ShopSchemaPresent)
+	require.NoError(t, kkaimigrate.CheckShopSchema(ctx, db))
 	var receipt kkaimigrate.AppliedMigration
 	require.NoError(t, db.Where("version = ?", 19).Take(&receipt).Error)
 	require.NoError(t, db.Where("version = ?", 19).Delete(&receipt).Error)

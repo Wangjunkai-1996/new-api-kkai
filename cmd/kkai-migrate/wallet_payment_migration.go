@@ -131,6 +131,7 @@ func validateWalletPaymentControllerProof(proof *walletPaymentControllerProof, s
 	expected.RuntimeMaxVersion = 18
 	delete(expected.CompatiblePrefixes, "19")
 	delete(expected.CompatiblePrefixes, "20")
+	delete(expected.CompatiblePrefixes, "21")
 	if expected.RuntimeMinVersion != 14 || expected.RuntimeMaxVersion != 18 || expected.MigrationTargetVersion != 14 ||
 		status.Schema != "kkai_wallet_payment_migration_status_v1" || (status.CurrentVersion != 17 && status.CurrentVersion != 18) ||
 		status.TargetVersion != 18 || !status.Safe ||
