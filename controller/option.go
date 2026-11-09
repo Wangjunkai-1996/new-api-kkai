@@ -196,6 +196,10 @@ func UpdateOption(c *gin.Context) {
 		})
 		return
 	}
+	if option.Key == model.MembershipBillingRecoveryControlOption {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": model.ErrMembershipRecoveryControlReadOnly.Error()})
+		return
+	}
 	switch option.Value.(type) {
 	case bool:
 		option.Value = common.Interface2String(option.Value.(bool))

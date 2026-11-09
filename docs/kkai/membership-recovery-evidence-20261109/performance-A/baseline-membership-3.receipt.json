@@ -1,0 +1,52 @@
+{
+  "label": "baseline",
+  "revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+  "command": [
+    "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline.test",
+    "-test.run",
+    "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-(1|4)/conflicts-(0|501)/apply/(sse|json)/(finite|unlimited)$",
+    "-test.count=1",
+    "-test.timeout=180s",
+    "-test.v"
+  ],
+  "samples_per_cell": 200,
+  "worker_policy": "continuous",
+  "gomaxprocs": 4,
+  "binary_sha256": "537344e3d9f2f98b55c258e030be5fe78e3c451a4b272c17aaae6e881940d2f5",
+  "resource_before": {
+    "state": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 574,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-09T12:00:34.723987709Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "memory_limit_bytes": 1073741824,
+    "stats": "{\"BlockIO\":\"60.8MB / 1.25GB\",\"CPUPerc\":\"0.12%\",\"Container\":\"kkai-membership-perf-pg18-6a44d8\",\"ID\":\"70add68197da\",\"MemPerc\":\"10.12%\",\"MemUsage\":\"103.6MiB / 1GiB\",\"Name\":\"kkai-membership-perf-pg18-6a44d8\",\"NetIO\":\"296MB / 633MB\",\"PIDs\":\"9\"}"
+  },
+  "exit_code": 0,
+  "wall_seconds": 89.17570312500175,
+  "resource_after": {
+    "state": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 574,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-09T12:00:34.723987709Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "memory_limit_bytes": 1073741824,
+    "stats": "{\"BlockIO\":\"61.3MB / 1.54GB\",\"CPUPerc\":\"0.04%\",\"Container\":\"kkai-membership-perf-pg18-6a44d8\",\"ID\":\"70add68197da\",\"MemPerc\":\"10.63%\",\"MemUsage\":\"108.9MiB / 1GiB\",\"Name\":\"kkai-membership-perf-pg18-6a44d8\",\"NetIO\":\"374MB / 796MB\",\"PIDs\":\"9\"}"
+  }
+}

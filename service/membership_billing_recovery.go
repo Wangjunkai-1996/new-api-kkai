@@ -94,10 +94,14 @@ func RegisterMembershipBillingRecoveryJob(registry *BackgroundJobRegistry, worke
 	if registry == nil || !leaderLeaseNamePattern.MatchString(workerID) {
 		return ErrInvalidBackgroundJob
 	}
-	membershipBillingRecoveryMode.Store(mode)
+	initializeMembershipRecoveryControl(workerID, mode)
+	if err := registry.Register(MembershipBillingRecoveryControlPollJob()); err != nil {
+		return err
+	}
 	worker := &membershipBillingRecoveryWorker{workerID: workerID}
 	return registry.Register(BackgroundJob{
 		Name: "membership-relay-reconcile", Interval: time.Minute, RunOnStart: true,
+		Wakeup:     membershipRecoveryRuntime.wakeup,
 		WritesData: true, RequiresLeaderLease: true, Run: worker.run,
 	})
 }
@@ -118,7 +122,11 @@ type membershipBillingRecoveryCounts struct {
 }
 
 func (w *membershipBillingRecoveryWorker) run(parent context.Context) error {
-	mode := MembershipBillingRecoveryMode()
+	control, err := refreshMembershipRecoveryControl(parent)
+	if err != nil {
+		return err
+	}
+	mode := control.Mode
 	if mode == "paused" {
 		logger.LogWarn(parent, "membership recovery paused; automatic financial adjustments are disabled")
 		return nil
@@ -126,7 +134,10 @@ func (w *membershipBillingRecoveryWorker) run(parent context.Context) error {
 	if !model.MembershipEnabled() {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
+	ctx, cancel, err := beginMembershipRecoveryRound(parent, control)
+	if err != nil {
+		return err
+	}
 	defer cancel()
 	if err := CheckMembershipBillingRecoveryRuntimeSchema(ctx, model.DB); err != nil {
 		present, inspectErr := kkaimigrate.MembershipBillingRecoverySchemaObjectsPresent(model.DB.WithContext(ctx))
@@ -150,6 +161,9 @@ func (w *membershipBillingRecoveryWorker) run(parent context.Context) error {
 	ctx = model.WithMembershipRecoveryGuard(ctx, func(tx *gorm.DB) error {
 		if MembershipBillingRecoveryMode() == "paused" {
 			return context.Canceled
+		}
+		if err := model.RequireMembershipRecoveryControlTx(tx, control); err != nil {
+			return err
 		}
 		return model.RequireMembershipRecoveryLeaderTx(tx, fence)
 	})

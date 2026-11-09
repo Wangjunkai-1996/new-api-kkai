@@ -1,0 +1,50 @@
+{
+  "created_utc": "2026-11-09T12:54:56.986327+00:00",
+  "purpose": "diagnose original frozen-protocol A flags; does not overwrite originals or acceptance bounds",
+  "samples": 200,
+  "cell_order": [
+    "baseline/continuous",
+    "candidate-A/continuous",
+    "candidate-A/continuous",
+    "baseline/continuous",
+    "baseline/none",
+    "candidate-A/none"
+  ],
+  "scenarios": [
+    {
+      "id": "member4-sse-finite",
+      "funding": "membership",
+      "users": 4,
+      "conflicts": 0,
+      "protocol": "sse",
+      "token": "finite"
+    },
+    {
+      "id": "member4-sse-unlimited",
+      "funding": "membership",
+      "users": 4,
+      "conflicts": 0,
+      "protocol": "sse",
+      "token": "unlimited"
+    },
+    {
+      "id": "wallet1-conflict-sse-unlimited",
+      "funding": "wallet",
+      "users": 1,
+      "conflicts": 501,
+      "protocol": "sse",
+      "token": "unlimited"
+    },
+    {
+      "id": "wallet1-conflict-json-finite",
+      "funding": "wallet",
+      "users": 1,
+      "conflicts": 501,
+      "protocol": "json",
+      "token": "finite"
+    }
+  ],
+  "instrumentation": "same read-only PostgreSQL activity/wait/lock sampling every50ms for all cells, Docker cgroup CPU+IO before/after, no application binary changes",
+  "classification": "diagnostic only; sampler overhead not subtracted; no reruns until pass",
+  "frozen_noise_sha256": "59a8a735c193f540bfa8bd5d643be5e1ac21fff444be0940de7e9e54a67af8ae"
+}

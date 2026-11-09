@@ -1,0 +1,2260 @@
+{
+  "purpose": "diagnose original frozen-protocol A flags; does not overwrite originals or acceptance bounds",
+  "original_flags": [
+    {
+      "cell": "membership|4|0|sse|False",
+      "metric": "complete_p95_ms",
+      "baseline_boundary": 29.114041,
+      "candidate": [
+        30.856416,
+        123.149042
+      ]
+    },
+    {
+      "cell": "membership|4|0|sse|True",
+      "metric": "content_p50_ms",
+      "baseline_boundary": 12.97125,
+      "candidate": [
+        13.463416,
+        16.004333
+      ]
+    },
+    {
+      "cell": "membership|4|0|sse|True",
+      "metric": "complete_p50_ms",
+      "baseline_boundary": 21.981333,
+      "candidate": [
+        22.854583,
+        26.901959
+      ]
+    },
+    {
+      "cell": "membership|4|0|sse|True",
+      "metric": "requests_per_second",
+      "baseline_boundary": 173.89675645926548,
+      "candidate": [
+        170.03932584508485,
+        134.69242107789012
+      ]
+    },
+    {
+      "cell": "wallet|1|501|sse|True",
+      "metric": "complete_p95_ms",
+      "baseline_boundary": 54.416334,
+      "candidate": [
+        464.734708,
+        54.809166
+      ]
+    },
+    {
+      "cell": "wallet|1|501|json|False",
+      "metric": "content_p95_ms",
+      "baseline_boundary": 58.540708,
+      "candidate": [
+        85.333833,
+        58.617083
+      ]
+    },
+    {
+      "cell": "wallet|1|501|json|False",
+      "metric": "complete_p95_ms",
+      "baseline_boundary": 58.540708,
+      "candidate": [
+        85.333833,
+        58.617083
+      ]
+    },
+    {
+      "cell": "wallet|1|501|json|False",
+      "metric": "requests_per_second",
+      "baseline_boundary": 85.50330021363,
+      "candidate": [
+        68.42038665814434,
+        81.34726801893206
+      ]
+    }
+  ],
+  "frozen_noise_sha256": "59a8a735c193f540bfa8bd5d643be5e1ac21fff444be0940de7e9e54a67af8ae",
+  "scenarios": [
+    {
+      "scenario": {
+        "id": "member4-sse-finite",
+        "funding": "membership",
+        "users": 4,
+        "conflicts": 0,
+        "protocol": "sse",
+        "token": "finite"
+      },
+      "cells": [
+        {
+          "file": "diagnostic-member4-sse-finite-1-baseline-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 20.635292,
+            "complete_p95_ms": 23.463625,
+            "complete_p99_ms": 45.25625,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "sse",
+            "unlimited_token": false,
+            "worker_policy": "continuous",
+            "worker_runs": 11,
+            "worker_active_ms": 8.423792,
+            "process_cpu_ms": 964.931,
+            "heap_allocated_bytes": 109242080,
+            "heap_live_bytes": 17938800,
+            "gc_cycles": 9,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1069.064084,
+            "observation_wall_ms": 1069.132959,
+            "requests_per_second": 187.07952403721384,
+            "worker_ms": 1069.022792,
+            "sql_count_including_worker": 8411,
+            "sql_sum_ms_including_worker": 3553.635882,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 12.21375,
+            "content_p95_ms": 13.867875,
+            "content_p99_ms": 31.5535,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|None|None": 2,
+            "idle in transaction|Client|ClientRead": 50,
+            "idle in transaction|None|None": 3,
+            "active|Lock|transactionid": 1,
+            "active|IO|WalSync": 5,
+            "active|Client|ClientRead": 4
+          },
+          "lock_tables": {
+            "\"channels\"": 1
+          },
+          "blocked_observations": 1,
+          "largest_observed_query_age_ms": 0.965,
+          "container_cpu_delta": {
+            "usage_usec": 836695,
+            "user_usec": 535210,
+            "system_usec": 301486,
+            "nice_usec": 0,
+            "nr_periods": 39,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.7626953125,
+            5.48876953125,
+            6.97705078125
+          ],
+          "host_load_after": [
+            5.701171875,
+            5.48046875,
+            6.96533203125
+          ]
+        },
+        {
+          "file": "diagnostic-member4-sse-finite-2-candidate-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 20.433167,
+            "complete_p95_ms": 23.129292,
+            "complete_p99_ms": 43.183208,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "sse",
+            "unlimited_token": false,
+            "worker_policy": "continuous",
+            "worker_runs": 11,
+            "worker_active_ms": 0.152208,
+            "process_cpu_ms": 967.099,
+            "heap_allocated_bytes": 109273760,
+            "heap_live_bytes": 16336424,
+            "gc_cycles": 9,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1058.226458,
+            "observation_wall_ms": 1058.297708,
+            "requests_per_second": 188.99546357779687,
+            "worker_ms": 1058.191959,
+            "sql_count_including_worker": 8400,
+            "sql_sum_ms_including_worker": 3484.894281,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 12.063,
+            "content_p95_ms": 13.707334,
+            "content_p99_ms": 27.927958,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|IO|WalSync": 7,
+            "idle in transaction|Client|ClientRead": 46,
+            "idle in transaction|None|None": 7,
+            "active|None|None": 4,
+            "active|Client|ClientRead": 1,
+            "active|Lock|transactionid": 1
+          },
+          "lock_tables": {
+            "\"channels\"": 1
+          },
+          "blocked_observations": 1,
+          "largest_observed_query_age_ms": 0.612,
+          "container_cpu_delta": {
+            "usage_usec": 917191,
+            "user_usec": 614869,
+            "system_usec": 302321,
+            "nice_usec": 0,
+            "nr_periods": 53,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.701171875,
+            5.48046875,
+            6.96533203125
+          ],
+          "host_load_after": [
+            6.04541015625,
+            5.55517578125,
+            6.98291015625
+          ]
+        },
+        {
+          "file": "diagnostic-member4-sse-finite-3-candidate-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 20.617125,
+            "complete_p95_ms": 23.611083,
+            "complete_p99_ms": 30.047875,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "sse",
+            "unlimited_token": false,
+            "worker_policy": "continuous",
+            "worker_runs": 11,
+            "worker_active_ms": 0.109708,
+            "process_cpu_ms": 991.785,
+            "heap_allocated_bytes": 109413504,
+            "heap_live_bytes": 18014056,
+            "gc_cycles": 9,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1059.700042,
+            "observation_wall_ms": 1059.757375,
+            "requests_per_second": 188.73265270664206,
+            "worker_ms": 1059.681833,
+            "sql_count_including_worker": 8400,
+            "sql_sum_ms_including_worker": 3490.503346,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 12.319916,
+            "content_p95_ms": 14.64075,
+            "content_p99_ms": 20.420334,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|None|None": 5,
+            "idle in transaction|Client|ClientRead": 55,
+            "active|IO|DataFileExtend": 1,
+            "idle in transaction|None|None": 4,
+            "active|IO|WalSync": 4
+          },
+          "lock_tables": {},
+          "blocked_observations": 0,
+          "largest_observed_query_age_ms": 0.833,
+          "container_cpu_delta": {
+            "usage_usec": 867118,
+            "user_usec": 555641,
+            "system_usec": 311476,
+            "nice_usec": 0,
+            "nr_periods": 43,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            6.04541015625,
+            5.55517578125,
+            6.98291015625
+          ],
+          "host_load_after": [
+            5.88134765625,
+            5.529296875,
+            6.96533203125
+          ]
+        },
+        {
+          "file": "diagnostic-member4-sse-finite-4-baseline-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 20.391459,
+            "complete_p95_ms": 24.135584,
+            "complete_p99_ms": 42.156791,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "sse",
+            "unlimited_token": false,
+            "worker_policy": "continuous",
+            "worker_runs": 11,
+            "worker_active_ms": 6.829792,
+            "process_cpu_ms": 964.099,
+            "heap_allocated_bytes": 109285664,
+            "heap_live_bytes": 18646800,
+            "gc_cycles": 9,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1061.089417,
+            "observation_wall_ms": 1061.153958,
+            "requests_per_second": 188.4855289250331,
+            "worker_ms": 1061.020708,
+            "sql_count_including_worker": 8411,
+            "sql_sum_ms_including_worker": 3522.36932,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 11.984583,
+            "content_p95_ms": 14.997958,
+            "content_p99_ms": 29.367209,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|None|None": 2,
+            "idle in transaction|Client|ClientRead": 61,
+            "idle in transaction|None|None": 2,
+            "active|IO|WalSync": 1,
+            "active|Lock|transactionid": 1,
+            "active|Client|ClientRead": 2
+          },
+          "lock_tables": {
+            "\"channels\"": 1
+          },
+          "blocked_observations": 0,
+          "largest_observed_query_age_ms": 0.545,
+          "container_cpu_delta": {
+            "usage_usec": 843176,
+            "user_usec": 550237,
+            "system_usec": 292939,
+            "nice_usec": 0,
+            "nr_periods": 42,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.88134765625,
+            5.529296875,
+            6.96533203125
+          ],
+          "host_load_after": [
+            6.130859375,
+            5.5869140625,
+            6.97705078125
+          ]
+        },
+        {
+          "file": "diagnostic-member4-sse-finite-5-baseline-none.jsonl",
+          "metrics": {
+            "complete_p50_ms": 20.585541,
+            "complete_p95_ms": 23.343,
+            "complete_p99_ms": 39.609458,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "sse",
+            "unlimited_token": false,
+            "worker_policy": "none",
+            "worker_runs": 0,
+            "worker_active_ms": 0,
+            "process_cpu_ms": 959.917,
+            "heap_allocated_bytes": 109037696,
+            "heap_live_bytes": 16530744,
+            "gc_cycles": 9,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1060.862625,
+            "observation_wall_ms": 1060.919542,
+            "requests_per_second": 188.52582350141708,
+            "worker_ms": 4.2e-05,
+            "sql_count_including_worker": 8400,
+            "sql_sum_ms_including_worker": 3494.077465,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 12.147792,
+            "content_p95_ms": 14.552417,
+            "content_p99_ms": 26.940958,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|None|None": 3,
+            "idle in transaction|Client|ClientRead": 59,
+            "active|IO|WalSync": 5,
+            "active|Lock|transactionid": 1,
+            "active|Client|ClientRead": 2,
+            "idle in transaction|None|None": 2,
+            "active|LWLock|WALWrite": 1
+          },
+          "lock_tables": {
+            "\"channels\"": 1
+          },
+          "blocked_observations": 1,
+          "largest_observed_query_age_ms": 0.718,
+          "container_cpu_delta": {
+            "usage_usec": 830758,
+            "user_usec": 556605,
+            "system_usec": 274153,
+            "nice_usec": 0,
+            "nr_periods": 43,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            6.130859375,
+            5.5869140625,
+            6.97705078125
+          ],
+          "host_load_after": [
+            6.5205078125,
+            5.6767578125,
+            7.00048828125
+          ]
+        },
+        {
+          "file": "diagnostic-member4-sse-finite-6-candidate-none.jsonl",
+          "metrics": {
+            "complete_p50_ms": 23.046875,
+            "complete_p95_ms": 31.802541,
+            "complete_p99_ms": 39.065417,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "sse",
+            "unlimited_token": false,
+            "worker_policy": "none",
+            "worker_runs": 0,
+            "worker_active_ms": 0,
+            "process_cpu_ms": 1069.233,
+            "heap_allocated_bytes": 109206480,
+            "heap_live_bytes": 29130984,
+            "gc_cycles": 8,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1211.097041,
+            "observation_wall_ms": 1211.163333,
+            "requests_per_second": 165.13953319121356,
+            "worker_ms": 8.3e-05,
+            "sql_count_including_worker": 8400,
+            "sql_sum_ms_including_worker": 3990.290101,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 13.510458,
+            "content_p95_ms": 19.171125,
+            "content_p99_ms": 27.303583,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "idle in transaction|Client|ClientRead": 55,
+            "idle in transaction|None|None": 2,
+            "active|Client|ClientRead": 2,
+            "active|Lock|transactionid": 1,
+            "active|IO|WalSync": 7,
+            "active|None|None": 4
+          },
+          "lock_tables": {
+            "\"channels\"": 1
+          },
+          "blocked_observations": 1,
+          "largest_observed_query_age_ms": 0.945,
+          "container_cpu_delta": {
+            "usage_usec": 926870,
+            "user_usec": 616935,
+            "system_usec": 309935,
+            "nice_usec": 0,
+            "nr_periods": 44,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            6.5205078125,
+            5.6767578125,
+            7.00048828125
+          ],
+          "host_load_after": [
+            6.23828125,
+            5.6318359375,
+            6.9765625
+          ]
+        }
+      ],
+      "cross_source": {
+        "content_p50_ms": {
+          "baseline_diagnostic": [
+            12.21375,
+            11.984583
+          ],
+          "candidate_diagnostic": [
+            12.063,
+            12.319916
+          ],
+          "candidate_median_change_pct": 0.7627922138273124,
+          "original_frozen_boundary": 13.50575,
+          "diagnostic_both_outside_original": false
+        },
+        "content_p95_ms": {
+          "baseline_diagnostic": [
+            13.867875,
+            14.997958
+          ],
+          "candidate_diagnostic": [
+            13.707334,
+            14.64075
+          ],
+          "candidate_median_change_pct": -1.7936395599600474,
+          "original_frozen_boundary": 19.014166,
+          "diagnostic_both_outside_original": false
+        },
+        "complete_p50_ms": {
+          "baseline_diagnostic": [
+            20.635292,
+            20.391459
+          ],
+          "candidate_diagnostic": [
+            20.433167,
+            20.617125
+          ],
+          "candidate_median_change_pct": 0.057379635058096845,
+          "original_frozen_boundary": 22.837833,
+          "diagnostic_both_outside_original": false
+        },
+        "complete_p95_ms": {
+          "baseline_diagnostic": [
+            23.463625,
+            24.135584
+          ],
+          "candidate_diagnostic": [
+            23.129292,
+            23.611083
+          ],
+          "candidate_median_change_pct": -1.80430309251568,
+          "original_frozen_boundary": 29.114041,
+          "diagnostic_both_outside_original": false
+        },
+        "requests_per_second": {
+          "baseline_diagnostic": [
+            187.07952403721384,
+            188.4855289250331
+          ],
+          "candidate_diagnostic": [
+            188.99546357779687,
+            188.73265270664206
+          ],
+          "candidate_median_change_pct": 0.5759490413527413,
+          "original_frozen_boundary": 168.01506922451452,
+          "diagnostic_both_outside_original": false
+        }
+      }
+    },
+    {
+      "scenario": {
+        "id": "member4-sse-unlimited",
+        "funding": "membership",
+        "users": 4,
+        "conflicts": 0,
+        "protocol": "sse",
+        "token": "unlimited"
+      },
+      "cells": [
+        {
+          "file": "diagnostic-member4-sse-unlimited-1-baseline-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 20.317625,
+            "complete_p95_ms": 23.742,
+            "complete_p99_ms": 42.731667,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "continuous",
+            "worker_runs": 11,
+            "worker_active_ms": 8.516707,
+            "process_cpu_ms": 967.857,
+            "heap_allocated_bytes": 109282448,
+            "heap_live_bytes": 18379512,
+            "gc_cycles": 9,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1060.271375,
+            "observation_wall_ms": 1060.327834,
+            "requests_per_second": 188.63095308972197,
+            "worker_ms": 1060.241542,
+            "sql_count_including_worker": 8411,
+            "sql_sum_ms_including_worker": 3518.669666,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 12.05875,
+            "content_p95_ms": 14.711917,
+            "content_p99_ms": 29.120417,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "idle in transaction|Client|ClientRead": 59,
+            "active|None|None": 4,
+            "active|Client|ClientRead": 1,
+            "active|IO|WalSync": 1,
+            "active|Lock|tuple": 1,
+            "active|Lock|transactionid": 1
+          },
+          "lock_tables": {
+            "\"channels\"": 2
+          },
+          "blocked_observations": 4,
+          "largest_observed_query_age_ms": 0.638,
+          "container_cpu_delta": {
+            "usage_usec": 853159,
+            "user_usec": 539500,
+            "system_usec": 313660,
+            "nice_usec": 0,
+            "nr_periods": 43,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.64697265625,
+            5.52734375,
+            6.90625
+          ],
+          "host_load_after": [
+            5.4345703125,
+            5.4853515625,
+            6.88330078125
+          ]
+        },
+        {
+          "file": "diagnostic-member4-sse-unlimited-2-candidate-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 20.66875,
+            "complete_p95_ms": 24.636292,
+            "complete_p99_ms": 30.560458,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "continuous",
+            "worker_runs": 11,
+            "worker_active_ms": 0.149124,
+            "process_cpu_ms": 1006.546,
+            "heap_allocated_bytes": 109283192,
+            "heap_live_bytes": 19781040,
+            "gc_cycles": 9,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1070.641917,
+            "observation_wall_ms": 1070.710459,
+            "requests_per_second": 186.80382004882776,
+            "worker_ms": 1070.609042,
+            "sql_count_including_worker": 8400,
+            "sql_sum_ms_including_worker": 3529.196036,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 12.293875,
+            "content_p95_ms": 14.869792,
+            "content_p99_ms": 20.887334,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|IO|WalSync": 4,
+            "active|None|None": 5,
+            "idle in transaction|Client|ClientRead": 60,
+            "idle in transaction|None|None": 1,
+            "active|IO|WalWrite": 1
+          },
+          "lock_tables": {},
+          "blocked_observations": 0,
+          "largest_observed_query_age_ms": 1.326,
+          "container_cpu_delta": {
+            "usage_usec": 845247,
+            "user_usec": 553722,
+            "system_usec": 291525,
+            "nice_usec": 0,
+            "nr_periods": 43,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.4345703125,
+            5.4853515625,
+            6.88330078125
+          ],
+          "host_load_after": [
+            5.8798828125,
+            5.57666015625,
+            6.9072265625
+          ]
+        },
+        {
+          "file": "diagnostic-member4-sse-unlimited-3-candidate-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 20.792333,
+            "complete_p95_ms": 24.606875,
+            "complete_p99_ms": 38.681042,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "continuous",
+            "worker_runs": 11,
+            "worker_active_ms": 0.093626,
+            "process_cpu_ms": 999.139,
+            "heap_allocated_bytes": 109516416,
+            "heap_live_bytes": 28989760,
+            "gc_cycles": 8,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1080.977208,
+            "observation_wall_ms": 1081.045333,
+            "requests_per_second": 185.01777698905934,
+            "worker_ms": 1080.959291,
+            "sql_count_including_worker": 8400,
+            "sql_sum_ms_including_worker": 3535.735832,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 12.444958,
+            "content_p95_ms": 14.747,
+            "content_p99_ms": 27.219125,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|IO|WalSync": 5,
+            "idle in transaction|Client|ClientRead": 52,
+            "active|None|None": 1,
+            "active|Client|ClientRead": 1,
+            "idle in transaction|None|None": 1,
+            "idle in transaction|IO|WalSync": 1
+          },
+          "lock_tables": {},
+          "blocked_observations": 0,
+          "largest_observed_query_age_ms": 0.662,
+          "container_cpu_delta": {
+            "usage_usec": 838351,
+            "user_usec": 562400,
+            "system_usec": 275951,
+            "nice_usec": 0,
+            "nr_periods": 43,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.8798828125,
+            5.57666015625,
+            6.9072265625
+          ],
+          "host_load_after": [
+            6.36962890625,
+            5.68310546875,
+            6.93701171875
+          ]
+        },
+        {
+          "file": "diagnostic-member4-sse-unlimited-4-baseline-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 20.526458,
+            "complete_p95_ms": 23.740916,
+            "complete_p99_ms": 41.157917,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "continuous",
+            "worker_runs": 11,
+            "worker_active_ms": 9.708875,
+            "process_cpu_ms": 977.174,
+            "heap_allocated_bytes": 109252224,
+            "heap_live_bytes": 16814936,
+            "gc_cycles": 9,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1063.831084,
+            "observation_wall_ms": 1063.893875,
+            "requests_per_second": 187.99977083579932,
+            "worker_ms": 1063.813417,
+            "sql_count_including_worker": 8411,
+            "sql_sum_ms_including_worker": 3527.255017,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 12.135917,
+            "content_p95_ms": 14.706708,
+            "content_p99_ms": 28.807791,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|IO|WalSync": 2,
+            "idle in transaction|Client|ClientRead": 51,
+            "active|None|None": 10,
+            "active|Lock|transactionid": 1,
+            "active|IO|WalWrite": 1,
+            "idle in transaction|None|None": 1,
+            "active|Client|ClientRead": 1
+          },
+          "lock_tables": {
+            "\"channels\"": 1
+          },
+          "blocked_observations": 1,
+          "largest_observed_query_age_ms": 0.472,
+          "container_cpu_delta": {
+            "usage_usec": 878835,
+            "user_usec": 559678,
+            "system_usec": 319156,
+            "nice_usec": 0,
+            "nr_periods": 43,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            6.36962890625,
+            5.68310546875,
+            6.93701171875
+          ],
+          "host_load_after": [
+            6.1796875,
+            5.65478515625,
+            6.91943359375
+          ]
+        },
+        {
+          "file": "diagnostic-member4-sse-unlimited-5-baseline-none.jsonl",
+          "metrics": {
+            "complete_p50_ms": 20.332208,
+            "complete_p95_ms": 23.021458,
+            "complete_p99_ms": 29.918417,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "none",
+            "worker_runs": 0,
+            "worker_active_ms": 0,
+            "process_cpu_ms": 966.917,
+            "heap_allocated_bytes": 108887344,
+            "heap_live_bytes": 18167856,
+            "gc_cycles": 9,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1044.571,
+            "observation_wall_ms": 1044.635,
+            "requests_per_second": 191.4661617065762,
+            "worker_ms": 0.000167,
+            "sql_count_including_worker": 8400,
+            "sql_sum_ms_including_worker": 3444.095837,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 12.091792,
+            "content_p95_ms": 14.238291,
+            "content_p99_ms": 19.050291,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|IO|WalSync": 3,
+            "active|None|None": 4,
+            "idle in transaction|Client|ClientRead": 53,
+            "active|Client|ClientRead": 1,
+            "idle in transaction|None|None": 1
+          },
+          "lock_tables": {},
+          "blocked_observations": 0,
+          "largest_observed_query_age_ms": 0.561,
+          "container_cpu_delta": {
+            "usage_usec": 812725,
+            "user_usec": 529381,
+            "system_usec": 283343,
+            "nice_usec": 0,
+            "nr_periods": 42,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            6.1796875,
+            5.65478515625,
+            6.91943359375
+          ],
+          "host_load_after": [
+            5.8447265625,
+            5.59375,
+            6.89013671875
+          ]
+        },
+        {
+          "file": "diagnostic-member4-sse-unlimited-6-candidate-none.jsonl",
+          "metrics": {
+            "complete_p50_ms": 20.548833,
+            "complete_p95_ms": 24.385084,
+            "complete_p99_ms": 31.19975,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "none",
+            "worker_runs": 0,
+            "worker_active_ms": 0,
+            "process_cpu_ms": 985.531,
+            "heap_allocated_bytes": 109351648,
+            "heap_live_bytes": 27437480,
+            "gc_cycles": 8,
+            "background_reservations": 0,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "membership",
+            "users": 4,
+            "conflict_rows": 0,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1062.427291,
+            "observation_wall_ms": 1062.488125,
+            "requests_per_second": 188.24817631684874,
+            "worker_ms": 8.3e-05,
+            "sql_count_including_worker": 8400,
+            "sql_sum_ms_including_worker": 3501.789964,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 12.218416,
+            "content_p95_ms": 14.726958,
+            "content_p99_ms": 20.397,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|None|None": 4,
+            "active|IO|WalSync": 2,
+            "idle in transaction|None|None": 9,
+            "idle in transaction|Client|ClientRead": 52,
+            "active|Client|ClientRead": 2,
+            "active|IO|DataFileExtend": 1,
+            "active|Lock|transactionid": 1
+          },
+          "lock_tables": {
+            "\"channels\"": 1
+          },
+          "blocked_observations": 1,
+          "largest_observed_query_age_ms": 0.484,
+          "container_cpu_delta": {
+            "usage_usec": 832415,
+            "user_usec": 538927,
+            "system_usec": 293487,
+            "nice_usec": 0,
+            "nr_periods": 43,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.8447265625,
+            5.59375,
+            6.89013671875
+          ],
+          "host_load_after": [
+            5.8447265625,
+            5.59375,
+            6.89013671875
+          ]
+        }
+      ],
+      "cross_source": {
+        "content_p50_ms": {
+          "baseline_diagnostic": [
+            12.05875,
+            12.135917
+          ],
+          "candidate_diagnostic": [
+            12.293875,
+            12.444958
+          ],
+          "candidate_median_change_pct": 2.2491154765635013,
+          "original_frozen_boundary": 12.97125,
+          "diagnostic_both_outside_original": false
+        },
+        "content_p95_ms": {
+          "baseline_diagnostic": [
+            14.711917,
+            14.706708
+          ],
+          "candidate_diagnostic": [
+            14.869792,
+            14.747
+          ],
+          "candidate_median_change_pct": 0.6736106803088227,
+          "original_frozen_boundary": 17.279375,
+          "diagnostic_both_outside_original": false
+        },
+        "complete_p50_ms": {
+          "baseline_diagnostic": [
+            20.317625,
+            20.526458
+          ],
+          "candidate_diagnostic": [
+            20.66875,
+            20.792333
+          ],
+          "candidate_median_change_pct": 1.5106227259405136,
+          "original_frozen_boundary": 21.981333,
+          "diagnostic_both_outside_original": false
+        },
+        "complete_p95_ms": {
+          "baseline_diagnostic": [
+            23.742,
+            23.740916
+          ],
+          "candidate_diagnostic": [
+            24.636292,
+            24.606875
+          ],
+          "candidate_median_change_pct": 3.7071248951938696,
+          "original_frozen_boundary": 27.224875,
+          "diagnostic_both_outside_original": false
+        },
+        "requests_per_second": {
+          "baseline_diagnostic": [
+            188.63095308972197,
+            187.99977083579932
+          ],
+          "candidate_diagnostic": [
+            186.80382004882776,
+            185.01777698905934
+          ],
+          "candidate_median_change_pct": -1.2768811947973746,
+          "original_frozen_boundary": 173.89675645926548,
+          "diagnostic_both_outside_original": false
+        }
+      }
+    },
+    {
+      "scenario": {
+        "id": "wallet1-conflict-sse-unlimited",
+        "funding": "wallet",
+        "users": 1,
+        "conflicts": 501,
+        "protocol": "sse",
+        "token": "unlimited"
+      },
+      "cells": [
+        {
+          "file": "diagnostic-wallet1-conflict-sse-unlimited-1-baseline-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 38.4545,
+            "complete_p95_ms": 47.948041,
+            "complete_p99_ms": 61.208042,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "continuous",
+            "worker_runs": 20,
+            "worker_active_ms": 372.352458,
+            "process_cpu_ms": 953.723,
+            "heap_allocated_bytes": 154600456,
+            "heap_live_bytes": 26577592,
+            "gc_cycles": 11,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1990.927917,
+            "observation_wall_ms": 1991.013209,
+            "requests_per_second": 100.45567109298814,
+            "worker_ms": 1990.874417,
+            "sql_count_including_worker": 7600,
+            "sql_sum_ms_including_worker": 7682.568077,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 24.541333,
+            "content_p95_ms": 33.029625,
+            "content_p99_ms": 46.577167,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "idle in transaction|Client|ClientRead": 74,
+            "idle in transaction|IO|WalSync": 1,
+            "active|Client|ClientRead": 1,
+            "active|None|None": 6,
+            "active|IO|WalSync": 6,
+            "active|Lock|tuple": 52,
+            "active|Lock|transactionid": 41,
+            "idle in transaction|None|None": 4
+          },
+          "lock_tables": {
+            "\"users\"": 93
+          },
+          "blocked_observations": 93,
+          "largest_observed_query_age_ms": 16.541,
+          "container_cpu_delta": {
+            "usage_usec": 1584262,
+            "user_usec": 1072561,
+            "system_usec": 511701,
+            "nice_usec": 0,
+            "nr_periods": 79,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.63427734375,
+            5.55712890625,
+            6.86181640625
+          ],
+          "host_load_after": [
+            5.31494140625,
+            5.48974609375,
+            6.822265625
+          ]
+        },
+        {
+          "file": "diagnostic-wallet1-conflict-sse-unlimited-2-candidate-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 35.414084,
+            "complete_p95_ms": 41.155584,
+            "complete_p99_ms": 57.079333,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "continuous",
+            "worker_runs": 19,
+            "worker_active_ms": 0.227291,
+            "process_cpu_ms": 793.428,
+            "heap_allocated_bytes": 100267368,
+            "heap_live_bytes": 17113616,
+            "gc_cycles": 8,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1819.133167,
+            "observation_wall_ms": 1819.198792,
+            "requests_per_second": 109.94247349677397,
+            "worker_ms": 1819.11625,
+            "sql_count_including_worker": 7400,
+            "sql_sum_ms_including_worker": 6688.899295,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 23.021,
+            "content_p95_ms": 27.400833,
+            "content_p99_ms": 40.856583,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|None|None": 12,
+            "idle in transaction|Client|ClientRead": 79,
+            "idle in transaction|None|None": 7,
+            "active|Client|ClientRead": 2,
+            "active|IO|WalSync": 6,
+            "active|Lock|tuple": 44,
+            "active|Lock|transactionid": 40
+          },
+          "lock_tables": {
+            "\"users\"": 84
+          },
+          "blocked_observations": 82,
+          "largest_observed_query_age_ms": 20.298,
+          "container_cpu_delta": {
+            "usage_usec": 1413252,
+            "user_usec": 912051,
+            "system_usec": 501201,
+            "nice_usec": 0,
+            "nr_periods": 88,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.31494140625,
+            5.48974609375,
+            6.822265625
+          ],
+          "host_load_after": [
+            4.8046875,
+            5.37451171875,
+            6.765625
+          ]
+        },
+        {
+          "file": "diagnostic-wallet1-conflict-sse-unlimited-3-candidate-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 35.812875,
+            "complete_p95_ms": 40.515208,
+            "complete_p99_ms": 53.341958,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "continuous",
+            "worker_runs": 19,
+            "worker_active_ms": 0.18479,
+            "process_cpu_ms": 804.596,
+            "heap_allocated_bytes": 100306864,
+            "heap_live_bytes": 15492240,
+            "gc_cycles": 8,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1825.172875,
+            "observation_wall_ms": 1825.226416,
+            "requests_per_second": 109.57866114463266,
+            "worker_ms": 1825.1415,
+            "sql_count_including_worker": 7400,
+            "sql_sum_ms_including_worker": 6712.181429,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 22.951041,
+            "content_p95_ms": 27.713208,
+            "content_p99_ms": 40.608166,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|None|None": 13,
+            "idle in transaction|Client|ClientRead": 83,
+            "active|IO|WalSync": 7,
+            "idle in transaction|None|None": 5,
+            "active|Client|ClientRead": 2,
+            "active|Lock|transactionid": 40,
+            "active|Lock|tuple": 45
+          },
+          "lock_tables": {
+            "\"users\"": 85
+          },
+          "blocked_observations": 86,
+          "largest_observed_query_age_ms": 11.64,
+          "container_cpu_delta": {
+            "usage_usec": 1455852,
+            "user_usec": 903504,
+            "system_usec": 552349,
+            "nice_usec": 0,
+            "nr_periods": 89,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            4.8046875,
+            5.37451171875,
+            6.765625
+          ],
+          "host_load_after": [
+            5.1484375,
+            5.427734375,
+            6.767578125
+          ]
+        },
+        {
+          "file": "diagnostic-wallet1-conflict-sse-unlimited-4-baseline-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 37.787125,
+            "complete_p95_ms": 46.7895,
+            "complete_p99_ms": 68.785834,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "continuous",
+            "worker_runs": 20,
+            "worker_active_ms": 362.03354,
+            "process_cpu_ms": 949.161,
+            "heap_allocated_bytes": 154367128,
+            "heap_live_bytes": 27647080,
+            "gc_cycles": 11,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1948.155,
+            "observation_wall_ms": 1948.218541,
+            "requests_per_second": 102.66123588728824,
+            "worker_ms": 1948.131083,
+            "sql_count_including_worker": 7600,
+            "sql_sum_ms_including_worker": 7526.213503,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 24.132625,
+            "content_p95_ms": 32.037875,
+            "content_p99_ms": 50.56525,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|None|None": 15,
+            "idle in transaction|Client|ClientRead": 75,
+            "active|Client|ClientRead": 2,
+            "idle in transaction|None|None": 4,
+            "active|IO|WalSync": 3,
+            "active|Lock|transactionid": 42,
+            "active|Lock|tuple": 45,
+            "idle in transaction|IO|WalWrite": 1
+          },
+          "lock_tables": {
+            "\"users\"": 87
+          },
+          "blocked_observations": 89,
+          "largest_observed_query_age_ms": 15.03,
+          "container_cpu_delta": {
+            "usage_usec": 1671965,
+            "user_usec": 1167283,
+            "system_usec": 504682,
+            "nice_usec": 0,
+            "nr_periods": 91,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.1484375,
+            5.427734375,
+            6.767578125
+          ],
+          "host_load_after": [
+            5.11865234375,
+            5.4130859375,
+            6.74609375
+          ]
+        },
+        {
+          "file": "diagnostic-wallet1-conflict-sse-unlimited-5-baseline-none.jsonl",
+          "metrics": {
+            "complete_p50_ms": 37.879,
+            "complete_p95_ms": 46.462917,
+            "complete_p99_ms": 59.55625,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "none",
+            "worker_runs": 0,
+            "worker_active_ms": 0,
+            "process_cpu_ms": 864.854,
+            "heap_allocated_bytes": 99956640,
+            "heap_live_bytes": 23589904,
+            "gc_cycles": 7,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1945.35325,
+            "observation_wall_ms": 1945.4275,
+            "requests_per_second": 102.8090913565441,
+            "worker_ms": 4.2e-05,
+            "sql_count_including_worker": 7400,
+            "sql_sum_ms_including_worker": 7145.307612,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 24.33425,
+            "content_p95_ms": 31.012375,
+            "content_p99_ms": 40.675875,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "idle in transaction|Client|ClientRead": 83,
+            "active|IO|WalSync": 7,
+            "active|None|None": 12,
+            "active|Client|ClientRead": 2,
+            "idle in transaction|None|None": 3,
+            "active|Lock|tuple": 48,
+            "active|Lock|transactionid": 43
+          },
+          "lock_tables": {
+            "\"users\"": 91
+          },
+          "blocked_observations": 89,
+          "largest_observed_query_age_ms": 13.772,
+          "container_cpu_delta": {
+            "usage_usec": 1570860,
+            "user_usec": 997273,
+            "system_usec": 573587,
+            "nice_usec": 0,
+            "nr_periods": 98,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.11865234375,
+            5.4130859375,
+            6.74609375
+          ],
+          "host_load_after": [
+            5.0263671875,
+            5.38232421875,
+            6.7197265625
+          ]
+        },
+        {
+          "file": "diagnostic-wallet1-conflict-sse-unlimited-6-candidate-none.jsonl",
+          "metrics": {
+            "complete_p50_ms": 39.0255,
+            "complete_p95_ms": 47.651833,
+            "complete_p99_ms": 58.623833,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "sse",
+            "unlimited_token": true,
+            "worker_policy": "none",
+            "worker_runs": 0,
+            "worker_active_ms": 0,
+            "process_cpu_ms": 894.714,
+            "heap_allocated_bytes": 100328576,
+            "heap_live_bytes": 29037688,
+            "gc_cycles": 7,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 2012.877166,
+            "observation_wall_ms": 2012.953333,
+            "requests_per_second": 99.36026071448813,
+            "worker_ms": 8.3e-05,
+            "sql_count_including_worker": 7400,
+            "sql_sum_ms_including_worker": 7377.778228,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 25.116666,
+            "content_p95_ms": 33.363375,
+            "content_p99_ms": 42.420958,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|IO|WalSync": 11,
+            "active|None|None": 15,
+            "idle in transaction|Client|ClientRead": 87,
+            "idle in transaction|None|None": 9,
+            "active|Lock|transactionid": 43,
+            "active|Lock|tuple": 47,
+            "idle in transaction|IO|WalWrite": 1
+          },
+          "lock_tables": {
+            "\"users\"": 90
+          },
+          "blocked_observations": 92,
+          "largest_observed_query_age_ms": 14.228,
+          "container_cpu_delta": {
+            "usage_usec": 1603609,
+            "user_usec": 1000703,
+            "system_usec": 602907,
+            "nice_usec": 0,
+            "nr_periods": 98,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.0263671875,
+            5.38232421875,
+            6.7197265625
+          ],
+          "host_load_after": [
+            5.17529296875,
+            5.40234375,
+            6.7109375
+          ]
+        }
+      ],
+      "cross_source": {
+        "content_p50_ms": {
+          "baseline_diagnostic": [
+            24.541333,
+            24.132625
+          ],
+          "candidate_diagnostic": [
+            23.021,
+            22.951041
+          ],
+          "candidate_median_change_pct": -5.551052577232351,
+          "original_frozen_boundary": 29.015458,
+          "diagnostic_both_outside_original": false
+        },
+        "content_p95_ms": {
+          "baseline_diagnostic": [
+            33.029625,
+            32.037875
+          ],
+          "candidate_diagnostic": [
+            27.400833,
+            27.713208
+          ],
+          "candidate_median_change_pct": -15.297128366696121,
+          "original_frozen_boundary": 38.496209,
+          "diagnostic_both_outside_original": false
+        },
+        "complete_p50_ms": {
+          "baseline_diagnostic": [
+            38.4545,
+            37.787125
+          ],
+          "candidate_diagnostic": [
+            35.414084,
+            35.812875
+          ],
+          "candidate_median_change_pct": -6.577333575982946,
+          "original_frozen_boundary": 45.980417,
+          "diagnostic_both_outside_original": false
+        },
+        "complete_p95_ms": {
+          "baseline_diagnostic": [
+            47.948041,
+            46.7895
+          ],
+          "candidate_diagnostic": [
+            41.155584,
+            40.515208
+          ],
+          "candidate_median_change_pct": -13.792577749088919,
+          "original_frozen_boundary": 54.416334,
+          "diagnostic_both_outside_original": false
+        },
+        "requests_per_second": {
+          "baseline_diagnostic": [
+            100.45567109298814,
+            102.66123588728824
+          ],
+          "candidate_diagnostic": [
+            109.94247349677397,
+            109.57866114463266
+          ],
+          "candidate_median_change_pct": 8.076249242375066,
+          "original_frozen_boundary": 84.59702640665428,
+          "diagnostic_both_outside_original": false
+        }
+      }
+    },
+    {
+      "scenario": {
+        "id": "wallet1-conflict-json-finite",
+        "funding": "wallet",
+        "users": 1,
+        "conflicts": 501,
+        "protocol": "json",
+        "token": "finite"
+      },
+      "cells": [
+        {
+          "file": "diagnostic-wallet1-conflict-json-finite-1-baseline-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 36.888166,
+            "complete_p95_ms": 46.381292,
+            "complete_p99_ms": 48.674667,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "json",
+            "unlimited_token": false,
+            "worker_policy": "continuous",
+            "worker_runs": 20,
+            "worker_active_ms": 364.782085,
+            "process_cpu_ms": 864.573,
+            "heap_allocated_bytes": 134960456,
+            "heap_live_bytes": 24050552,
+            "gc_cycles": 10,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1898.57825,
+            "observation_wall_ms": 1920.416459,
+            "requests_per_second": 105.34198419264521,
+            "worker_ms": 1920.302084,
+            "sql_count_including_worker": 7600,
+            "sql_sum_ms_including_worker": 7467.944528,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 36.888166,
+            "content_p95_ms": 46.381292,
+            "content_p99_ms": 48.674667,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|None|None": 20,
+            "idle in transaction|Client|ClientRead": 80,
+            "active|Client|ClientRead": 2,
+            "active|IO|WalSync": 8,
+            "idle in transaction|None|None": 7,
+            "active|LWLock|BufferContent": 1,
+            "active|Lock|tuple": 52,
+            "active|Lock|transactionid": 41
+          },
+          "lock_tables": {
+            "\"users\"": 93
+          },
+          "blocked_observations": 91,
+          "largest_observed_query_age_ms": 16.184,
+          "container_cpu_delta": {
+            "usage_usec": 1757185,
+            "user_usec": 1167083,
+            "system_usec": 590102,
+            "nice_usec": 0,
+            "nr_periods": 89,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            4.693359375,
+            5.2783203125,
+            6.63525390625
+          ],
+          "host_load_after": [
+            5.11474609375,
+            5.3505859375,
+            6.64501953125
+          ]
+        },
+        {
+          "file": "diagnostic-wallet1-conflict-json-finite-2-candidate-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 34.037375,
+            "complete_p95_ms": 38.678709,
+            "complete_p99_ms": 50.666958,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "json",
+            "unlimited_token": false,
+            "worker_policy": "continuous",
+            "worker_runs": 18,
+            "worker_active_ms": 0.143669,
+            "process_cpu_ms": 690.361,
+            "heap_allocated_bytes": 80825936,
+            "heap_live_bytes": 25075600,
+            "gc_cycles": 6,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1747.553125,
+            "observation_wall_ms": 1761.713625,
+            "requests_per_second": 114.44573394585643,
+            "worker_ms": 1761.5275,
+            "sql_count_including_worker": 7400,
+            "sql_sum_ms_including_worker": 6543.093509,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 34.037375,
+            "content_p95_ms": 38.678709,
+            "content_p99_ms": 50.666958,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|None|None": 11,
+            "idle in transaction|Client|ClientRead": 72,
+            "idle in transaction|None|None": 8,
+            "active|IO|WalSync": 8,
+            "active|Client|ClientRead": 2,
+            "idle in transaction|IO|WalSync": 1,
+            "active|Lock|tuple": 47,
+            "active|Lock|transactionid": 37
+          },
+          "lock_tables": {
+            "\"users\"": 84
+          },
+          "blocked_observations": 83,
+          "largest_observed_query_age_ms": 13.722,
+          "container_cpu_delta": {
+            "usage_usec": 1368608,
+            "user_usec": 878006,
+            "system_usec": 490601,
+            "nice_usec": 0,
+            "nr_periods": 88,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.11474609375,
+            5.3505859375,
+            6.64501953125
+          ],
+          "host_load_after": [
+            5.025390625,
+            5.328125,
+            6.62939453125
+          ]
+        },
+        {
+          "file": "diagnostic-wallet1-conflict-json-finite-3-candidate-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 35.342834,
+            "complete_p95_ms": 45.235416,
+            "complete_p99_ms": 53.105916,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "json",
+            "unlimited_token": false,
+            "worker_policy": "continuous",
+            "worker_runs": 19,
+            "worker_active_ms": 0.196458,
+            "process_cpu_ms": 714.015,
+            "heap_allocated_bytes": 80845192,
+            "heap_live_bytes": 26507424,
+            "gc_cycles": 6,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1808.760791,
+            "observation_wall_ms": 1823.304166,
+            "requests_per_second": 110.57294087485558,
+            "worker_ms": 1823.191792,
+            "sql_count_including_worker": 7400,
+            "sql_sum_ms_including_worker": 6757.336751,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 35.342834,
+            "content_p95_ms": 45.235416,
+            "content_p99_ms": 53.105916,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "active|IO|WalSync": 11,
+            "idle in transaction|Client|ClientRead": 74,
+            "active|None|None": 5,
+            "idle in transaction|IO|WalWrite": 1,
+            "idle in transaction|None|None": 3,
+            "active|Lock|transactionid": 39,
+            "active|Lock|tuple": 49,
+            "active|IO|DataFileExtend": 1
+          },
+          "lock_tables": {
+            "\"users\"": 88
+          },
+          "blocked_observations": 87,
+          "largest_observed_query_age_ms": 10.083,
+          "container_cpu_delta": {
+            "usage_usec": 1377487,
+            "user_usec": 827553,
+            "system_usec": 549934,
+            "nice_usec": 0,
+            "nr_periods": 88,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.025390625,
+            5.328125,
+            6.62939453125
+          ],
+          "host_load_after": [
+            4.732421875,
+            5.25146484375,
+            6.58642578125
+          ]
+        },
+        {
+          "file": "diagnostic-wallet1-conflict-json-finite-4-baseline-continuous.jsonl",
+          "metrics": {
+            "complete_p50_ms": 35.816375,
+            "complete_p95_ms": 45.81375,
+            "complete_p99_ms": 49.038458,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "json",
+            "unlimited_token": false,
+            "worker_policy": "continuous",
+            "worker_runs": 19,
+            "worker_active_ms": 342.690874,
+            "process_cpu_ms": 825.331,
+            "heap_allocated_bytes": 132339472,
+            "heap_live_bytes": 19189184,
+            "gc_cycles": 10,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1862.256459,
+            "observation_wall_ms": 1878.292417,
+            "requests_per_second": 107.39659354297343,
+            "worker_ms": 1878.204084,
+            "sql_count_including_worker": 7590,
+            "sql_sum_ms_including_worker": 7318.615786,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 35.816375,
+            "content_p95_ms": 45.81375,
+            "content_p99_ms": 49.038458,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "idle in transaction|Client|ClientRead": 87,
+            "active|IO|WalSync": 5,
+            "active|None|None": 6,
+            "active|Client|ClientRead": 2,
+            "idle in transaction|None|None": 4,
+            "active|Lock|tuple": 47,
+            "active|Lock|transactionid": 39
+          },
+          "lock_tables": {
+            "\"users\"": 86
+          },
+          "blocked_observations": 85,
+          "largest_observed_query_age_ms": 21.646,
+          "container_cpu_delta": {
+            "usage_usec": 1538396,
+            "user_usec": 983254,
+            "system_usec": 555143,
+            "nice_usec": 0,
+            "nr_periods": 83,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            4.732421875,
+            5.25146484375,
+            6.58642578125
+          ],
+          "host_load_after": [
+            4.9521484375,
+            5.27685546875,
+            6.5791015625
+          ]
+        },
+        {
+          "file": "diagnostic-wallet1-conflict-json-finite-5-baseline-none.jsonl",
+          "metrics": {
+            "complete_p50_ms": 34.713042,
+            "complete_p95_ms": 39.455667,
+            "complete_p99_ms": 52.798583,
+            "source_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+            "protocol": "json",
+            "unlimited_token": false,
+            "worker_policy": "none",
+            "worker_runs": 0,
+            "worker_active_ms": 0,
+            "process_cpu_ms": 707.514,
+            "heap_allocated_bytes": 80483680,
+            "heap_live_bytes": 18662496,
+            "gc_cycles": 6,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "apply",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1776.702959,
+            "observation_wall_ms": 1791.290625,
+            "requests_per_second": 112.56805702207421,
+            "worker_ms": 8.3e-05,
+            "sql_count_including_worker": 7400,
+            "sql_sum_ms_including_worker": 6649.206553,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 34.713042,
+            "content_p95_ms": 39.455667,
+            "content_p99_ms": 52.798583,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "idle in transaction|Client|ClientRead": 85,
+            "active|IO|WalSync": 7,
+            "active|None|None": 8,
+            "idle in transaction|None|None": 6,
+            "active|Lock|tuple": 47,
+            "active|Lock|transactionid": 37,
+            "active|Client|ClientRead": 1
+          },
+          "lock_tables": {
+            "\"users\"": 84
+          },
+          "blocked_observations": 85,
+          "largest_observed_query_age_ms": 19.212,
+          "container_cpu_delta": {
+            "usage_usec": 1311240,
+            "user_usec": 771362,
+            "system_usec": 539879,
+            "nice_usec": 0,
+            "nr_periods": 82,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            4.9521484375,
+            5.27685546875,
+            6.5791015625
+          ],
+          "host_load_after": [
+            5.03564453125,
+            5.28857421875,
+            6.57568359375
+          ]
+        },
+        {
+          "file": "diagnostic-wallet1-conflict-json-finite-6-candidate-none.jsonl",
+          "metrics": {
+            "complete_p50_ms": 34.709458,
+            "complete_p95_ms": 41.117458,
+            "complete_p99_ms": 46.558542,
+            "source_revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+            "protocol": "json",
+            "unlimited_token": false,
+            "worker_policy": "none",
+            "worker_runs": 0,
+            "worker_active_ms": 0,
+            "process_cpu_ms": 715.519,
+            "heap_allocated_bytes": 80819336,
+            "heap_live_bytes": 25120672,
+            "gc_cycles": 6,
+            "background_reservations": 501,
+            "dialect": "postgres",
+            "mode": "paused",
+            "funding": "wallet",
+            "users": 1,
+            "conflict_rows": 501,
+            "concurrency": 4,
+            "pool_size": 8,
+            "requested": 200,
+            "succeeded": 200,
+            "valid_functional_measurement": true,
+            "unsettled_http_requests": 0,
+            "request_wall_ms": 1775.634458,
+            "observation_wall_ms": 1790.34475,
+            "requests_per_second": 112.6357956723095,
+            "worker_ms": 8.3e-05,
+            "sql_count_including_worker": 7400,
+            "sql_sum_ms_including_worker": 6642.212905,
+            "sql_errors_including_worker": 0,
+            "pool_wait_count": 0,
+            "pool_wait_ms": 0,
+            "content_p50_ms": 34.709458,
+            "content_p95_ms": 41.117458,
+            "content_p99_ms": 46.558542,
+            "p99_minimum_100_samples": true
+          },
+          "wait_observations": {
+            "idle in transaction|Client|ClientRead": 82,
+            "active|None|None": 5,
+            "idle in transaction|None|None": 4,
+            "active|IO|WalSync": 3,
+            "active|Lock|transactionid": 38,
+            "active|Lock|tuple": 46,
+            "active|Client|ClientRead": 2
+          },
+          "lock_tables": {
+            "\"users\"": 84
+          },
+          "blocked_observations": 83,
+          "largest_observed_query_age_ms": 10.434,
+          "container_cpu_delta": {
+            "usage_usec": 1410221,
+            "user_usec": 932651,
+            "system_usec": 477569,
+            "nice_usec": 0,
+            "nr_periods": 86,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "host_load_before": [
+            5.19287109375,
+            5.31689453125,
+            6.578125
+          ],
+          "host_load_after": [
+            5.33740234375,
+            5.3447265625,
+            6.58056640625
+          ]
+        }
+      ],
+      "cross_source": {
+        "content_p50_ms": {
+          "baseline_diagnostic": [
+            36.888166,
+            35.816375
+          ],
+          "candidate_diagnostic": [
+            34.037375,
+            35.342834
+          ],
+          "candidate_median_change_pct": -4.572385650574418,
+          "original_frozen_boundary": 45.377417,
+          "diagnostic_both_outside_original": false
+        },
+        "content_p95_ms": {
+          "baseline_diagnostic": [
+            46.381292,
+            45.81375
+          ],
+          "candidate_diagnostic": [
+            38.678709,
+            45.235416
+          ],
+          "candidate_median_change_pct": -8.981954799695192,
+          "original_frozen_boundary": 58.540708,
+          "diagnostic_both_outside_original": false
+        },
+        "complete_p50_ms": {
+          "baseline_diagnostic": [
+            36.888166,
+            35.816375
+          ],
+          "candidate_diagnostic": [
+            34.037375,
+            35.342834
+          ],
+          "candidate_median_change_pct": -4.572385650574418,
+          "original_frozen_boundary": 45.377417,
+          "diagnostic_both_outside_original": false
+        },
+        "complete_p95_ms": {
+          "baseline_diagnostic": [
+            46.381292,
+            45.81375
+          ],
+          "candidate_diagnostic": [
+            38.678709,
+            45.235416
+          ],
+          "candidate_median_change_pct": -8.981954799695192,
+          "original_frozen_boundary": 58.540708,
+          "diagnostic_both_outside_original": false
+        },
+        "requests_per_second": {
+          "baseline_diagnostic": [
+            105.34198419264521,
+            107.39659354297343
+          ],
+          "candidate_diagnostic": [
+            114.44573394585643,
+            110.57294087485558
+          ],
+          "candidate_median_change_pct": 5.772388447738175,
+          "original_frozen_boundary": 85.50330021363,
+          "diagnostic_both_outside_original": false
+        }
+      }
+    }
+  ],
+  "cells": 24,
+  "requested": 4800,
+  "succeeded": 4800,
+  "sql_errors": 0,
+  "unsettled": 0,
+  "valid": true,
+  "sampling_limitations": "Sampler covers whole test process including setup and teardown. 50ms snapshots do not measure per-query durations or original formal outliers. Same probe added to all diagnostic cells; original binary remains unchanged."
+}

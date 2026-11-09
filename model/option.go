@@ -754,6 +754,9 @@ func updateOptionMap(key string, value string) (err error) {
 }
 
 func validateOptionValue(key, value string) error {
+	if key == MembershipBillingRecoveryControlOption {
+		return ErrMembershipRecoveryControlReadOnly
+	}
 	if err := operation_setting.ValidateQuotaOption(key, value); err != nil {
 		return err
 	}

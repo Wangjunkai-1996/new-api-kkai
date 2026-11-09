@@ -23,18 +23,23 @@ func TestMembershipRecoveryJobModeRequiresKnownValueAndLeader(t *testing.T) {
 	assert.Empty(t, registry.Descriptors())
 	t.Setenv(MembershipBillingRecoveryModeEnvironment, "apply")
 	require.NoError(t, RegisterMembershipBillingRecoveryJob(registry, "worker"))
-	assert.Equal(t, "apply", MembershipBillingRecoveryMode())
+	assert.Equal(t, "paused", MembershipBillingRecoveryMode(), "durable control must be observed before activation")
 	descriptors := registry.Descriptors()
-	require.Len(t, descriptors, 1)
-	assert.Equal(t, "membership-relay-reconcile", descriptors[0].Name)
-	assert.True(t, descriptors[0].WritesData)
-	assert.True(t, descriptors[0].RequiresLeaderLease)
+	require.Len(t, descriptors, 2)
+	assert.Equal(t, "membership-recovery-control", descriptors[0].Name)
+	assert.False(t, descriptors[0].WritesData)
+	assert.Equal(t, time.Second, descriptors[0].Interval)
+	assert.Equal(t, "membership-relay-reconcile", descriptors[1].Name)
+	assert.True(t, descriptors[1].WritesData)
+	assert.True(t, descriptors[1].RequiresLeaderLease)
 }
 
 func setupMembershipRecoveryWorkerTest(t *testing.T) model.User {
 	t.Helper()
 	_, user := setupMembershipServiceTest(t)
-	require.NoError(t, model.DB.AutoMigrate(&model.MembershipBillingRecovery{}, &model.MembershipBillingScanProgress{}, &model.KKAIJobLease{}, &model.Log{}))
+	require.NoError(t, model.DB.AutoMigrate(&model.MembershipBillingRecovery{}, &model.MembershipBillingScanProgress{}, &model.KKAIJobLease{}, &model.Log{}, &model.Option{}))
+	require.NoError(t, model.DB.Create(&model.Option{Key: model.MembershipBillingRecoveryControlOption, Value: "off:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}).Error)
+	initializeMembershipRecoveryControl("recovery-worker", "paused")
 	require.NoError(t, model.DB.Create(&model.KKAIJobLease{LeaseName: "newapi-background-writer", Holder: "recovery-worker", Fence: 1, LeaseUntil: time.Now().Unix() + 3600}).Error)
 	previousLogDB, previousCheck, previousMode := model.LOG_DB, membershipBillingRecoverySchemaCheck, MembershipBillingRecoveryMode()
 	model.LOG_DB = model.DB
@@ -83,6 +88,7 @@ func TestMembershipRecoveryWorkerModesKeepEarlyEvidenceAndAgedFallbackSeparate(t
 		t.Run(mode, func(t *testing.T) {
 			user := setupMembershipRecoveryWorkerTest(t)
 			membershipBillingRecoveryMode.Store(mode)
+			require.NoError(t, model.DB.Model(&model.Option{}).Where(map[string]any{"key": model.MembershipBillingRecoveryControlOption}).Update("value", mode+":aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").Error)
 			reserveMembershipRecoveryWorkerTest(t, user, "young-ready", false, true)
 			reserveMembershipRecoveryWorkerTest(t, user, "aged-ready", true, true)
 			reserveMembershipRecoveryWorkerTest(t, user, "aged-unknown", true, false)

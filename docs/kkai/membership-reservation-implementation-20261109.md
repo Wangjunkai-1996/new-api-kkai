@@ -2,7 +2,7 @@
 
 日期：2026-11-09（含第二轮本地迁移与数据库验收）。依据：[开发文档](membership-reservation-development-plan-20261109.md)。
 
-本记录是本地代码交付，不是生产发布回执。已实现 P0/P1 的本地异常恢复、公平核账和 v21 专用迁移入口，完整性能验收及事故暂停通道仍待补齐；仅在本机隔离数据库演练迁移，未修改生产数据库、构建生产镜像或启用线上开关。后续代码提交与推送按用户授权独立执行，不代表生产能力已启用。工作区其他任务的改动不属于本记录。
+本记录保留各轮实现与验证的真实边界，不把历史本地检查当作生产发布回执。已实现 P0/P1 本地异常恢复、公平核账、v21 专用迁移及 B 版本的持久暂停控制。用户已授权继续直到上线；A 兼容版本已构建，最终控制器已验收安装，B 正在完成精确提交的性能验收。两次兼容发布、独立迁移和恢复启用分别记录，完成前不宣称应用已上线。
 
 ## 1. 已实现行为
 
@@ -31,6 +31,7 @@
 | 证据、两段事务、终态与审计 | `model/membership_billing_recovery.go`、`model/membership_billing_recovery_types.go` |
 | 扫描游标、退避、数据库 fence | `model/membership_billing_recovery_scan.go` |
 | 作业模式、预算、日志取证、缓存恢复 | `service/membership_billing_recovery.go`、`service/kkai_runtime_jobs.go` |
+| 持久模式、事务暂停屏障与本机进程回执 | `model/membership_billing_control.go`、`service/membership_billing_control.go`、`controller/membership_billing_control.go` |
 | 可取消的既有标记与缓存失效 | `model/membership_billing_review.go`、`model/membership_billing.go`、`model/user_cache.go`、`model/token_cache.go` |
 | v21 显式迁移与 runtime 合约 | `pkg/kkaimigrate/schema_membership_billing_recovery.go`、迁移目录/契约检查、`cmd/kkai-migrate/` |
 
@@ -38,14 +39,18 @@
 
 ## 3. 开关与后台预算
 
-环境变量 `KKAI_MEMBERSHIP_BILLING_RECOVERY_MODE` 在作业注册时读取，默认 `off`；未知值启动报错。当前没有动态管理 API；切换模式需要重启对应进程，不能当作已经实现的即时停款接口。
+A（`2648161ab`）只接受启动配置，必须以固定 `paused` 交付并作为兼容回退。B 保留环境变量的四态校验，并用专用 options 键 `MembershipBillingRecoveryControl` 保存 `mode:generation`；键缺失、内容无效或读取失败时停在 `paused`。普通选项 API 不能修改该键，主机专用控制器负责持久写入和实际进程确认。
+
+B 的服务进程、候选和 writer 每秒独立读取一次控制状态，正常请求不执行这次查询。变更模式会取消在途恢复上下文；后台资金事务按 `Option → Lease → User → Ledger → Recovery` 锁序核对同一代控制值。暂停更新提交构成资金屏障，控制器还必须等实际 writer 观察到相同 generation 且 `inflight=false` 才确认暂停成功。正常前台结算不受该控制行锁约束。
+
+只读进程回执位于 `/api/internal/membership-recovery`，仅信 socket 的 loopback 地址，不信转发头。主机入口为 `kkai-newapi-manual-deploy membership-recovery status`、`set-mode paused`，以及携带已确认暂停 generation 的 `set-mode off|observe|apply --expected-generation ...`。激活要求 canonical21 和真实 B 能力，失败会尝试回到暂停；不能把写入成功但进程未确认描述为已暂停。
 
 - `off`：不新增前台旁表证据；已有 young ready 暂存，满 72h 仍优先尊重已有证据，继续原补偿政策。
 - `observe`：独立影子游标和分类，不生成可执行 ready；满 72h 的兼容核账仍可调整资金。
 - `apply`：捕获异常、处理可信终态、发现孤儿并执行有界核账。
 - `paused`：本会员核账作业整轮停用并记录告警，当前实现也暂停缓存补偿；前台正常计费不受模式控制。
 
-新表存在但回执/形状/索引不完整时失败关闭，不回退到不识别旁表的旧补偿程序。两表都缺失且模式为 off/observe 时，保留原 72h 核账入口。生产应先验证 schema 及兼容回退版本，再启用 apply。
+新表存在但回执/形状/索引不完整时失败关闭，不回退到不识别旁表的旧补偿程序。A 包含历史 off/observe 的 schema 缺失兼容路径，但本次固定 paused 不会进入该路径；B 只有 canonical21 验证通过才允许非暂停模式。生产应先验证 schema 及兼容回退版本，再启用 apply。
 
 每分钟运行，发现阶段两个孤儿通道各最多 100 行，冲突延期最多 10 行，aged 最多 100 行/25 笔调整，ready/cache/pending 合计最多 100 行/25 笔资金调整。整体最多 410 行、50 笔调整；aged 和 ready 不互抢预留预算。扫描阶段在 1 秒/6 秒子预算中预留 200ms 保存已完成进度。
 
@@ -177,12 +182,20 @@ make -C /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/kkai-infra check
 
 应用全仓测试/全量构建未运行；本轮无生产访问。性能验收文件使用 `membership_acceptance` build tag，避免普通 service 测试仅因这些 opt-in 测试而编译所有 Relay provider。三个本轮独占的数据库容器、临时密码/env 文件及 Linux 测试二进制已清理，保留脱敏日志与原始样本；详见 [本地资源清理回执](membership-recovery-evidence-20261109/cleanup.json)。
 
+## 5.2 B 持久暂停与控制器安装
+
+相关 Go 包定向验证、实际 PostgreSQL 18 的暂停并发屏障、16 项控制/身份负例、4 项安装 CLI 及真实发布/回退入口回归均通过。PostgreSQL 用 `pg_blocking_pids` 确认两个真实会话之间的等待边，分别验证“已进入事务先提交后暂停”和“取消后事务整体回滚”；暂停后旧 generation 拒绝资金操作，正常前台计费仍可使用原事务。
+
+最终 infra `make check` 通过，275.931 秒；936 项可执行输入在检查期间以及提交前均无变化。首轮 42.281 秒因旧 rollback 测试夹具未配置新的 host control 调用失败，修正该夹具后先验证最近范围，再完成最终全量门禁；未放宽生产校验。精确命令、输入哈希、日志摘要和验证边界见 [B 控制器证据](../../../kkai-infra/docs/evidence/2026-11-09-membership-recovery-dynamic-control.json)。应用全仓测试未运行。
+
+控制器 `29e9a8e927ea35df939e912baa381e663591f4a2` 已通过本地 Git bundle 上传并在独占控制窗口安装。安装后独立 self-test 与 `make newapi-status` 通过，旧控制器源码保留；应用 pin 随后更新。此时应用仍是原版本，数据库仍为 canonical20（`sha256:aec42c828819055a9f678820802cc16e3ef47eee28ffb9308322a02063911a45`），未创建持久恢复控制行，未迁移或启用恢复。控制器安装不等同于本功能已上线。
+
 ## 6. 尚未验收或实施
 
 1. **数据库覆盖边界**：本机 PostgreSQL 18.4/9.6、MySQL 5.7 已执行新表唯一性与 runtime gate、并发结算、真实行锁取消和 leader 保护。独立 Linux CLI root-proof 的 v20→v21 apply/失败回滚/重放仅在 PG18 验证；其 runtime 身份为合成数据，不证明生产控制器的现场进程采集。生产规模执行计划、迁移影响和精确正式镜像仍待验收。
-2. **首字与后台压力**：已建立真实 TextHelper/adapter/StreamScanner 的本地 HTTP 测量，解析首个非空 content，单独保留首 SSE。已测 off/apply、会员/钱包、单/多用户、0/501 冲突；结果见第二轮记录。尚不覆盖完整鉴权/选渠道/输入分词、非流式、无限令牌、历史基线提交或持续恢复负载；不能宣称全部性能门槛通过。
-3. **生产迁移/发布**：专用控制器的本地实现及演练已完成；生产安装、迁移批准、真实兼容回退版本、exact image 合约与完整灰度尚未执行。恢复模式的 manifest/候选/回退冻结链路已在本地实现并通过定向检查；应用 wrapper 支持显式模式并校验 preflight/stage 回执，新增配置完整 `make check` 已授权执行，最终结果见上节。没有仅模式热切换或立即 paused 的独立入口，不能用手工改容器启用。实现与剩余门禁已写入 infra runbook 32。HTTP 灰度比例不等于后台核账用户比例；现 worker 没有用户白名单。
+2. **首字与后台压力**：第三轮已补 JSON/SSE、有限/无限令牌、1/4 用户、0/501 冲突和持续 worker，历史 `922db66ba` 基线 19,200 次、A 两轮 12,800 次均账务正确。A 原有 8 个延迟/吞吐越界指标完整保留；固定 24 格、4,800 次交错诊断未复现持续退化，无 worker 时正常请求 SQL 数与历史一致。裁决允许 A 固定 paused 进入受控灰度，不宣称绝对零开销或抹去原异常。详见 [A 性能证据与裁决](membership-recovery-evidence-20261109/performance-A/README.md)。B 的真实控制轮询与恢复负载须独立验收；工具仍不覆盖完整鉴权、选渠道、输入分词及真实上游性能。
+3. **生产迁移/发布**：用户已授权完整交付；按 infra runbook 32 安装最终精确控制器，A/B 分别经过候选业务验收和完整灰度，在 active/writer=B、rollback=A 后独立迁移 v21，再启用持久模式。A 固定 paused，B 回退前也必须先持久暂停并确认 drain，避免残留 apply 在重发 B 时自行恢复。具体生产结果以本轮回执为准。HTTP 灰度比例不等于后台核账用户比例；现 worker 没有用户白名单。
 4. **P2 Sub2API**：只读核对登记仓库 `/Users/tokk/Documents/Codex/2026-08-09/li/work/sub2api`。`backend/internal/server/middleware/newapi_attribution.go` 验签后只向上下文保留归属，nonce 没有进入最终账单；`backend/internal/pkg/kkaiattribution/verifier.go` 的 nonce 用于短期防重；`backend/ent/schema/usage_log.go` 没有 NewAPI attempt 字段；`backend/internal/repository/usage_billing_repo.go` 的 `(request_id, api_key_id)` 不能当作该 attempt 的最终收据。未发现对应查询专用接口，所以未虚构 URL、未增加 HTTP 查账，也未修改 Sub2API。
 5. **其它分期能力**：未自动提前释放本地费用事实不全的未派发孤儿；其证据仍 unknown，走既有 72h 政策。未调整预占公式、输出上限、会员权益时长或收费规则；P3 的估算分析另行实施。
 
-下一交付顺序：补齐性能覆盖与事故暂停通道 → 验收并安装精确控制器、准备兼容 A/B 发布 → 单独授权迁移 → 按正式发布流程观察和启用；P2 在双方最终收据协议落地后独立交付。
+当前交付顺序：完成 B 最终验收 → 安装精确控制器并更新 pin → 兼容 A/B 两次正式发布 → 执行已授权的独立 v21 迁移 → 观察、启用恢复并完成发布清理。P2 在双方最终收据协议落地后独立交付。
