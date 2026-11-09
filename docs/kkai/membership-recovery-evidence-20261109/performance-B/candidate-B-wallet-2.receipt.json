@@ -1,0 +1,52 @@
+{
+  "label": "candidate-B",
+  "revision": "cc99ff13494538bacfad06d215415d761013988d",
+  "command": [
+    "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B.test",
+    "-test.run",
+    "^TestMembershipRecoveryHTTPMeasurement/postgres/wallet/users-(1|4)/conflicts-(0|501)/apply/(sse|json)/(finite|unlimited)$",
+    "-test.count=1",
+    "-test.timeout=180s",
+    "-test.v"
+  ],
+  "samples_per_cell": 200,
+  "worker_policy": "continuous",
+  "gomaxprocs": 4,
+  "binary_sha256": "815f9e8d39a34ed0a1a46948dd157d37c0c569780cc289e36db77f607de1a8f1",
+  "resource_before": {
+    "state": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 574,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-09T12:00:34.723987709Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "memory_limit_bytes": 1073741824,
+    "stats": "{\"BlockIO\":\"63.6MB / 4.56GB\",\"CPUPerc\":\"0.05%\",\"Container\":\"kkai-membership-perf-pg18-6a44d8\",\"ID\":\"70add68197da\",\"MemPerc\":\"13.05%\",\"MemUsage\":\"133.7MiB / 1GiB\",\"Name\":\"kkai-membership-perf-pg18-6a44d8\",\"NetIO\":\"1.1GB / 1.59GB\",\"PIDs\":\"9\"}"
+  },
+  "exit_code": 0,
+  "wall_seconds": 55.91230970799734,
+  "resource_after": {
+    "state": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 574,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-09T12:00:34.723987709Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "memory_limit_bytes": 1073741824,
+    "stats": "{\"BlockIO\":\"63.6MB / 4.88GB\",\"CPUPerc\":\"0.06%\",\"Container\":\"kkai-membership-perf-pg18-6a44d8\",\"ID\":\"70add68197da\",\"MemPerc\":\"13.46%\",\"MemUsage\":\"137.8MiB / 1GiB\",\"Name\":\"kkai-membership-perf-pg18-6a44d8\",\"NetIO\":\"1.17GB / 1.66GB\",\"PIDs\":\"9\"}"
+  }
+}

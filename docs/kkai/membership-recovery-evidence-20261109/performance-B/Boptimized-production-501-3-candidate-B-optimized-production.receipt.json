@@ -1,0 +1,52 @@
+{
+  "source": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+  "label": "candidate-B-optimized-production",
+  "policy": "production",
+  "command": [
+    "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized-production.test",
+    "-test.run",
+    "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+    "-test.count=1",
+    "-test.timeout=90s",
+    "-test.v"
+  ],
+  "binary_sha256": "ef84d1b6511830fbe6654f9004e4a3ff9da2053dae51e00446836b560923f43d",
+  "tool_sha256": "bbf82941031b0306cca0b0db37e5e781bed694cc2dcdf3d4c17478da458ed577",
+  "resource_before": {
+    "state": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 574,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-09T12:00:34.723987709Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "memory_limit_bytes": 1073741824,
+    "stats": "{\"BlockIO\":\"63.6MB / 5.26GB\",\"CPUPerc\":\"0.08%\",\"Container\":\"kkai-membership-perf-pg18-6a44d8\",\"ID\":\"70add68197da\",\"MemPerc\":\"13.48%\",\"MemUsage\":\"138MiB / 1GiB\",\"Name\":\"kkai-membership-perf-pg18-6a44d8\",\"NetIO\":\"1.27GB / 1.76GB\",\"PIDs\":\"9\"}"
+  },
+  "started_utc": "2026-11-09T14:05:25.786610+00:00",
+  "exit_code": 0,
+  "wall_seconds": 5.514960165997763,
+  "resource_after": {
+    "state": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 574,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-09T12:00:34.723987709Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "memory_limit_bytes": 1073741824,
+    "stats": "{\"BlockIO\":\"63.6MB / 5.29GB\",\"CPUPerc\":\"0.09%\",\"Container\":\"kkai-membership-perf-pg18-6a44d8\",\"ID\":\"70add68197da\",\"MemPerc\":\"13.55%\",\"MemUsage\":\"138.8MiB / 1GiB\",\"Name\":\"kkai-membership-perf-pg18-6a44d8\",\"NetIO\":\"1.28GB / 1.76GB\",\"PIDs\":\"9\"}"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "baseline": {
+    "revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+    "binary_sha256": "537344e3d9f2f98b55c258e030be5fe78e3c451a4b272c17aaae6e881940d2f5",
+    "tool_files": {
+      "membership_billing_recovery_http_acceptance_test.go": "0ca41cb9b71ebe5d7677146d0d4fb52641d7262e1c805a0bef4407adfa8765ea",
+      "membership_billing_acceptance_fixture_test.go": "22120b823c4df3c305bb57e15c35bdcce6361a59cc863ed674a7cf91efaa867a",
+      "membership_billing_recovery_acceptance_test.go": "5381c526ec7e95f7f31965580b2d035870ce88d57494e062d4179fb15d351d50",
+      "membership_billing_legacy_acceptance_test.go": "46c0a4a6f3a5446d51c38e3bf984f3d0369bda49ee9ab8de7d99f986f6dcf883"
+    }
+  },
+  "candidate": {
+    "revision": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+    "binary_sha256": "697fb9e1d64b0448d8d096688bf5d69f90d5099c4ff89f04f6612cd1febacf87",
+    "tool_files": {
+      "membership_billing_recovery_http_acceptance_test.go": "0ca41cb9b71ebe5d7677146d0d4fb52641d7262e1c805a0bef4407adfa8765ea",
+      "membership_billing_acceptance_fixture_test.go": "22120b823c4df3c305bb57e15c35bdcce6361a59cc863ed674a7cf91efaa867a",
+      "membership_billing_recovery_acceptance_test.go": "5381c526ec7e95f7f31965580b2d035870ce88d57494e062d4179fb15d351d50",
+      "membership_billing_legacy_acceptance_test.go": "46c0a4a6f3a5446d51c38e3bf984f3d0369bda49ee9ab8de7d99f986f6dcf883"
+    }
+  }
+}

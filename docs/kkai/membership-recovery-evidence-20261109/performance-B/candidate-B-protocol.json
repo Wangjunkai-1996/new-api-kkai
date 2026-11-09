@@ -1,0 +1,17 @@
+{
+  "created_utc": "2026-11-09T13:08:41.338620+00:00",
+  "source": "exact committed B revision must be filled in candidate-B-ref.txt before compile/formal run",
+  "source_archive": "candidate-B/ separate from immutable A archive candidate/",
+  "samples_per_cell": 200,
+  "repetitions": 2,
+  "cells_per_repetition": 32,
+  "mode": "apply",
+  "worker": "actual B worker,100ms accelerated start cadence,no overlap",
+  "control_poll": "actual MembershipBillingRecoveryControlPollJob every1s on separate goroutine, no mock read; Option created before measurement; valid requires poll_runs>0 and poll_error empty",
+  "thresholds": "unchanged baseline-noise-frozen.json; same primary metrics and original two-repeat outside-worst rule",
+  "frozen_noise_sha256": "59a8a735c193f540bfa8bd5d643be5e1ac21fff444be0940de7e9e54a67af8ae",
+  "execution": "four bounded batches of16cells, alternate membership/wallet; no concurrent builds or other DB tests",
+  "original_A_findings": "preserved; B evaluated independently",
+  "fixture_changes": "four test files refactored for historical bridge, JSON/unlimited cells, persistent control Option and real poll; no production code overlay permitted in exact B archive",
+  "before_formal": "one small workspace compile/pilot for functional tool defects only; never interpreted as performance PASS"
+}

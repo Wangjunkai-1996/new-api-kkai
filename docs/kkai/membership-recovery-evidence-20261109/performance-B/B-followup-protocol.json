@@ -1,0 +1,53 @@
+{
+  "created_utc": "2026-11-09T13:44:56.674285+00:00",
+  "reason": "exact cc99 full64-cell run found one repeat primary flag at501 backlog and two secondary P99 flags at0 backlog; shared PG lease no-op UPDATE fix is pending exact final commit",
+  "candidate_identity": "candidate-B-final-ref.txt must contain root-confirmed exact committed SHA before source export",
+  "scenarios": [
+    {
+      "id": "member4-conflict-sse-unlimited",
+      "funding": "membership",
+      "users": 4,
+      "conflicts": 501,
+      "protocol": "sse",
+      "token": "unlimited"
+    },
+    {
+      "id": "member4-empty-sse-unlimited",
+      "funding": "membership",
+      "users": 4,
+      "conflicts": 0,
+      "protocol": "sse",
+      "token": "unlimited"
+    }
+  ],
+  "stress": {
+    "worker_interval_ms": 100,
+    "order": [
+      "candidate-final-conflict",
+      "candidate-final-empty",
+      "candidate-final-empty",
+      "candidate-final-conflict"
+    ],
+    "cells": 4
+  },
+  "production_cadence": {
+    "worker_interval_ms": 60000,
+    "initial_worker": "immediately starts one real round at HTTP start; long interval remains active, no fake worker",
+    "poll": "B real independent1second control poll, historical none",
+    "order_per_scenario": [
+      "baseline",
+      "candidate-final",
+      "candidate-final",
+      "baseline"
+    ],
+    "cells": 8
+  },
+  "samples_per_cell": 200,
+  "concurrency": 4,
+  "pool_size": 8,
+  "gomaxprocs": 4,
+  "frozen_noise_sha256": "59a8a735c193f540bfa8bd5d643be5e1ac21fff444be0940de7e9e54a67af8ae",
+  "criteria": "same two-repeat outside-frozen-worst primary metric rule for exact-source stress; report secondary P99. Production-cadence diagnosis reports unchanged frozen-bound comparison plus contemporaneous ABBA absolute/relative differences. Functional invariants mandatory. Original cc99 findings remain, no repeat until pass. Persistent production-cadence regression requires code correction.",
+  "source_integrity": "stress binary exact final commit; production-cadence variants only test tool schedule changed; original exact A/B and baseline binaries unchanged",
+  "execution": "no concurrent heavy tests/builds; each bounded subprocess; no full suite; results TEMP only until final build"
+}

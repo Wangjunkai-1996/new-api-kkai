@@ -1,0 +1,22 @@
+{
+  "label": "candidate-B-final",
+  "revision": "c6fc071f87b81c886935cf9e3ac806aca645cfe0",
+  "tool_sha256": "1e6a8a8d485f73b6bd2772cf8d48c86d3b1d803ea26ae4bdd0a35fea17fe8824",
+  "command": [
+    "go",
+    "test",
+    "-c",
+    "-mod=readonly",
+    "-tags",
+    "membership_acceptance",
+    "-o",
+    "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final.test",
+    "./service"
+  ],
+  "exit": 0,
+  "seconds": 19.44029920899993,
+  "built_utc": "2026-11-09T13:49:40.776793+00:00",
+  "production_code_overlay": false,
+  "test_only_schedule_overlay": false,
+  "binary_sha256": "8f3895929390d737fbfb19a2653cf0d7fa3ad0cf17dd24532d1a0444da1050dc"
+}

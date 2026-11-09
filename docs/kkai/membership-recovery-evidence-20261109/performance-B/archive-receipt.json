@@ -1,0 +1,438 @@
+{
+  "archived_at_utc": "2026-11-09T14:54:47.532249+00:00",
+  "original_package_sha256": "9e64b43a43b9a3941950cfa2901608a6a374902c22f3bb1182c5a261dbcc1892",
+  "original_manifest_sha256": "5650f565d24dfad848b2867aba82daf7b7b0aebd3b16695312acf6be64c1a7d0",
+  "source_package_bytes": 768665,
+  "original_file_count": 135,
+  "copy_verification": "all manifest-listed stored and uncompressed source hashes matched; actual local credential absent",
+  "scope": "only docs/kkai/membership-recovery-evidence-20261109/performance-B; no production operation or test rerun",
+  "commands_from_exact_receipts": [
+    {
+      "receipt": "Bfinal-production-0-1-baseline-production.receipt.json",
+      "source": "922db66baa46c07b5f36cdce8191a52d9af519db",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3784552079996502,
+      "binary_sha256": "bc75af88e788103e76a643aef892414b13bc4c850fb9079e9fffabacbab1c0af"
+    },
+    {
+      "receipt": "Bfinal-production-0-2-candidate-B-final-production.receipt.json",
+      "source": "c6fc071f87b81c886935cf9e3ac806aca645cfe0",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3918780839994724,
+      "binary_sha256": "575fb5748e170a7829a6ff5c95aad20e297dc5db0208f4b42cf6124ed10579bf"
+    },
+    {
+      "receipt": "Bfinal-production-0-3-candidate-B-final-production.receipt.json",
+      "source": "c6fc071f87b81c886935cf9e3ac806aca645cfe0",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3613646250014426,
+      "binary_sha256": "575fb5748e170a7829a6ff5c95aad20e297dc5db0208f4b42cf6124ed10579bf"
+    },
+    {
+      "receipt": "Bfinal-production-0-4-baseline-production.receipt.json",
+      "source": "922db66baa46c07b5f36cdce8191a52d9af519db",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3523707919994195,
+      "binary_sha256": "bc75af88e788103e76a643aef892414b13bc4c850fb9079e9fffabacbab1c0af"
+    },
+    {
+      "receipt": "Bfinal-production-501-1-baseline-production.receipt.json",
+      "source": "922db66baa46c07b5f36cdce8191a52d9af519db",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 5.624045040996862,
+      "binary_sha256": "bc75af88e788103e76a643aef892414b13bc4c850fb9079e9fffabacbab1c0af"
+    },
+    {
+      "receipt": "Bfinal-production-501-2-candidate-B-final-production.receipt.json",
+      "source": "c6fc071f87b81c886935cf9e3ac806aca645cfe0",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 6.2600924170001235,
+      "binary_sha256": "575fb5748e170a7829a6ff5c95aad20e297dc5db0208f4b42cf6124ed10579bf"
+    },
+    {
+      "receipt": "Bfinal-production-501-3-candidate-B-final-production.receipt.json",
+      "source": "c6fc071f87b81c886935cf9e3ac806aca645cfe0",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 6.119462541999383,
+      "binary_sha256": "575fb5748e170a7829a6ff5c95aad20e297dc5db0208f4b42cf6124ed10579bf"
+    },
+    {
+      "receipt": "Bfinal-production-501-4-baseline-production.receipt.json",
+      "source": "922db66baa46c07b5f36cdce8191a52d9af519db",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 5.143961707999551,
+      "binary_sha256": "bc75af88e788103e76a643aef892414b13bc4c850fb9079e9fffabacbab1c0af"
+    },
+    {
+      "receipt": "Bfinal-stress-1-candidate-B-final.receipt.json",
+      "source": "c6fc071f87b81c886935cf9e3ac806aca645cfe0",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 5.932866666000336,
+      "binary_sha256": "8f3895929390d737fbfb19a2653cf0d7fa3ad0cf17dd24532d1a0444da1050dc"
+    },
+    {
+      "receipt": "Bfinal-stress-2-candidate-B-final.receipt.json",
+      "source": "c6fc071f87b81c886935cf9e3ac806aca645cfe0",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.5393155419988034,
+      "binary_sha256": "8f3895929390d737fbfb19a2653cf0d7fa3ad0cf17dd24532d1a0444da1050dc"
+    },
+    {
+      "receipt": "Bfinal-stress-3-candidate-B-final.receipt.json",
+      "source": "c6fc071f87b81c886935cf9e3ac806aca645cfe0",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.5104188750010508,
+      "binary_sha256": "8f3895929390d737fbfb19a2653cf0d7fa3ad0cf17dd24532d1a0444da1050dc"
+    },
+    {
+      "receipt": "Bfinal-stress-4-candidate-B-final.receipt.json",
+      "source": "c6fc071f87b81c886935cf9e3ac806aca645cfe0",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 6.140751541999634,
+      "binary_sha256": "8f3895929390d737fbfb19a2653cf0d7fa3ad0cf17dd24532d1a0444da1050dc"
+    },
+    {
+      "receipt": "Boptimized-production-0-1-baseline-production.receipt.json",
+      "source": "922db66baa46c07b5f36cdce8191a52d9af519db",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.345418790999247,
+      "binary_sha256": "bc75af88e788103e76a643aef892414b13bc4c850fb9079e9fffabacbab1c0af"
+    },
+    {
+      "receipt": "Boptimized-production-0-2-candidate-B-optimized-production.receipt.json",
+      "source": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3752923330030171,
+      "binary_sha256": "ef84d1b6511830fbe6654f9004e4a3ff9da2053dae51e00446836b560923f43d"
+    },
+    {
+      "receipt": "Boptimized-production-0-3-candidate-B-optimized-production.receipt.json",
+      "source": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3750610000024608,
+      "binary_sha256": "ef84d1b6511830fbe6654f9004e4a3ff9da2053dae51e00446836b560923f43d"
+    },
+    {
+      "receipt": "Boptimized-production-0-4-baseline-production.receipt.json",
+      "source": "922db66baa46c07b5f36cdce8191a52d9af519db",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3625329999995301,
+      "binary_sha256": "bc75af88e788103e76a643aef892414b13bc4c850fb9079e9fffabacbab1c0af"
+    },
+    {
+      "receipt": "Boptimized-production-501-1-baseline-production.receipt.json",
+      "source": "922db66baa46c07b5f36cdce8191a52d9af519db",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 5.096040791999258,
+      "binary_sha256": "bc75af88e788103e76a643aef892414b13bc4c850fb9079e9fffabacbab1c0af"
+    },
+    {
+      "receipt": "Boptimized-production-501-2-candidate-B-optimized-production.receipt.json",
+      "source": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 5.551178124998842,
+      "binary_sha256": "ef84d1b6511830fbe6654f9004e4a3ff9da2053dae51e00446836b560923f43d"
+    },
+    {
+      "receipt": "Boptimized-production-501-3-candidate-B-optimized-production.receipt.json",
+      "source": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 5.514960165997763,
+      "binary_sha256": "ef84d1b6511830fbe6654f9004e4a3ff9da2053dae51e00446836b560923f43d"
+    },
+    {
+      "receipt": "Boptimized-production-501-4-baseline-production.receipt.json",
+      "source": "922db66baa46c07b5f36cdce8191a52d9af519db",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 5.090195959000994,
+      "binary_sha256": "bc75af88e788103e76a643aef892414b13bc4c850fb9079e9fffabacbab1c0af"
+    },
+    {
+      "receipt": "Boptimized-stress-1-candidate-B-optimized.receipt.json",
+      "source": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 5.685961334002059,
+      "binary_sha256": "1e5da8b9940a3891db32610e3c021167eda6a02fb7caca31b8f0ab493e38a4d8"
+    },
+    {
+      "receipt": "Boptimized-stress-2-candidate-B-optimized.receipt.json",
+      "source": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3953854999999749,
+      "binary_sha256": "1e5da8b9940a3891db32610e3c021167eda6a02fb7caca31b8f0ab493e38a4d8"
+    },
+    {
+      "receipt": "Boptimized-stress-3-candidate-B-optimized.receipt.json",
+      "source": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 1.380302749999828,
+      "binary_sha256": "1e5da8b9940a3891db32610e3c021167eda6a02fb7caca31b8f0ab493e38a4d8"
+    },
+    {
+      "receipt": "Boptimized-stress-4-candidate-B-optimized.receipt.json",
+      "source": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-501/apply/sse/unlimited$",
+        "-test.count=1",
+        "-test.timeout=90s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 5.573965250001493,
+      "binary_sha256": "1e5da8b9940a3891db32610e3c021167eda6a02fb7caca31b8f0ab493e38a4d8"
+    },
+    {
+      "receipt": "candidate-B-membership-1.receipt.json",
+      "source": "cc99ff13494538bacfad06d215415d761013988d",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-(1|4)/conflicts-(0|501)/apply/(sse|json)/(finite|unlimited)$",
+        "-test.count=1",
+        "-test.timeout=180s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 103.74301874999946,
+      "binary_sha256": "815f9e8d39a34ed0a1a46948dd157d37c0c569780cc289e36db77f607de1a8f1"
+    },
+    {
+      "receipt": "candidate-B-membership-2.receipt.json",
+      "source": "cc99ff13494538bacfad06d215415d761013988d",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-(1|4)/conflicts-(0|501)/apply/(sse|json)/(finite|unlimited)$",
+        "-test.count=1",
+        "-test.timeout=180s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 63.38085525000133,
+      "binary_sha256": "815f9e8d39a34ed0a1a46948dd157d37c0c569780cc289e36db77f607de1a8f1"
+    },
+    {
+      "receipt": "candidate-B-wallet-1.receipt.json",
+      "source": "cc99ff13494538bacfad06d215415d761013988d",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/wallet/users-(1|4)/conflicts-(0|501)/apply/(sse|json)/(finite|unlimited)$",
+        "-test.count=1",
+        "-test.timeout=180s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 64.40913187499973,
+      "binary_sha256": "815f9e8d39a34ed0a1a46948dd157d37c0c569780cc289e36db77f607de1a8f1"
+    },
+    {
+      "receipt": "candidate-B-wallet-2.receipt.json",
+      "source": "cc99ff13494538bacfad06d215415d761013988d",
+      "command": [
+        "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B.test",
+        "-test.run",
+        "^TestMembershipRecoveryHTTPMeasurement/postgres/wallet/users-(1|4)/conflicts-(0|501)/apply/(sse|json)/(finite|unlimited)$",
+        "-test.count=1",
+        "-test.timeout=180s",
+        "-test.v"
+      ],
+      "exit_code": 0,
+      "seconds": 55.91230970799734,
+      "binary_sha256": "815f9e8d39a34ed0a1a46948dd157d37c0c569780cc289e36db77f607de1a8f1"
+    }
+  ],
+  "verification_gaps": [
+    "Local fixed upstream and isolated PostgreSQL18; authentication/distribution/input-tokenization and Redis not measured",
+    "Finalfc464 uses relevant focused follow-up; full64-cell matrix belongs tocc99",
+    "200 samples/cell limit precision ofP99",
+    "Production-cadence tests cover immediate worker start within short request window, not multiple60-second periods",
+    "No full repository test suite executed"
+  ]
+}

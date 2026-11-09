@@ -1,0 +1,8 @@
+{
+  "revision": "c6fc071f87b81c886935cf9e3ac806aca645cfe0",
+  "result": "functional pass; original fixed threshold has no repeat flags, but contemporaneous production501 ABBA shows measurable contention; do not unconditionally enableapply on that basis",
+  "root_decision": "optimize conflict handling without changing recovery monetary budgets or adding architecture",
+  "evidence": "scanned110/conflicts110; 203additional SQL vs0 backlog; approximately100from10 redundant reserved-conflict deferrals and100from aged per-record state queries",
+  "preserve": "all12 cells and copied tool scripts unchanged; no retest until real source fix and exactcommit",
+  "created_utc": "2026-11-09T13:58:52.315764+00:00"
+}

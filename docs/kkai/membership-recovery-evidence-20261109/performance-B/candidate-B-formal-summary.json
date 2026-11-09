@@ -1,0 +1,61 @@
+{
+  "revision": "cc99ff13494538bacfad06d215415d761013988d",
+  "binary_sha256": "815f9e8d39a34ed0a1a46948dd157d37c0c569780cc289e36db77f607de1a8f1",
+  "cells": 64,
+  "requested": 12800,
+  "succeeded": 12800,
+  "valid": true,
+  "sql_errors": 0,
+  "unsettled": 0,
+  "pool_waits": 0,
+  "poll_runs": 152,
+  "worker_runs": 1006,
+  "primary_flags": [
+    {
+      "cell": "membership|4|501|sse|True",
+      "metric": "content_p50_ms",
+      "baseline_boundary": 13.164167,
+      "candidate": [
+        16.949208,
+        13.381625
+      ]
+    }
+  ],
+  "secondary_p99_flags": [
+    {
+      "cell": [
+        "membership",
+        4,
+        0,
+        "sse",
+        true
+      ],
+      "metric": "content_p99_ms",
+      "baseline_worst": 31.558292,
+      "candidate": [
+        40.898917,
+        34.282458
+      ]
+    },
+    {
+      "cell": [
+        "membership",
+        4,
+        0,
+        "sse",
+        true
+      ],
+      "metric": "complete_p99_ms",
+      "baseline_worst": 45.089875,
+      "candidate": [
+        70.571375,
+        46.679375
+      ]
+    }
+  ],
+  "oom_detected": false,
+  "scope": "fixed local HTTP; auth/distribution/input tokenization excluded; 200 requests/cell; worker100ms vsproduction60s; control poll1s",
+  "disposition": "original exact B cc99 complete; one repeat primary flag; before production-cadence diagnosis root identified unnecessary PG/MySQL lease no-op UPDATE and requested focused fix; not final apply acceptance",
+  "production_diagnostic_executed": false,
+  "created_utc": "2026-11-09T13:43:46.892677+00:00"
+}

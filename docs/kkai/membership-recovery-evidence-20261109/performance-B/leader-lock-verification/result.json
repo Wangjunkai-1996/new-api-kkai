@@ -1,0 +1,72 @@
+{
+  "base_commit": "cc99ff13494538bacfad06d215415d761013988d",
+  "checks": [
+    {
+      "command": [
+        "go",
+        "test",
+        "-p",
+        "1",
+        "./model",
+        "./service",
+        "-run",
+        "TestMembershipRecovery(ScanCannotWriteWithLostLeaderFence|FenceLossRollsBackEvidenceAndFunds|WorkerModesKeepEarlyEvidenceAndAgedFallbackSeparate)|TestLeaderLease(AllowsSingleHolderAndCleanTakeover|ConcurrentAcquisitionHasOneWinner|UsesDatabaseClock)",
+        "-count=1",
+        "-timeout=120s",
+        "-v"
+      ],
+      "elapsed_seconds": 24.306,
+      "exit_code": 0,
+      "log": "/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-leader-lock-verification-wpmkm_ti/targeted-leader-fence.log",
+      "log_sha256": "aef5ffa3a695b1b043398c433355fcb2eafe14ed0b612aa91f683887c0d3ac7e",
+      "note": "Leader/fence cases passed; four membership modes skipped without env and were rerun below with the feature enabled."
+    },
+    {
+      "command": [
+        "go",
+        "test",
+        "-p",
+        "1",
+        "./service",
+        "-run",
+        "^TestMembershipRecoveryRealDatabaseAcceptance$/^postgres$",
+        "-count=1",
+        "-timeout=90s",
+        "-v"
+      ],
+      "elapsed_seconds": 4.1,
+      "exit_code": 0,
+      "log": "/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-leader-lock-verification-wpmkm_ti/postgres-acceptance.log",
+      "log_sha256": "f6bede45dc686415df52ab4768c39b9157281d467b1e86091b02be49ab155763"
+    },
+    {
+      "command": "KKAI_MEMBERSHIP_ENABLED=true GOMAXPROCS=2 go test -p 1 ./service -run ^TestMembershipRecoveryWorkerModesKeepEarlyEvidenceAndAgedFallbackSeparate$ -count=1 -timeout=60s -v",
+      "exit_code": 0,
+      "log": "/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-leader-lock-verification-wpmkm_ti/worker-modes-enabled.log",
+      "log_sha256": "f9e171ae36d5ddc6cba254d8830da464d488031fcf5725c9215f679ee964421d",
+      "modes": [
+        "off",
+        "observe",
+        "apply",
+        "paused"
+      ]
+    }
+  ],
+  "full_suite": "skipped; targeted existing tests only",
+  "independent_static_review": "relay_lifecycle: no blockers; lock-for-update preserves lease guard semantics",
+  "limitations": [
+    "No new real-MySQL run for this narrowing; existing SQLite and real-PostgreSQL checks passed.",
+    "Performance improvement is not claimed; full exact-commit benchmark remains separate."
+  ],
+  "postgres": {
+    "container": "kkai-membership-perf-pg18-6a44d8",
+    "database": "kkai_test_membership_leader_guard",
+    "isolated_schemas": true,
+    "password_printed": false
+  },
+  "production_access": false,
+  "result": "passed",
+  "scope": "SQLite-only no-op update for membership recovery leader lock",
+  "source_sha256": "a1e754f51622f2c3a2634e00a932ab49deb9d518b440f9f689fae33d436511be",
+  "source_unchanged": true
+}

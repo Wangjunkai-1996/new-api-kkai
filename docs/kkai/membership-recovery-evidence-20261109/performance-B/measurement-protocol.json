@@ -1,0 +1,46 @@
+{
+  "created_utc": "2026-11-09T12:08:49.660564+00:00",
+  "baseline": "922db66baa46c07b5f36cdce8191a52d9af519db",
+  "candidate_A": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+  "candidate_A_mode": "paused",
+  "samples_per_cell": 200,
+  "concurrency": 4,
+  "pool_size": 8,
+  "gomaxprocs": 4,
+  "upstream": "fixed local HTTP, no sleeps, same 8 input/2 output usage; SSE role-only then real content; JSON actual decoded content",
+  "factors": {
+    "funding": [
+      "membership",
+      "wallet"
+    ],
+    "users": [
+      1,
+      4
+    ],
+    "conflicts": [
+      0,
+      501
+    ],
+    "protocol": [
+      "sse",
+      "json"
+    ],
+    "token": [
+      "finite",
+      "unlimited"
+    ]
+  },
+  "worker": "real repeated worker starts at an accelerated100ms cadence; no overlaps, ends after foreground, normal production60s; expected legacy conflict findings admitted by exact fixture message only",
+  "baseline_noise": "Freeze each cell min/max from first three valid baseline runs before evaluating candidates; do not widen after seeing candidate values",
+  "regression_rule": "Two independent candidate repetitions both worse than frozen baseline worst for a primary metric flag reproducible regression; investigate, never relax gate",
+  "primary_metrics": [
+    "content_p50_ms",
+    "content_p95_ms",
+    "complete_p50_ms",
+    "complete_p95_ms",
+    "requests_per_second"
+  ],
+  "tail_metrics": "Report p99 for200 samples; investigate repeat excursion, do not label low-sample p99 as pass",
+  "validity": "all requested responses correct, all HTTP ledgers settled,501 conflict ledger funds retained, SQL errors0, unexpected worker errors0",
+  "scope_limits": "auth/distribution/input-tokenization excluded, local fixed upstream, this is a controlled local sample, not proof of zero production overhead"
+}

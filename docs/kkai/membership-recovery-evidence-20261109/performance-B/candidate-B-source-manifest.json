@@ -1,0 +1,28 @@
+{
+  "revision": "cc99ff13494538bacfad06d215415d761013988d",
+  "archive_sha256": "3331e02965645315637c2f6bbe811d91029e1cf5aa43cc787b643bf8ee965695",
+  "archive_bytes": 148326400,
+  "tool_files": {
+    "membership_billing_acceptance_fixture_test.go": "a615e9dbf26908463f6492deb162ac5f1b31cea5e3c8c8633e7aaa3315661ede",
+    "membership_billing_legacy_acceptance_test.go": "f2ee20d8c45788d3f5efa99e1f44e499575954b2987ccd6987ab1dc6776a90cf",
+    "membership_billing_recovery_acceptance_test.go": "40e6538b48ffcb9a92719421cdb50c03e65515ac3ae469dc8bc7691681adf2d0",
+    "membership_billing_recovery_http_acceptance_test.go": "1e6a8a8d485f73b6bd2772cf8d48c86d3b1d803ea26ae4bdd0a35fea17fe8824"
+  },
+  "production_overlay": false,
+  "frozen_baseline_sha256": "59a8a735c193f540bfa8bd5d643be5e1ac21fff444be0940de7e9e54a67af8ae",
+  "created_utc": "2026-11-09T13:32:15.428107+00:00",
+  "command": [
+    "go",
+    "test",
+    "-c",
+    "-mod=readonly",
+    "-tags",
+    "membership_acceptance",
+    "-o",
+    "/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B.test",
+    "./service"
+  ],
+  "build_exit": 0,
+  "build_seconds": 24.24856920899765,
+  "binary_sha256": "815f9e8d39a34ed0a1a46948dd157d37c0c569780cc289e36db77f607de1a8f1"
+}

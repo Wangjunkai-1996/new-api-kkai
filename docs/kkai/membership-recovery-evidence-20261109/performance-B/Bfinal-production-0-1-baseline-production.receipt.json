@@ -1,0 +1,52 @@
+{
+  "source": "922db66baa46c07b5f36cdce8191a52d9af519db",
+  "label": "baseline-production",
+  "policy": "production",
+  "command": [
+    "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production.test",
+    "-test.run",
+    "^TestMembershipRecoveryHTTPMeasurement/postgres/membership/users-4/conflicts-0/apply/sse/unlimited$",
+    "-test.count=1",
+    "-test.timeout=90s",
+    "-test.v"
+  ],
+  "binary_sha256": "bc75af88e788103e76a643aef892414b13bc4c850fb9079e9fffabacbab1c0af",
+  "tool_sha256": "2d0560e3e64fe8b72e906b4d420dfc2ad16946344b701141514f4fee686bead7",
+  "resource_before": {
+    "state": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 574,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-09T12:00:34.723987709Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "memory_limit_bytes": 1073741824,
+    "stats": "{\"BlockIO\":\"63.6MB / 5.09GB\",\"CPUPerc\":\"0.00%\",\"Container\":\"kkai-membership-perf-pg18-6a44d8\",\"ID\":\"70add68197da\",\"MemPerc\":\"13.39%\",\"MemUsage\":\"137.1MiB / 1GiB\",\"Name\":\"kkai-membership-perf-pg18-6a44d8\",\"NetIO\":\"1.22GB / 1.71GB\",\"PIDs\":\"9\"}"
+  },
+  "started_utc": "2026-11-09T13:52:38.066511+00:00",
+  "exit_code": 0,
+  "wall_seconds": 1.3784552079996502,
+  "resource_after": {
+    "state": {
+      "Status": "running",
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": false,
+      "Dead": false,
+      "Pid": 574,
+      "ExitCode": 0,
+      "Error": "",
+      "StartedAt": "2026-11-09T12:00:34.723987709Z",
+      "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "memory_limit_bytes": 1073741824,
+    "stats": "{\"BlockIO\":\"63.6MB / 5.1GB\",\"CPUPerc\":\"0.14%\",\"Container\":\"kkai-membership-perf-pg18-6a44d8\",\"ID\":\"70add68197da\",\"MemPerc\":\"13.47%\",\"MemUsage\":\"137.9MiB / 1GiB\",\"Name\":\"kkai-membership-perf-pg18-6a44d8\",\"NetIO\":\"1.23GB / 1.72GB\",\"PIDs\":\"9\"}"
+  }
+}

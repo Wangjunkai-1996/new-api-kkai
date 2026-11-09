@@ -1,0 +1,8 @@
+{
+  "revision": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+  "original_protocol": "B-followup-protocol.json",
+  "original_protocol_sha256": "4ec5b0091f59b6650dbe4d0c6f423e298bcd2bd09823c6b71de7723085de10fe",
+  "scenarios_order_samples_and_thresholds": "unchanged",
+  "reason": "real code fix: terminal-only conflicts and batched aged states; prior12-cell production contention remains recorded",
+  "created_utc": "2026-11-09T14:02:28.636182+00:00"
+}

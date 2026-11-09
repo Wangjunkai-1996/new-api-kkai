@@ -1,0 +1,14 @@
+{
+  "revision": "c6fc071f87b81c886935cf9e3ac806aca645cfe0",
+  "archive_sha256": "2954084b4e4db914318a75291fa786e0cdcdf0906edd097dbe9c096043378b87",
+  "archive_bytes": 148326400,
+  "tool_files": {
+    "membership_billing_acceptance_fixture_test.go": "a615e9dbf26908463f6492deb162ac5f1b31cea5e3c8c8633e7aaa3315661ede",
+    "membership_billing_legacy_acceptance_test.go": "f2ee20d8c45788d3f5efa99e1f44e499575954b2987ccd6987ab1dc6776a90cf",
+    "membership_billing_recovery_acceptance_test.go": "40e6538b48ffcb9a92719421cdb50c03e65515ac3ae469dc8bc7691681adf2d0",
+    "membership_billing_recovery_http_acceptance_test.go": "1e6a8a8d485f73b6bd2772cf8d48c86d3b1d803ea26ae4bdd0a35fea17fe8824"
+  },
+  "production_overlay": false,
+  "created_utc": "2026-11-09T13:49:08.856742+00:00",
+  "source_diff_from_cc99": " model/membership_billing_recovery_scan.go | 9 ++++++---\n 1 file changed, 6 insertions(+), 3 deletions(-)\n"
+}

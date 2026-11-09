@@ -1,0 +1,39 @@
+{
+  "created_utc": "2026-11-09T13:41:21.160649+00:00",
+  "purpose": "fixed investigation of one formal B stress flag under production worker cadence; original stress result remains",
+  "baseline_revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+  "candidate_revision": "cc99ff13494538bacfad06d215415d761013988d",
+  "scenarios": [
+    {
+      "id": "member4-conflict-sse-unlimited",
+      "funding": "membership",
+      "users": 4,
+      "conflicts": 501,
+      "protocol": "sse",
+      "token": "unlimited"
+    },
+    {
+      "id": "member4-empty-sse-unlimited",
+      "funding": "membership",
+      "users": 4,
+      "conflicts": 0,
+      "protocol": "sse",
+      "token": "unlimited"
+    }
+  ],
+  "order": [
+    "baseline",
+    "candidate-B",
+    "candidate-B",
+    "baseline"
+  ],
+  "samples_per_cell": 200,
+  "concurrency": 4,
+  "pool_size": 8,
+  "gomaxprocs": 4,
+  "worker": "real worker run immediately once; subsequent starts every60seconds; does not overlap",
+  "control_poll": "candidate B real independent1second job unchanged; historical has none",
+  "diagnostic_tool_change": "test-only production worker policy changes scheduling interval100ms to60s; no business overlay; original source archives/binaries remain intact",
+  "criteria": "functional correctness required; compare primary metrics with unchanged frozen boundaries and report contemporaneous ABBA differences; no repeat-until-pass",
+  "frozen_sha256": "59a8a735c193f540bfa8bd5d643be5e1ac21fff444be0940de7e9e54a67af8ae"
+}

@@ -1,0 +1,22 @@
+{
+  "label": "baseline-production",
+  "revision": "922db66baa46c07b5f36cdce8191a52d9af519db",
+  "tool_sha256": "2d0560e3e64fe8b72e906b4d420dfc2ad16946344b701141514f4fee686bead7",
+  "command": [
+    "go",
+    "test",
+    "-c",
+    "-mod=readonly",
+    "-tags",
+    "membership_acceptance,membership_legacy_baseline",
+    "-o",
+    "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production.test",
+    "./service"
+  ],
+  "exit": 0,
+  "seconds": 20.2013525830007,
+  "built_utc": "2026-11-09T13:48:21.457590+00:00",
+  "production_code_overlay": false,
+  "test_only_schedule_overlay": true,
+  "binary_sha256": "bc75af88e788103e76a643aef892414b13bc4c850fb9079e9fffabacbab1c0af"
+}

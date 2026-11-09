@@ -3,8 +3,8 @@
 依据：[会员请求暂占优化方案](membership-reservation-optimization-plan-20261109.md)。
 适用读者：计费后端、Relay/Sub2API 开发、数据库迁移与发布负责人、测试人员。
 设计协作：计费账本、Relay/性能、生产对账三个技术角色分别核对代码后合并。
-源码基线：`922db66baa46c07b5f36cdce8191a52d9af519db`；本文描述拟开发行为，不证明生产状态。
-状态：**首批 P0/P1 本地恢复代码、v21 离线迁移及定向测试已落地；生产迁移和发布未执行。** 实际实现、验证命令及未完成验收见[实施记录](membership-reservation-implementation-20261109.md)。下文保留完整目标设计；“拟新增”不代表所有阶段已实现。
+设计基线：`922db66baa46c07b5f36cdce8191a52d9af519db`；本轮交付源码：`fc46400f3fed2647fafadd974ea1fc8d005d6015`。
+状态：**P0/P1 本地恢复、v21 离线迁移、持久暂停、冲突积压优化及相关性能验收已完成；线上额度恢复仍待迁移、启用和业务对账验收。** 应用发布与业务恢复分别验收，本文不证明线上已返还额度。实现与验证命令见[实施记录](membership-reservation-implementation-20261109.md)及[性能证据](membership-recovery-evidence-20261109/performance-B/README.md)。下文保留完整目标设计；P2/P3 尚未交付，“拟新增”不代表这些阶段已经实现。
 
 ## 1. 已确定的实现边界
 
@@ -276,7 +276,7 @@ P2 在签名完成后将 attempt 与受信来源以内存元数据传到 `Prepar
 
 已存在的主要回归文件：`model/membership_billing_reconcile_test.go`、`model/membership_billing_review_test.go`、`model/membership_relay_billing_test.go`、`model/membership_additional_test.go`、`service/membership_lifecycle_test.go`、`service/membership_zero_usage_test.go`、`relay/channel/api_request_membership_test.go`、`relay/channel/internal_attribution_test.go`。按改动补充 migration 与 worker 测试。
 
-以下命令是实施阶段的定向入口，**本轮未执行**。先核对测试名称和编译范围；冷编译时间未知或预计超过 5 分钟须依仓库规则先说明并获准，不自动改跑全仓。
+以下命令是原设计中的定向入口，不作为已执行回执；实际执行的命令与结果见实施记录及第 8.4 节证据。本次文档收尾未重跑测试。后续使用前先核对测试名称和编译范围；冷编译时间未知或预计超过 5 分钟须依仓库规则先说明并获准，不自动改跑全仓。
 
 ```sh
 go test ./model -run '^TestMembership(RelayReconcile|BillingReview|RelayStatistics|TokenRefund|UnlimitedToken|FiniteToken)' -count=1 -timeout=90s
@@ -308,6 +308,22 @@ go test ./pkg/kkaiattribution -count=1 -timeout=90s
 3. 每档输出样本数、成功/错误数、P50/P95/P99、吞吐和资源数据；缺样本不报 P99 通过。用基线重复运行建立噪声范围，固定测试方法后再评候选，不能事后扩大噪声范围放过回退。
 4. 同分支正常路径 SQL/外部调用数不得增加，原输出/flush 顺序不得改变；任何超出基线波动且可重复的首内容、完成耗时或吞吐回退阻止放量。预算参数不是可以接受固定 1%/5% 退化的授权。
 5. 性能工具先使用已有可用工具/最小隔离测试客户端；不要给全仓加泛化性能框架。长时间压测先给出精确命令、环境、预计时长并按仓库规则执行。生产不注入故障或创建付费压测流量来补验收。
+
+### 8.4 本轮性能结论与交付状态
+
+完整原始样本、精确命令、源码/测试二进制哈希及失败边界见 [B 性能证据](membership-recovery-evidence-20261109/performance-B/README.md)。冻结基线未因候选结果而放宽，三次真实源码修订分别记账：
+
+| 源码 | 实际覆盖 | 结论 |
+| --- | --- | --- |
+| `cc99ff134` | 32 场景两次，共 64 格、12,800 次候选请求 | 账务全部正确；保留一个重复主指标和两个辅助 P99 越界，不作无条件性能通过。 |
+| `c6fc071f8` | 去除多余租约写入后，4 格压力加 8 格生产节拍对照，共 2,400 次请求 | 功能通过；同窗 501 积压仍有完成 P95 约 +15%、吞吐约 −9%，继续修复，未以无冻结 flag 代替判断。 |
+| `fc46400f3` | 同样 12 格、2,400 次相关跟进，其中候选 1,600 次、历史对照 800 次 | SQL 错误、未结算、连接池等待为零；积压额外 SQL 203→4，原明显争用消除，支持受控业务验收。 |
+
+最终修复停止对未变化 reserved 冲突反复延期，aged 页的恢复状态一次批量读取；真实资金操作继续在事务内重验，25+25 笔资金预算不变。501 生产节拍单轮 worker 从 150–197ms 降至 44–47ms。最终生产同窗首内容 P50 中位约 +0.092ms、完成 P95 约 +0.435ms、吞吐约 −1.87%，差值如实保留；不能承诺数学意义的零开销。
+
+每格 200 次请求、并发 4、连接池 8。压力模式每 100ms 尝试启动真实 worker；生产节拍对照为启动时执行一轮、后续每 60 秒一轮，B 的真实控制 poll 均独立每秒运行。短请求窗口覆盖启动轮，不能把此窗口的差异外推为每分钟持续损失。P99 样本有限，仅作辅助。真实鉴权、渠道分发、输入分词、Redis 及生产规模不在该隔离测量范围；最终 SHA 未重跑无关完整矩阵。
+
+本地验收不证明线上额度已返还。本次文档提交时，v21 迁移、恢复模式启用和自然业务对账仍须由生产交付记录确认；P2/P3 保持独立待办。此次收尾只审查文档和证据哈希，不运行全仓测试或追加性能测试。
 
 ## 9. 观察、灰度与回退
 
