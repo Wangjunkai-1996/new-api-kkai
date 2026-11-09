@@ -69,7 +69,7 @@ func reserveMembershipRecoveryWorkerTest(t *testing.T, user model.User, id strin
 	record, err := model.ReserveMembershipBilling(input)
 	require.NoError(t, err)
 	if old {
-		record.CreatedAt = time.Now().Unix() - 73*3600
+		record.CreatedAt = time.Now().Unix() - 3*3600
 		require.NoError(t, model.DB.Model(record).Update("created_at", record.CreatedAt).Error)
 	}
 	if ready {

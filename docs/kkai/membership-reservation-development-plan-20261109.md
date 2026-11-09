@@ -4,6 +4,8 @@
 适用读者：计费后端、Relay/Sub2API 开发、数据库迁移与发布负责人、测试人员。
 设计协作：计费账本、Relay/性能、生产对账三个技术角色分别核对代码后合并。
 设计基线：`922db66baa46c07b5f36cdce8191a52d9af519db`；本轮交付源码：`fc46400f3fed2647fafadd974ea1fc8d005d6015`。
+本次政策更新：用户已授权将同步 Relay 无证据兜底从 72 小时缩短至 2 小时；正常请求链路和恢复预算不变，发布回执另行记录。
+
 状态：**P0/P1 已上线，canonical21 已确认，apply 已启用；相关性能、正常业务和全 scope 账务核对通过。** 本窗口无自然自动退款终态样本，实际证据和限制见[生产交付记录](membership-reservation-production-20261109.md)。 应用发布与业务恢复分别验收，本文不证明线上已返还额度。实现与验证命令见[实施记录](membership-reservation-implementation-20261109.md)及[性能证据](membership-recovery-evidence-20261109/performance-B/README.md)。下文保留完整目标设计；P2/P3 尚未交付，“拟新增”不代表这些阶段已经实现。
 
 ## 1. 已确定的实现边界
@@ -12,7 +14,7 @@
 2. **正常请求到首个内容输出前不新增 SQL 往返、跨服务查账、同步日志或监控上报，不增加逐 token 工作。** 正常成功结算不查询异常表，不增加 evidence/outbox INSERT，也不增加结算 SQL 往返数。
 3. 正常成功已经持久保存的 `ActualQuota / ChargedQuota / ExcessQuota / State / SettledAt / Snapshot` 即为正常账务结果。原方案中的“终态信息随结算落库”落实为复用这些字段，不要求给每笔正常请求存一份新的原始收据。
 4. 新增异常恢复旁表和少量后台扫描进度。仅 unknown、结算/释放失败、后台发现的孤儿请求产生恢复记录；大凭证不放进主账本的 `SELECT *` 路径。复用现有后台任务、事务和锁，不引入消息中间件或通用工作流框架。
-5. 提前处理可信凭证与 72 小时无证据补偿使用不同的内部入口。无证据补偿保留年龄限制；冲突凭证不能变成“无证据”释放。补偿提交后不向用户追扣。
+5. 提前处理可信凭证与 2 小时无证据补偿使用不同的内部入口。无证据补偿保留年龄限制；冲突凭证不能变成“无证据”释放。补偿提交后不向用户追扣。
 6. 首期 P2 跨服务自动取证仅开放已验证的 HTTP 同步 Relay 路径。Responses WebSocket/Realtime 的每轮请求与握手是不同身份，需独立的逐轮关联协议；本期保留它们原有结算及兜底行为。原生 Task、Image Studio、Midjourney 保持各自任务恢复流程。
 7. P0/P1 可先交付，不依赖 Sub2API 查账接口。P2 未验证协议或性能前保持关闭。P3 仅产出预占金额分析与具体公式修改建议，不同时改变客户端输出上限或收费规则。
 
@@ -28,7 +30,7 @@
 | `service/membership_billing.go` | `membershipBillingSession.Settle/Refund` 驱动结算、释放 | 成功路径原样；失败路径保留本次可信应计额/零费依据并写恢复记录 |
 | `service/billing.go`、`relay/request_billing.go` | 区分用量、未知结果及失败退款 | 原 unknown 标记和恢复记录原子保存，不能结果未知后重发 |
 | `model/membership_billing.go`、`model/membership_relay_billing.go` | 原来源、令牌、终态与统计事务 | 复用 `settleMembershipRelayBillingTx`、`ReleaseMembershipBillingTx`；不复制资金计算 |
-| `model/membership_billing_review.go` | 派发/未知标记、人工审核、system 72h 守卫 | 保留人工权限与 72h 守卫；新增可信证据入口；后台入口传递取消上下文 |
+| `model/membership_billing_review.go` | 派发/未知标记、人工审核、system 2h 守卫 | 保留人工权限与 2h 守卫；新增可信证据入口；后台入口传递取消上下文 |
 | `model/membership_billing_reconcile.go` | 每轮从头扫描 500，结清 50，仅满 72h | 持久游标、分通道发现异常、读取证据、保留无证据补偿 |
 | `service/kkai_runtime_jobs.go` | 每分钟、writer/leader 作业 | 复用 `membership-relay-reconcile`；网络查询编排放 service，model 只负责存取和事务 |
 | `service/membership_dispatch.go`、`relay/channel/api_request.go` | 派发前持久标记；上游 ID 进入上下文 | P2 将已签名 attempt 的两个标量字段并入原派发 UPDATE；收到响应头仅更新内存 |
@@ -117,7 +119,7 @@ hash 不同不自动等于账务冲突：local_terminal、消费日志与 Sub2AP
 | 可信部分用量且已符合现有终态判断 | 依现有规则结算 | 不能把截断流中的估算当最终用量 |
 | 已发送，断线/缺 usage/结果未知 | 保留预占 | `pending + unknown`；不得自动重发 |
 | 有可信结果但结算失败 | 保留或重读已有终态 | 持久化 `ready` 证据后后台重试 |
-| 满 72h，符合既有资格，既无冲突也无可归属证据 | 全额平台补偿 | 原因明确标 `no_evidence_compensation`，不称“确认零费用” |
+| 满 2h，符合既有资格，既无冲突也无可归属证据 | 全额平台补偿 | 原因明确标 `no_evidence_compensation`，不称“确认零费用” |
 | 凭证身份或金额冲突 | 保留待审 | `conflict`，不挡住其他请求 |
 | 已 settled/released 后再到凭证 | 不再调整资金 | 同结果幂等；不一致/迟到仅审计和平台成本归集 |
 
@@ -131,7 +133,7 @@ CompensateExpiredMembershipRelay(ctx context.Context, requestID string) (*Member
 
 这些是内部 model/service 边界，不新增公开路由，不允许客户端提交 `verified=true` 或自由指定应扣金额。证据输入只由可信本地收尾或经过认证/校验的取证适配器构造；model 事务内仍重验账本身份、快照摘要、attempt 和金额边界。
 
-`ResolveMembershipRelayEvidence` 在锁内强制 `Scope == relay`，只消费已持久化且符合终结依据的可信终态，允许不足 72h；它不能仅凭 ready 状态或空证据释放。已派发证据须匹配当前 attempt；P1 本地证据依据现有终结与禁止未知重试约束校验，P2 强制 nonce 匹配。未派发孤儿须同时满足 1h 门槛和禁止再派发证明。`CompensateExpiredMembershipRelay` 强制 relay scope、72h 年龄、现有复核资格以及无冲突条件。现有 `resolveMembershipBillingReview(..., true)` 的 72h 守卫保留；早期入口不得改成 `system=false`、伪造管理员或传自由 Action 来绕过。已有人工入口继续原认证授权。
+`ResolveMembershipRelayEvidence` 在锁内强制 `Scope == relay`，只消费已持久化且符合终结依据的可信终态，允许不足 2h；它不能仅凭 ready 状态或空证据释放。已派发证据须匹配当前 attempt；P1 本地证据依据现有终结与禁止未知重试约束校验，P2 强制 nonce 匹配。未派发孤儿须同时满足 1h 门槛和禁止再派发证明。`CompensateExpiredMembershipRelay` 强制 relay scope、2h 年龄、现有复核资格以及无冲突条件。现有 `resolveMembershipBillingReview(..., true)` 的 2h 守卫保留；早期入口不得改成 `system=false`、伪造管理员或传自由 Action 来绕过。已有人工入口继续原认证授权。
 
 ### 4.3 异常证据与资金使用两个短事务
 
@@ -147,14 +149,14 @@ CompensateExpiredMembershipRelay(ctx context.Context, requestID string) (*Member
 - B 复用现有 `settleMembershipRelayBillingTx` / `ReleaseMembershipBillingTx`。`charged=min(assessed,reserved)`、平台差额、冻结价格、原会员账户/钱包/令牌归属均保持。
 - unknown 标记与恢复行在现有异常事务内保存。即使先前已标记 unknown，也应幂等补建缺失的恢复行，不能被现有提前 return 漏掉；异常保存使用有界、脱离已取消客户端请求但受进程停止控制的上下文。
 - 正常结算与后台同时到达时锁内重读主账本。数据库返回提交结果未知时也先重读，不凭调用方错误重复处理。已经完成的结果不被旧 worker 或人工重放覆盖。
-- 72h 补偿也必须在锁内查看 recovery：可信终态优先结算，冲突保留；只有无证据才补偿。日志库与主库没有分布式原子快照，按主库终态提交先后裁决。补偿先提交，迟到日志/收据不追扣。
+- 2h 补偿也必须在锁内查看 recovery：可信终态优先结算，冲突保留；只有无证据才补偿。日志库与主库没有分布式原子快照，按主库终态提交先后裁决。补偿先提交，迟到日志/收据不追扣。
 - 原会员已到期或已重购仍调整原账户，不转入新套餐或延长有效期；这是原路账务恢复，不等于给已到期权益新增可用时间。原令牌删除或管理员重置后不阻塞账户返还，继续记录现有未应用令牌返还字段。
 
 缓存恢复仅作用于异常行：B 提交后执行既有用户/令牌缓存失效，成功则把 recovery 标 resolved；失败沿用 next_attempt_at 重试，或进程在提交后崩溃也由 `cache_pending` 继续。该分支只重读主账本并刷新缓存，绝不再调用资金结算；令牌确已删除视为无需刷新，数据库查询错误不能当删除。现有 `MembershipBillingAfterCommit` 不返回错误，实现时以最小内部结果接口复用其失效逻辑，保留正常成功路径的 SQL/缓存调用数量，不给正常请求建恢复行。后台观察到正常收尾已抢先完成时，也只做缓存确认后结束异常行。
 
 ### 4.4 明确无法消除的窗口
 
-正常路径不新增证据写入，因此“上游给出最终用量 → 现有结算提交前进程崩溃”，或主库完全不可用时，内存用量仍可能丢失。恢复依据已持久派发标记、上游收据或已有日志；仍无证据则按 72h 政策补偿。不能承诺所有原始用量永不丢失，也不能用 goroutine/内存队列充当持久保障。
+正常路径不新增证据写入，因此“上游给出最终用量 → 现有结算提交前进程崩溃”，或主库完全不可用时，内存用量仍可能丢失。恢复依据已持久派发标记、上游收据或已有日志；仍无证据则按 2h 政策补偿。不能承诺所有原始用量永不丢失，也不能用 goroutine/内存队列充当持久保障。
 
 ## 5. 有界后台核账
 
@@ -162,7 +164,7 @@ CompensateExpiredMembershipRelay(ctx context.Context, requestID string) (*Member
 
 | lane | 候选与排序 | 作用 |
 | --- | --- | --- |
-| `aged` | relay、reserved、`created_at<=now-72h`，保留现有复核资格；按 created_at/request_id | 独立执行既有补偿兜底，不受 Sub2API 查询排队影响 |
+| `aged` | relay、reserved、`created_at<=now-2h`，保留现有复核资格；按 created_at/request_id | 独立执行既有补偿兜底，不受 Sub2API 查询排队影响 |
 | `dispatched_orphan` | relay、reserved、`review_after>0 && review_after<=now`；按 review_after/request_id | 找到进程崩溃/异常标记失败的派发记录，不遍历未到期长请求 |
 | `undispatched_orphan` | relay、reserved、dispatched_at=0、创建已满现有 1h 门槛；按 created_at/request_id | 锁内确认尚未派发；与派发入口禁止老授权发送的规则共同保证安全 |
 | recovery 到期行 | pending/ready/cache_pending/conflict 分别按 next_attempt_at/request_id 取小批 | 实际已停止的传输直接入列，早于派发 deadline 也可取证；cache_pending 仅刷新缓存，conflict 单独预算 |
@@ -175,7 +177,7 @@ CompensateExpiredMembershipRelay(ctx context.Context, requestID string) (*Member
 2. 页内每项必须已处理、已确认终态，或已持久入列/延期，才能推进到该项。**不得把刚抓取的一整页末尾直接保存为进度**：达到 50 笔结清上限时，页内剩余项还没处理。
 3. 保存进度采用 revision CAS，并验证本轮 leader ownership；进程在处理后、保存游标前崩溃只造成重扫。上界以内无更多候选时回绕。新增/更新到已扫区间的记录在下一 sweep 发现，不永久漏扫。
 4. 每轮限制扫描量与耗时，各 lane 轮转，给 aged 保留预算；不会为扫清历史而无界循环。冲突先持久保存分类和退避，再继续后续项。
-5. 拟初始退避 1、2、4、8、15 分钟后封顶；遇到新可信证据立即 ready，不等待旧退避。72h aged 通道独立检查，不被取证 backoff 延后；冲突不是自动补偿对象。
+5. 拟初始退避 1、2、4、8、15 分钟后封顶；遇到新可信证据立即 ready，不等待旧退避。2h aged 通道独立检查，不被取证 backoff 延后；冲突不是自动补偿对象。
 
 ### 5.3 初始执行预算与取消
 
@@ -190,7 +192,7 @@ CompensateExpiredMembershipRelay(ctx context.Context, requestID string) (*Member
 - 采用已有 leader holder/fence 语义：后台写事务及 checkpoint 提交重验 ownership，租约丢失立即取消。参考 `service/shop_jobs.go` 的边界，不把商城业务对象挪作会员数据；新检查不进入前台事务。
 - DB 超时、连接池/锁压力高时减少本轮工作并退避，告警积压；前台请求不等后台腾出工作槽。异步不代表无资源开销，必须做第 8 节后台开/关/积压对照。
 
-日志查询失败不能当作空结果：保留现行故障时不做无证据补偿的行为并告警；有已保存可信证据的独立处理不应被日志库故障阻断。新增 Sub2API 不可用则退避，不能额外阻塞原先可执行的 72h 补偿。依赖持续不可用时如需扩大补偿政策，另行提出，不能静默改变规则。
+日志查询失败不能当作空结果：保留现行故障时不做无证据补偿的行为并告警；有已保存可信证据的独立处理不应被日志库故障阻断。新增 Sub2API 不可用则退避，不能额外阻塞原先可执行的 2h 补偿。依赖持续不可用时如需扩大补偿政策，另行提出，不能静默改变规则。
 
 ## 6. Sub2API 取证契约与 Relay 关联
 
@@ -239,7 +241,7 @@ P2 在签名完成后将 attempt 与受信来源以内存元数据传到 `Prepar
 | --- | --- | --- | --- |
 | D0 基线 | SRE + 计费 | 只读统计定义、当前链路 SQL/首内容基线；不足 7 天或缺日志明确样本覆盖 | 正常/异常、资金来源、scope 分开；零实扣样本不参与除法，单列 |
 | D1 schema | 计费 + 数据库 | recovery/checkpoint 扩展、运行能力检查、迁移及回退兼容；不改历史 migration | 三方言隔离验证、正常路径 SQL 数保持、旁表尚未启用也可运行 |
-| D2 本地恢复 | 计费 + Relay | 异常持久化、证据入口、保留 72h 补偿、原路退款 | 证据提交后结算失败可恢复；正常成功不访问旁表 |
+| D2 本地恢复 | 计费 + Relay | 异常持久化、证据入口、保留 2h 补偿、原路退款 | 证据提交后结算失败可恢复；正常成功不访问旁表 |
 | D3 调度 | SRE + 后端 | 公平扫描、游标、退避、ctx/fence、限额与指标 | 500 个冲突不阻塞第 501 笔；超时/换 leader 可恢复 |
 | D4 跨服务 | Relay + Sub2API | 单独身份列扩展、可信签名元数据、认证查询契约、冻结价重算白名单 | 第 6 节验收完成后按来源启用；不支持的路径保持原行为 |
 | D5 金额优化 | 计费 | 7 天有效样本分析和逐模型公式建议 | 明确节省占用与平台超额变化；单独审查实现，不捆绑 D2/D3 |
@@ -253,7 +255,7 @@ P2 在签名完成后将 attempt 与受信来源以内存元数据传到 `Prepar
 
 | 用例 | 结果 |
 | --- | --- |
-| 不足 72h + 可信最终费用/明确零费 | 可提前处理；不足 72h + 无证据绝不补偿 |
+| 不足 2h + 可信最终费用/明确零费 | 可提前处理；不足 2h + 无证据绝不补偿 |
 | 证据 A 提交，资金 B 回滚/进程退出 | 重启从 ready 恢复；资金、统计只生效一次 |
 | B 已提交，缓存失效报错或进程立即退出 | cache_pending 只重试缓存；余额和统计不再次调整 |
 | unknown 标记成功、旧版本没有 recovery 行 | 新扫描幂等补建；同一恢复不能覆盖已有终态 |
@@ -268,7 +270,7 @@ P2 在签名完成后将 attempt 与受信来源以内存元数据传到 `Prepar
 | 同 timestamp、页中到 50 条上限、重启、持续新增 | 游标不跳过未处理项，固定上界正确回绕 |
 | lease 失效或游标 revision 冲突 | 停止旧执行者写入；重扫不重复终态 |
 | 日志查询报错 vs 成功空结果 | 前者故障，后者才适用既有无证据政策 |
-| Sub2API 慢/不可用/不支持、超大或畸形用量 | 有界退避；不阻断正常请求或已有可执行的 72h 通道 |
+| Sub2API 慢/不可用/不支持、超大或畸形用量 | 有界退避；不阻断正常请求或已有可执行的 2h 通道 |
 | 未到 deadline 的长请求、非 relay scope | 不按年龄提前释放 |
 | 同渠道重试、无响应头、WS 多轮 | HTTP attempt 归属准确；未覆盖的逐轮协议拒绝 P2 自动匹配 |
 
@@ -329,11 +331,11 @@ go test ./pkg/kkaiattribution -count=1 -timeout=90s
 
 低基数指标：各 lane 扫描/入列/结算/零费释放/补偿/冲突笔数及额度，队列深度与最老年龄，完整 sweep 时长，最后成功轮次，checkpoint CAS/fence 失败，凭证覆盖率/延迟/迟到额度，平台超额与补偿成本。请求 ID 只进受控审计，不作为指标标签。
 
-初始告警：连续 3 个调度周期未成功；超过 72h 的可处理记录连续 2 轮不推进；任何重复扣款、负额度、错误来源或补偿后追扣立即停用新增处理。冲突与依赖故障单列，不能把它们排除后声称“超期暂占为零”。“凭证可用后约一轮处理”只是在依赖健康且无积压下的目标，超预算时优先保护正常请求并告警。
+初始告警：连续 3 个调度周期未成功；超过 2h 的可处理记录连续 2 轮不推进；任何重复扣款、负额度、错误来源或补偿后追扣立即停用新增处理。冲突与依赖故障单列，不能把它们排除后声称“超期暂占为零”。“凭证可用后约一轮处理”只是在依赖健康且无积压下的目标，超预算时优先保护正常请求并告警。
 
 交付步骤：扩展兼容性准备 → 单独授权的 schema 迁移 → 安装兼容应用但新能力关闭 → observe 核对分类 → 小范围 apply → 按基线门槛放量。P2 另按受信来源与用量白名单启用。模式只控制本方案的后台恢复及异常扩展，不改变正常前台结算。
 
-| 模式 | 异常事实与观察 | 远端查账 | 不足 72h 的后台结案 | 已满 72h 的兼容处理 |
+| 模式 | 异常事实与观察 | 远端查账 | 不足 2h 的后台结案 | 已满 2h 的兼容处理 |
 | --- | --- | --- | --- | --- |
 | `off`（默认） | 前台保留原 unknown 标记，不新建扩展证据；保留已有旁表。已安装 schema 的 aged 兼容处理仍可写其审计/缓存进度 | 关闭 | 关闭，已有 ready 暂存 | 继续，须读已有旁表：可信证据优先、冲突待审、无证据才补偿 |
 | `observe` | 用独立影子游标分类和审计，不推进 apply 游标，不生成可被资金消费者执行的影子 ready | 仅对已配置来源作有界观察，结果只作影子统计 | 关闭 | 同 off，原通道仍运行，不能称整个进程不写资金 |
@@ -352,7 +354,7 @@ go test ./pkg/kkaiattribution -count=1 -timeout=90s
 
 - [ ] D0 基线定义、有效样本覆盖和 SQL/首内容量测入口确定。
 - [ ] D1 迁移版本、两个旁表、三方言索引与兼容回退设计确认。
-- [ ] D2 证据类型、零费用依据、两事务与 72h 独立守卫实现并回归。
+- [ ] D2 证据类型、零费用依据、两事务与 2h 独立守卫实现并回归。
 - [ ] D3 游标分页、租约取消、查询预算、故障和积压验收通过。
 - [ ] D4 由 Sub2API 核实契约后再实现；未覆盖模式明确禁用提前取证。
 - [ ] 账务与正常请求性能对照记录齐全，剩余验证缺口明确列出。

@@ -200,9 +200,10 @@ func TestMembershipRecoveryCompensationAgeLogFailureAndLateEvidence(t *testing.T
 	record, err := ReserveMembershipBilling(membershipReservation(t, user.Id, "aged-unknown", 50, 50))
 	require.NoError(t, err)
 	require.NoError(t, MarkMembershipRelayRecoveryPending(context.Background(), record.RequestID, 0, "transport_stopped"))
+	require.NoError(t, DB.Model(record).Update("created_at", common.GetTimestamp()-119*60).Error)
 	_, err = CompensateExpiredMembershipRelay(context.Background(), record.RequestID)
 	require.ErrorIs(t, err, ErrMembershipConflict)
-	require.NoError(t, DB.Model(record).Update("created_at", common.GetTimestamp()-73*60*60).Error)
+	require.NoError(t, DB.Model(record).Update("created_at", common.GetTimestamp()-121*60).Error)
 	LOG_DB = nil
 	_, err = CompensateExpiredMembershipRelay(context.Background(), record.RequestID)
 	require.ErrorContains(t, err, "log database unavailable")
@@ -227,6 +228,25 @@ func TestMembershipRecoveryCompensationAgeLogFailureAndLateEvidence(t *testing.T
 	var recovery MembershipBillingRecovery
 	require.NoError(t, DB.First(&recovery, "request_id = ?", record.RequestID).Error)
 	assert.Equal(t, "late_terminal_after_completion", recovery.LastErrorCode)
+}
+
+func TestMembershipRecoveryCompensationWaitsForRunningTransport(t *testing.T) {
+	user, _ := setupMembershipRecoveryTest(t)
+	record, err := ReserveMembershipBilling(membershipReservation(t, user.Id, "running-over-two-hours", 50, 50))
+	require.NoError(t, err)
+	require.NoError(t, MarkMembershipBillingDispatched(record.RequestID, 3, common.GetTimestamp()+600))
+	require.NoError(t, DB.Model(record).Update("created_at", common.GetTimestamp()-3*3600).Error)
+	_, err = CompensateExpiredMembershipRelay(context.Background(), record.RequestID)
+	require.ErrorIs(t, err, ErrMembershipConflict)
+	stillReserved, err := GetMembershipBillingRecord(record.RequestID)
+	require.NoError(t, err)
+	assert.Equal(t, "reserved", stillReserved.State)
+	require.NoError(t, DB.Model(record).Update("review_after", common.GetTimestamp()-1).Error)
+	released, err := CompensateExpiredMembershipRelay(context.Background(), record.RequestID)
+	require.NoError(t, err)
+	assert.Equal(t, "released", released.State)
+	require.NoError(t, DB.First(&user, user.Id).Error)
+	assert.EqualValues(t, 500, user.Quota)
 }
 
 func TestMembershipRecoveryRejectsForeignIdentityAmountsAndAsyncScope(t *testing.T) {
@@ -301,7 +321,7 @@ func TestMembershipRecoveryCorruptEvidenceCannotBecomeCompensation(t *testing.T)
 			record, err := ReserveMembershipBilling(membershipReservation(t, user.Id, "corrupt-recovery", 20, 20))
 			require.NoError(t, err)
 			require.NoError(t, MarkMembershipRelayRecoveryPending(context.Background(), record.RequestID, 0, "transport_stopped"))
-			require.NoError(t, DB.Model(record).Update("created_at", common.GetTimestamp()-73*60*60).Error)
+			require.NoError(t, DB.Model(record).Update("created_at", common.GetTimestamp()-121*60).Error)
 			require.NoError(t, DB.Model(&MembershipBillingRecovery{}).Where("request_id = ?", record.RequestID).Updates(fixture.updates).Error)
 			_, err = CompensateExpiredMembershipRelay(context.Background(), record.RequestID)
 			assert.ErrorIs(t, err, ErrMembershipConflict)

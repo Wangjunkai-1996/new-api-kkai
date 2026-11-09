@@ -22,7 +22,7 @@ func ReconcileDueMembershipRelayBilling(ctx context.Context, limit int) (int, er
 		limit = 50
 	}
 	now := time.Now().Unix()
-	cutoff := now - 72*60*60
+	cutoff := now - membershipRelayCompensationDelay
 	resolved := 0
 	scanned := 0
 	var failures []error
@@ -65,8 +65,8 @@ func ReconcileDueMembershipRelayBilling(ctx context.Context, limit int) (int, er
 				break
 			}
 			input := MembershipBillingResolutionInput{
-				RequestID: candidate.RequestID, ActorID: 0, OperationID: "auto-relay-72h",
-				Action: "release", Reason: "Platform compensation: no attributable charge evidence after 72 hours",
+				RequestID: candidate.RequestID, ActorID: 0, OperationID: "auto-relay-2h",
+				Action: "release", Reason: "Platform compensation: no attributable charge evidence after 2 hours",
 			}
 			if receipts := byID[candidate.RequestID]; len(receipts) > 0 {
 				if len(receipts) != 1 {

@@ -21,7 +21,7 @@ func TestMembershipRelayReconcileClosesOnlyAgedProvenOrUnverifiableCharges(t *te
 	channel := Channel{Name: "reconcile-channel", Key: "test", Type: 1, Status: 1}
 	require.NoError(t, DB.Create(&channel).Error)
 
-	aged := time.Now().Add(-73 * time.Hour).Unix()
+	aged := time.Now().Add(-3 * time.Hour).Unix()
 	for _, fixture := range []struct {
 		id      string
 		quota   int64

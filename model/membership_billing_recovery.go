@@ -327,7 +327,7 @@ func completeMembershipRelayRecovery(ctx context.Context, requestID string, comp
 			if !compensate {
 				return errMembershipRecoveryNoEvidence
 			}
-			if record.CreatedAt > common.GetTimestamp()-72*60*60 || !record.prepareMembershipReview(common.GetTimestamp()) {
+			if record.CreatedAt > common.GetTimestamp()-membershipRelayCompensationDelay || !record.prepareMembershipReview(common.GetTimestamp()) {
 				return ErrMembershipConflict
 			}
 		} else {

@@ -79,7 +79,7 @@ func membershipBillingScanQuery(db *gorm.DB, lane string, now int64) (*gorm.DB, 
 	column := "created_at"
 	switch lane {
 	case "aged":
-		query = query.Where("created_at <= ?", now-72*60*60).
+		query = query.Where("created_at <= ?", now-membershipRelayCompensationDelay).
 			Where("review_started_at > 0 OR dispatched_at = 0 OR (review_after > 0 AND review_after <= ?)", now)
 	case "dispatched_orphan":
 		column = "review_after"

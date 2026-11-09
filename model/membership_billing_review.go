@@ -10,6 +10,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// Unknown synchronous charges are compensated after two hours, only after
+// transport stop or the recorded dispatch deadline; async scopes are excluded.
+const membershipRelayCompensationDelay int64 = 2 * 60 * 60
+
 const membershipUndispatchedReviewDelay int64 = 60 * 60
 const membershipSettlementReviewGrace int64 = 60
 
@@ -259,7 +263,7 @@ func resolveMembershipBillingReview(input MembershipBillingResolutionInput, syst
 		if err := lockForUpdate(tx).First(&record, "request_id = ?", input.RequestID).Error; err != nil {
 			return err
 		}
-		if system && (record.Scope != MembershipBillingScopeRelay || record.CreatedAt > common.GetTimestamp()-72*60*60) {
+		if system && (record.Scope != MembershipBillingScopeRelay || record.CreatedAt > common.GetTimestamp()-membershipRelayCompensationDelay) {
 			return ErrMembershipConflict
 		}
 		if record.ReviewResolvedAt > 0 {

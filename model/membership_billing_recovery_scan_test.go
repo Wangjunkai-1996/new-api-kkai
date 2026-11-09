@@ -77,7 +77,7 @@ func TestMembershipRecoveryScanResumesInsidePageAndWrapsFixedUpperBound(t *testi
 	assert.Equal(t, "later", page[3].RequestID)
 }
 
-func TestMembershipRecoveryScanFindsDueOrphansBeforeSeventyTwoHours(t *testing.T) {
+func TestMembershipRecoveryScanFindsDueOrphansBeforeCompensation(t *testing.T) {
 	setupMembershipRecoveryScanTest(t)
 	now := time.Now().Unix()
 	rows := []MembershipBillingRecord{
@@ -93,6 +93,24 @@ func TestMembershipRecoveryScanFindsDueOrphansBeforeSeventyTwoHours(t *testing.T
 	aged, _, err := MembershipBillingScanPage(context.Background(), "aged", now, 100)
 	require.NoError(t, err)
 	assert.Empty(t, aged)
+}
+
+func TestMembershipRecoveryAgedScanHonorsTwoHoursAndDispatchDeadline(t *testing.T) {
+	setupMembershipRecoveryScanTest(t)
+	now := time.Now().Unix()
+	rows := []MembershipBillingRecord{
+		{RequestID: "before-two-hours", Scope: MembershipBillingScopeRelay, State: "reserved", CreatedAt: now - 7200 + 1, ReviewStartedAt: now - 60},
+		{RequestID: "exactly-two-hours", Scope: MembershipBillingScopeRelay, State: "reserved", CreatedAt: now - 7200, ReviewStartedAt: now - 60},
+		{RequestID: "still-running", Scope: MembershipBillingScopeRelay, State: "reserved", CreatedAt: now - 10800, DispatchedAt: now - 10700, ReviewAfter: now + 600},
+		{RequestID: "deadline-elapsed", Scope: MembershipBillingScopeRelay, State: "reserved", CreatedAt: now - 10800, DispatchedAt: now - 10700, ReviewAfter: now - 1},
+		{RequestID: "async", Scope: MembershipBillingScopeTask, State: "reserved", CreatedAt: now - 10800, ReviewStartedAt: now - 60},
+	}
+	require.NoError(t, DB.Create(&rows).Error)
+	page, _, err := MembershipBillingScanPage(context.Background(), "aged", now, 100)
+	require.NoError(t, err)
+	require.Len(t, page, 2)
+	assert.Equal(t, "deadline-elapsed", page[0].RequestID)
+	assert.Equal(t, "exactly-two-hours", page[1].RequestID)
 }
 
 func TestMembershipRecoveryScanCannotWriteWithLostLeaderFence(t *testing.T) {
