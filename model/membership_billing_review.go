@@ -215,8 +215,12 @@ func (record *MembershipBillingRecord) prepareMembershipReview(now int64) bool {
 // grants more than the original authorization. The review and money changes
 // share one transaction; identical operation retries do not repeat statistics.
 func ResolveMembershipBillingReview(input MembershipBillingResolutionInput) (*MembershipBillingRecord, error) {
+	return resolveMembershipBillingReview(input, false)
+}
+
+func resolveMembershipBillingReview(input MembershipBillingResolutionInput, system bool) (*MembershipBillingRecord, error) {
 	input.OperationID, input.Reason = strings.TrimSpace(input.OperationID), strings.TrimSpace(input.Reason)
-	if input.ActorID <= 0 || input.OperationID == "" || len(input.OperationID) > 128 || input.Reason == "" || len(input.Reason) > 2048 || input.ActualQuota < 0 || (input.Action != "settle" && input.Action != "release") || (input.Action == "release" && input.ActualQuota != 0) {
+	if (input.ActorID <= 0 && (!system || input.ActorID != 0)) || input.OperationID == "" || len(input.OperationID) > 128 || input.Reason == "" || len(input.Reason) > 2048 || input.ActualQuota < 0 || (input.Action != "settle" && input.Action != "release") || (input.Action == "release" && input.ActualQuota != 0) {
 		return nil, ErrMembershipInvalidInput
 	}
 	initial, err := GetMembershipBillingReview(input.RequestID)
@@ -241,6 +245,9 @@ func ResolveMembershipBillingReview(input MembershipBillingResolutionInput) (*Me
 		var record MembershipBillingRecord
 		if err := lockForUpdate(tx).First(&record, "request_id = ?", input.RequestID).Error; err != nil {
 			return err
+		}
+		if system && (record.Scope != MembershipBillingScopeRelay || record.CreatedAt > common.GetTimestamp()-72*60*60) {
+			return ErrMembershipConflict
 		}
 		if record.ReviewResolvedAt > 0 {
 			var previous membershipBillingResolution
