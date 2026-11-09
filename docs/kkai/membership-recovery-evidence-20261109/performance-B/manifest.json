@@ -941,9 +941,9 @@
     },
     {
       "file": "README.md",
-      "source_bytes": 7384,
-      "source_sha256": "16212d5db8ad05ae35da8e6360ced93d4f7cd6ef9f498bbe2182d8394e6c084c",
-      "stored_sha256": "16212d5db8ad05ae35da8e6360ced93d4f7cd6ef9f498bbe2182d8394e6c084c",
+      "source_bytes": 8042,
+      "source_sha256": "dede25da227d8eaeb3630bea4baa9c69bf080bcc45f59a58f2f58dbfec7a3ef1",
+      "stored_sha256": "dede25da227d8eaeb3630bea4baa9c69bf080bcc45f59a58f2f58dbfec7a3ef1",
       "compressed": false
     },
     {
@@ -987,11 +987,32 @@
       "source_sha256": "f9e171ae36d5ddc6cba254d8830da464d488031fcf5725c9215f679ee964421d",
       "stored_sha256": "e68d16238bb457ae8d5c2a340af4de624ea91b09dccc8af28a92efe59f9652bd",
       "compressed": true
+    },
+    {
+      "file": "cleanup.json",
+      "source_bytes": 8355,
+      "source_sha256": "666c9d3c58bb85caf33b648898c71134497e32aa2b378c0f99567e594ebb85e2",
+      "stored_sha256": "666c9d3c58bb85caf33b648898c71134497e32aa2b378c0f99567e594ebb85e2",
+      "compressed": false
+    },
+    {
+      "file": "cleanup-inventory.json",
+      "source_bytes": 709,
+      "source_sha256": "706d4ed327db093898c54337b6f31cb3e5dc5c61bfb7cbe323218735c23559c0",
+      "stored_sha256": "706d4ed327db093898c54337b6f31cb3e5dc5c61bfb7cbe323218735c23559c0",
+      "compressed": false
+    },
+    {
+      "file": "cleanup-local-performance.py",
+      "source_bytes": 5223,
+      "source_sha256": "ceb9bd826d7527c584463f2284a21aac8937816b745c96a0a51ea89ced8c8912",
+      "stored_sha256": "ceb9bd826d7527c584463f2284a21aac8937816b745c96a0a51ea89ced8c8912",
+      "compressed": false
     }
   ],
   "credential_scan": "actual temporary password absent in all archived bytes",
   "full_suite": "skipped",
   "production_changes_by_this_subtask": false,
-  "archive_status": "Copied and verified in authorized app docs directory; includes SRE leader-lock verification; no commit by this subtask",
+  "archive_status": "Performance archive and plan updates committed locally as c45e634dd7d1a630b0db84ea462cd385228c5560; exact local cleanup receipt included in follow-up docs commit. No source push or production operation by this subtask.",
   "original_temp_package_manifest_sha256": "5650f565d24dfad848b2867aba82daf7b7b0aebd3b16695312acf6be64c1a7d0"
 }

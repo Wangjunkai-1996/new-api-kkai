@@ -1,0 +1,25 @@
+{
+  "docker_context": "desktop-linux",
+  "endpoint": "unix:///Users/tokk/.docker/run/docker.sock",
+  "id": "70add68197da044778784ec146e63e7ad5280228a8b2e4e85e3404557c8c7776",
+  "name": "/kkai-membership-perf-pg18-6a44d8",
+  "mounts": [
+    {
+      "Type": "volume",
+      "Name": "6a38eb2039c86217133685afcd078f395823cb55b0d7271096ae35b6a45d786c",
+      "Source": "/var/lib/docker/volumes/6a38eb2039c86217133685afcd078f395823cb55b0d7271096ae35b6a45d786c/_data",
+      "Destination": "/var/lib/postgresql",
+      "Driver": "local",
+      "Mode": "",
+      "RW": true,
+      "Propagation": ""
+    }
+  ],
+  "db": {
+    "clients": 0,
+    "databases": [
+      "postgres",
+      "kkai_test_performance"
+    ]
+  }
+}

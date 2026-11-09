@@ -1,0 +1,190 @@
+{
+  "started_utc": "2026-11-09T15:15:27.948723+00:00",
+  "authorization": "Parent requested docs commit then exact local performance cleanup; no further local performance tests needed. This releases prior temporary source/binary preservation requirement.",
+  "evidence_commit": "c45e634dd7d1a630b0db84ea462cd385228c5560",
+  "scope": "owned local performance container, anonymous volume, two credential files, exact source exports and test binaries; no .local-releases or production access",
+  "container": {
+    "id": "70add68197da044778784ec146e63e7ad5280228a8b2e4e85e3404557c8c7776",
+    "name": "kkai-membership-perf-pg18-6a44d8",
+    "anonymous_volumes": [
+      "6a38eb2039c86217133685afcd078f395823cb55b0d7271096ae35b6a45d786c"
+    ]
+  },
+  "removed_paths": [
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline",
+      "kind": "exported_source_tree",
+      "bytes": 141296300,
+      "reconstructible": "exact local Git refs and archived test overlays",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production",
+      "kind": "exported_source_tree",
+      "bytes": 141296464,
+      "reconstructible": "exact local Git refs and archived test overlays",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate",
+      "kind": "exported_source_tree",
+      "bytes": 141825763,
+      "reconstructible": "exact local Git refs and archived test overlays",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B",
+      "kind": "exported_source_tree",
+      "bytes": 143879383,
+      "reconstructible": "exact local Git refs and archived test overlays",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-production",
+      "kind": "exported_source_tree",
+      "bytes": 143879547,
+      "reconstructible": "exact local Git refs and archived test overlays",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final",
+      "kind": "exported_source_tree",
+      "bytes": 143879508,
+      "reconstructible": "exact local Git refs and archived test overlays",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final-production",
+      "kind": "exported_source_tree",
+      "bytes": 143879672,
+      "reconstructible": "exact local Git refs and archived test overlays",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized",
+      "kind": "exported_source_tree",
+      "bytes": 143884453,
+      "reconstructible": "exact local Git refs and archived test overlays",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized-production",
+      "kind": "exported_source_tree",
+      "bytes": 143884617,
+      "reconstructible": "exact local Git refs and archived test overlays",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline.test",
+      "kind": "test_binary",
+      "bytes": 110817394,
+      "sha256": "537344e3d9f2f98b55c258e030be5fe78e3c451a4b272c17aaae6e881940d2f5",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/baseline-production.test",
+      "kind": "test_binary",
+      "bytes": 110817394,
+      "sha256": "bc75af88e788103e76a643aef892414b13bc4c850fb9079e9fffabacbab1c0af",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate.test",
+      "kind": "test_binary",
+      "bytes": 111049042,
+      "sha256": "697fb9e1d64b0448d8d096688bf5d69f90d5099c4ff89f04f6612cd1febacf87",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B.test",
+      "kind": "test_binary",
+      "bytes": 111085618,
+      "sha256": "815f9e8d39a34ed0a1a46948dd157d37c0c569780cc289e36db77f607de1a8f1",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final.test",
+      "kind": "test_binary",
+      "bytes": 111085618,
+      "sha256": "8f3895929390d737fbfb19a2653cf0d7fa3ad0cf17dd24532d1a0444da1050dc",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final-production.test",
+      "kind": "test_binary",
+      "bytes": 111102130,
+      "sha256": "575fb5748e170a7829a6ff5c95aad20e297dc5db0208f4b42cf6124ed10579bf",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized.test",
+      "kind": "test_binary",
+      "bytes": 111103010,
+      "sha256": "1e5da8b9940a3891db32610e3c021167eda6a02fb7caca31b8f0ab493e38a4d8",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized-production.test",
+      "kind": "test_binary",
+      "bytes": 111103010,
+      "sha256": "ef84d1b6511830fbe6654f9004e4a3ff9da2053dae51e00446836b560923f43d",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/workspace-B-pilot.test",
+      "kind": "test_binary",
+      "bytes": 111036082,
+      "sha256": "eaa1159d2ce4dd31cfd88da305f69b95ed4d1d74208ff8f9fe96a00030dab88a",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-source.tar",
+      "kind": "source_archive",
+      "bytes": 148326400,
+      "sha256": "3331e02965645315637c2f6bbe811d91029e1cf5aa43cc787b643bf8ee965695",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-final-source.tar",
+      "kind": "source_archive",
+      "bytes": 148326400,
+      "sha256": "2954084b4e4db914318a75291fa786e0cdcdf0906edd097dbe9c096043378b87",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/candidate-B-optimized-source.tar",
+      "kind": "source_archive",
+      "bytes": 148336640,
+      "sha256": "108faa6055cc203f3bf1781d400d29b3de3479469bdc002eaf87092c71b7d0a4",
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/password",
+      "kind": "credential",
+      "bytes": 49,
+      "removed": true
+    },
+    {
+      "path": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-performance-20261109-abk7b829/postgres.env",
+      "kind": "credential",
+      "bytes": 101,
+      "removed": true
+    }
+  ],
+  "preserved": [
+    "all raw redacted JSONL/logs and protocol/source/binary manifests",
+    "performance-B-evidence directory and tar.gz",
+    "tool-overlay frozen A acceptance sources",
+    "committed performance-A and performance-B evidence",
+    "all local Git source commits",
+    "Docker PostgreSQL image cache",
+    "production release assets and .local-releases"
+  ],
+  "errors": [],
+  "completed_utc": "2026-11-09T15:15:32.066258+00:00",
+  "result": "completed",
+  "removed_local_bytes": 2731894595,
+  "container_absent": true,
+  "anonymous_volumes_absent": true,
+  "credentials_absent": true
+}
