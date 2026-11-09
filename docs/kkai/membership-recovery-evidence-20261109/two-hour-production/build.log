@@ -1,0 +1,220 @@
+RELEASE_RECORD=/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261109.1794239898-a552996db.backend-build-fhh9b59c.json
+Using Buildx builder: kkai-mirror-builder
+Go build parallelism: 4
+Media build parallelism: 2
+Frontend mode: external
+Resource profile: conservative
+Build resource limits: cpu-quota=200000, memory=3g
+#0 building with "kkai-mirror-builder" instance using docker-container driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 13.01kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1.8@sha256:dde28735fbb848299b7a43b7561d828b89c76f84f745c31896a7a7efbf93851a
+#2 DONE 1.2s
+
+#3 docker-image://docker.io/docker/dockerfile:1.8@sha256:dde28735fbb848299b7a43b7561d828b89c76f84f745c31896a7a7efbf93851a
+#3 resolve docker.io/docker/dockerfile:1.8@sha256:dde28735fbb848299b7a43b7561d828b89c76f84f745c31896a7a7efbf93851a done
+#3 CACHED
+
+#4 [context kkai_image] load .dockerignore
+#4 transferring kkai_image: 116B done
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2
+#5 ...
+
+#6 [internal] load metadata for docker.io/library/golang:1.26.5-alpine@sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2611df853955f3621828cd49e8
+#6 DONE 1.1s
+
+#7 [internal] load metadata for docker.io/library/busybox:1.37.0-musl@sha256:6be969a074d06073a62ad8ccfd2ad6ec2790cae25d519d8df255ba24819d96f0
+#7 DONE 1.4s
+
+#8 [internal] load metadata for gcr.io/distroless/static-debian12:nonroot@sha256:7a2bd171a18bdd39a4729600d0dca5f16e779d41156a6908b4f8a9a289e76d92
+#8 ...
+
+#5 [internal] load metadata for docker.io/library/golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2
+#5 DONE 1.4s
+
+#8 [internal] load metadata for gcr.io/distroless/static-debian12:nonroot@sha256:7a2bd171a18bdd39a4729600d0dca5f16e779d41156a6908b4f8a9a289e76d92
+#8 DONE 3.4s
+
+#9 [internal] load .dockerignore
+#9 transferring context: 428B done
+#9 DONE 0.0s
+
+#10 [health-tools 1/1] FROM docker.io/library/busybox:1.37.0-musl@sha256:6be969a074d06073a62ad8ccfd2ad6ec2790cae25d519d8df255ba24819d96f0
+#10 resolve docker.io/library/busybox:1.37.0-musl@sha256:6be969a074d06073a62ad8ccfd2ad6ec2790cae25d519d8df255ba24819d96f0 done
+#10 DONE 0.0s
+
+#11 [runtime-base 1/9] FROM gcr.io/distroless/static-debian12:nonroot@sha256:7a2bd171a18bdd39a4729600d0dca5f16e779d41156a6908b4f8a9a289e76d92
+#11 resolve gcr.io/distroless/static-debian12:nonroot@sha256:7a2bd171a18bdd39a4729600d0dca5f16e779d41156a6908b4f8a9a289e76d92 0.0s done
+#11 DONE 0.0s
+
+#12 [video-media-build 1/9] FROM docker.io/library/golang:1.26.5-alpine@sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2611df853955f3621828cd49e8
+#12 resolve docker.io/library/golang:1.26.5-alpine@sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2611df853955f3621828cd49e8 0.0s done
+#12 DONE 0.0s
+
+#13 [backend-external 1/8] FROM docker.io/library/golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2
+#13 resolve docker.io/library/golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 0.0s done
+#13 DONE 0.0s
+
+#14 [context kkai_image] load from client
+#14 transferring kkai_image: 616B done
+#14 DONE 0.0s
+
+#15 [context kkai_image] load from client
+#15 transferring kkai_image: 5.83kB done
+#15 DONE 0.1s
+
+#16 [context kkai_image] load from client
+#16 transferring kkai_image: 2.02kB done
+#16 DONE 0.1s
+
+#17 [context kkai_image] load from client
+#17 transferring kkai_image: 2.73kB done
+#17 DONE 0.1s
+
+#18 [context kkai_image] load from client
+#18 transferring kkai_image: 860B done
+#18 DONE 0.1s
+
+#19 [context kkai_image] load from client
+#19 transferring kkai_image: 1.26kB 0.0s done
+#19 DONE 0.1s
+
+#20 [context kkai_image] load from client
+#20 transferring kkai_image: 9.60kB 0.0s done
+#20 DONE 0.1s
+
+#21 [context kkai_image] load from client
+#21 transferring kkai_image: 32.16kB 0.0s done
+#21 DONE 0.1s
+
+#22 [context kkai_image] load from client
+#22 transferring kkai_image: 13.28MB 0.2s done
+#22 DONE 0.3s
+
+#23 [internal] load build context
+#23 transferring context: 60.25MB 0.9s done
+#23 DONE 0.9s
+
+#24 [backend-external 2/8] WORKDIR /build
+#24 CACHED
+
+#25 [backend-external 3/8] COPY go.mod go.sum ./
+#25 CACHED
+
+#26 [backend-external 4/8] COPY relaykit/go.mod relaykit/go.sum ./relaykit/
+#26 CACHED
+
+#27 [backend-external 5/8] COPY third_party/tokenizer/go.mod third_party/tokenizer/go.sum ./third_party/tokenizer/
+#27 CACHED
+
+#28 [backend-external 6/8] RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked     go mod download && go mod verify
+#28 2.581 all modules verified
+#28 DONE 2.8s
+
+#29 [backend-external 7/8] COPY . .
+#29 DONE 0.6s
+
+#30 [backend-external 8/8] RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked     --mount=type=cache,id=kkai-newapi-go-build-v1,target=/root/.cache/go-build,sharing=locked     --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked     test -n "kkai-prod-20261109.1794239898-a552996db"     && test -n "a552996db2adb65d9e2074dbfc2e97962d0ef9bd"     && test "external" = external     && case "4" in       [1-9]|[1-5][0-9]|6[0-4]) ;;       *) echo "invalid GO_BUILD_PARALLELISM: 4" >&2; exit 1 ;;     esac     && case "feature" in       feature) export GOFLAGS=-tags=external_frontend ;;       bridge) export GOFLAGS=-tags=kkai_bridge,external_frontend ;;       *) echo "invalid KKAI schema contract: feature" >&2; exit 1 ;;     esac     && go build -p "4" -trimpath       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=kkai-prod-20261109.1794239898-a552996db' -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'"       -o /out/new-api .     && go build -p "4" -trimpath       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'"       -o /out/kkai-migrate ./cmd/kkai-migrate     && go build -p "4" -trimpath       -ldflags "-s -w -buildid="       -o /out/kkai-credit-migrate ./cmd/kkai-credit-migrate     && go build -p "4" -trimpath       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'"       -o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once
+#30 DONE 13.8s
+
+#31 [runtime-tools 5/7] COPY --from=kkai_image cmd ./cmd
+#31 CACHED
+
+#32 [video-media-build 7/9] COPY --from=kkai_image ffmpeg/PROVENANCE.md /opt/video-media-build/PROVENANCE.md
+#32 CACHED
+
+#33 [video-media-build 4/9] COPY --from=kkai_image ffmpeg/build.sh /opt/video-media-build/build.sh
+#33 CACHED
+
+#34 [video-media-build 8/9] COPY --from=kkai_image ffmpeg/ffmpeg-7.1.1.tar.bz2 /opt/video-media-build/ffmpeg-source.tar.bz2
+#34 CACHED
+
+#35 [runtime-base 7/9] COPY --from=video-media-package --chown=0:0 /package/licenses/ffmpeg /licenses/ffmpeg
+#35 CACHED
+
+#36 [runtime-base 3/9] COPY --from=runtime-tools --chown=10007:10007 /out/newapi-risk-guard /newapi-risk-guard
+#36 CACHED
+
+#37 [video-media-audit 3/3] RUN printf '%s  %s\n%s  %s\n'       "d003df00d4930e60f5e534c07e12064ec0abd5677fc638fd7202edfb01f8bc3f" /package/usr/local/bin/ffmpeg       "4df45ffe1eb3ebed143136499616e894a06e6c0d3ccb3abf8e72f84bb1ac8c6e" /package/usr/local/bin/ffprobe       | sha256sum -c -     && /package/licenses/ffmpeg/build/verify.sh /package
+#37 CACHED
+
+#38 [runtime-tools 4/7] RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked     go mod download && go mod verify
+#38 CACHED
+
+#39 [video-media-build 9/9] RUN --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked     chmod 0755       /opt/video-media-build/build.sh       /opt/video-media-build/verify-static.sh       /opt/video-media-build/verify.sh     && FFMPEG_VERSION="7.1.1"        FFMPEG_SOURCE_SHA256="0c8da2f11579a01e014fc007cbacf5bb4da1d06afd0b43c7f8097ec7c0f143ba"        X264_REVISION="b35605ace3ddf7c1a5d67a2eb553f034aef41d55"        X264_SOURCE_SHA256="6eeb82934e69fd51e043bd8c5b0d152839638d1ce7aa4eea65a3fedcf83ff224"        SOURCE_DATE_EPOCH="1749399863"        MEDIA_BUILD_IMAGE="golang:1.26.5-alpine@sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2611df853955f3621828cd49e8"        MEDIA_BUILD_PARALLELISM="2"        MEDIA_MATERIAL_DIR=/opt/video-media-build        /opt/video-media-build/build.sh
+#39 CACHED
+
+#40 [runtime-tools 2/7] WORKDIR /tools
+#40 CACHED
+
+#41 [runtime-tools 6/7] COPY --from=kkai_image internal ./internal
+#41 CACHED
+
+#42 [video-media-build 5/9] COPY --from=kkai_image ffmpeg/verify-static.sh /opt/video-media-build/verify-static.sh
+#42 CACHED
+
+#43 [video-media-build 3/9] RUN xargs apk add --no-cache < /opt/video-media-build/BUILD-PACKAGES.lock
+#43 CACHED
+
+#44 [video-media-build 6/9] COPY --from=kkai_image ffmpeg/verify.sh /opt/video-media-build/verify.sh
+#44 CACHED
+
+#45 [runtime-base 5/9] COPY --from=video-media-package --chown=0:0 /package/usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
+#45 CACHED
+
+#46 [runtime-base 6/9] COPY --from=video-media-package --chown=0:0 /package/usr/local/bin/ffprobe /usr/local/bin/ffprobe
+#46 CACHED
+
+#47 [runtime-tools 7/7] RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked     --mount=type=cache,id=kkai-newapi-go-build-v1,target=/root/.cache/go-build,sharing=locked     --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked     case "4" in       [1-9]|[1-5][0-9]|6[0-4]) ;;       *) echo "invalid GO_BUILD_PARALLELISM: 4" >&2; exit 1 ;;     esac     && go build -p "4" -trimpath -ldflags '-s -w -buildid=' -o /out/new-api-entrypoint ./cmd/entrypoint     && go build -p "4" -trimpath -ldflags '-s -w -buildid=' -o /out/newapi-risk-guard ./cmd/riskguard
+#47 CACHED
+
+#48 [video-media-build 2/9] COPY --from=kkai_image ffmpeg/BUILD-PACKAGES.lock /opt/video-media-build/BUILD-PACKAGES.lock
+#48 CACHED
+
+#49 [video-media-package 1/1] COPY --from=video-media-audit /package /package
+#49 CACHED
+
+#50 [runtime-base 2/9] COPY --from=runtime-tools --chown=10007:10007 /out/new-api-entrypoint /new-api-entrypoint
+#50 CACHED
+
+#51 [runtime-base 4/9] COPY --from=health-tools --chown=10007:10007 /bin/busybox /usr/bin/wget
+#51 CACHED
+
+#52 [runtime-base 8/9] COPY --chown=0:0 LICENSE NOTICE THIRD-PARTY-LICENSES.md /licenses/
+#52 CACHED
+
+#53 [video-media-audit 2/3] COPY --from=video-media-build /package /package
+#53 CACHED
+
+#54 [runtime-tools 3/7] COPY --from=kkai_image go.mod go.sum ./
+#54 CACHED
+
+#55 [runtime-base 9/9] WORKDIR /data
+#55 CACHED
+
+#56 [runtime-external 1/4] COPY --from=backend-external --chown=10007:10007 /out/new-api /new-api
+#56 DONE 0.1s
+
+#57 [runtime-external 2/4] COPY --from=backend-external --chown=10007:10007 /out/kkai-migrate /kkai-migrate
+#57 DONE 0.1s
+
+#58 [runtime-external 3/4] COPY --from=backend-external --chown=10007:10007 /out/kkai-credit-migrate /kkai-credit-migrate
+#58 DONE 0.0s
+
+#59 [runtime-external 4/4] COPY --from=backend-external --chown=10007:10007 /out/kkai-video-archive-once /kkai-video-archive-once
+#59 DONE 0.1s
+
+#60 exporting to docker image format
+#60 exporting layers
+#60 exporting layers 2.3s done
+#60 exporting manifest sha256:d725ef15728f43004a5fcaab3d9ac8306d9e982dd22e38ce4118528e2e8c7e1b done
+#60 exporting config sha256:2b8f3b00ada10d0a259f108d8e34f3129fe59b88978c51c34e73426f35d76c76 done
+#60 sending tarball
+#60 sending tarball 0.7s done
+#60 DONE 3.0s
+MANUAL_RELEASE_METADATA=/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261109.1794239898-a552996db.json

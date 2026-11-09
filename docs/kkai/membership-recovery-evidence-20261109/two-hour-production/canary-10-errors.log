@@ -1,0 +1,22 @@
+python3 scripts/production/newapi_error_window.py
+Baseline:
+  Total events: 147
+  Error events: 11
+  Error rate: 7.4830%
+  Status codes: 404=10, 502=1
+Candidate:
+  Total events: 133
+  Error events: 4
+  Error rate: 3.0075%
+  Status codes: 502=3, 503=1
+Error classes and request routes (labels do not establish fault origin):
+  Baseline error_code: unknown=10, unknown_error=1
+  Baseline error_type: openai_error=11
+  Baseline request_route: /v1/messages=1, unknown=10
+  Candidate error_code: account_pool_exhausted=1, unknown=1, unknown_error=2
+  Candidate error_type: openai_error=4
+  Candidate request_route: /v1/images/generations=3, /v1/responses=1
+Cross-window exact error signatures (diagnostic only; repetition does not establish cause or exclude regression):
+  Baseline: repeated=0, unmatched=1, uncomparable=10
+  Candidate: repeated=0, unmatched=4, uncomparable=0
+Assessment: review_required (collection success is not release approval)

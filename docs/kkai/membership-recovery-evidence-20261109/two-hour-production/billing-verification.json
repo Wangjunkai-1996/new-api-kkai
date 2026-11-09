@@ -1,0 +1,32 @@
+{
+  "snapshots": [
+    {
+      "file": "billing-before.log",
+      "snapshot_epoch": 1794239954,
+      "invariants_passed": true
+    },
+    {
+      "file": "billing-final.log",
+      "snapshot_epoch": 1794241419,
+      "invariants_passed": true
+    },
+    {
+      "file": "billing-first.log",
+      "snapshot_epoch": 1794241132,
+      "invariants_passed": true
+    },
+    {
+      "file": "billing-fixed-a.log",
+      "snapshot_epoch": 1794241160,
+      "invariants_passed": true
+    },
+    {
+      "file": "billing-fixed-b.log",
+      "snapshot_epoch": 1794241266,
+      "invariants_passed": true
+    }
+  ],
+  "fixed_sample_count": 25,
+  "fixed_sample_unchanged": true,
+  "proof_limit": "observed invariants and bounded sample, not formal exactly-once proof"
+}

@@ -1,0 +1,26 @@
+{
+  "command": [
+    "ssh",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=12",
+    "-o",
+    "IdentitiesOnly=yes",
+    "-o",
+    "ProxyCommand=none",
+    "-o",
+    "ProxyJump=none",
+    "-o",
+    "KexAlgorithms=curve25519-sha256",
+    "-i",
+    "/Users/tokk/.ssh/ovh_sys1",
+    "sys1",
+    "sudo -n /usr/local/sbin/kkai-newapi-rollout apply --percent 50 --observation-seconds 120"
+  ],
+  "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/kkai-infra",
+  "started_at": "2026-11-09T16:06:45.006644+00:00",
+  "finished_at": "2026-11-09T16:06:53.570065+00:00",
+  "exit_code": 0,
+  "log": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-two-hour-20261109-k0as37h2/canary-50.log"
+}

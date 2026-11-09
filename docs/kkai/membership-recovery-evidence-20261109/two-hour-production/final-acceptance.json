@@ -1,0 +1,19 @@
+{
+  "release_result": "accepted",
+  "version": "kkai-prod-20261109.1794239898-a552996db",
+  "source": "a552996db2adb65d9e2074dbfc2e97962d0ef9bd",
+  "mode": "apply",
+  "source_sync": "recorded separately after production completion",
+  "snapshot_stable_after_cleanup": true,
+  "normal_sse_verified_with_refunds": true,
+  "production_batch_rounds_observed": 6,
+  "released_records": 150,
+  "membership_refund_quota": 4279944,
+  "wallet_refund_quota": 12544023,
+  "snapshot_epoch": 1794241419,
+  "pending_age_2h_membership_records": 751,
+  "pending_age_2h_wallet_records": 499,
+  "cleanup": "completed within authorized scope; schema snapshot and frontend retention assets protected",
+  "full_application_suite": "not_run",
+  "infra_suite": "not_repeated; inputs unchanged"
+}

@@ -1,0 +1,31 @@
+{
+  "drift": [],
+  "healthy": true,
+  "result": "status",
+  "state": {
+    "active_slot": "green",
+    "cohort_algorithm": "nginx-split-clients-v1",
+    "cohort_source": "rollout-salt|authorization|x-api-key|x-goog-api-key|arg_key|cookie_session|x-real-ip|remote_addr",
+    "created_at": "2026-11-09T16:03:34Z",
+    "format": 1,
+    "new_config_digest": "a576ccf3a42119d8b066cfe905b4fb17835c768f1abf665fced4290fc38c9813",
+    "observation_ends_at": "2026-11-09T16:08:53Z",
+    "observation_seconds": 120,
+    "observation_started_at": "2026-11-09T16:06:53Z",
+    "percent": 50,
+    "previous_config_digest": "13753bc51af812246ac05d668f4077ed5ad15696a3a894f5d1c7a1909481266b",
+    "previous_config_path": "/srv/kkai/newapi-router/rollout-previous-active-upstream.conf",
+    "rollout_id": "7d656e43a7c645ad8a956f543b4e4d69",
+    "router_config_digest": "fae06d9cadd6caa6bea29a9546e8ba7a92b2a5f116f7e927df520b0c7b8803b2",
+    "router_identity": "cb6554cc477cd1bcdb857a66397cb33c180f9d8cbdc0b59c2fa0ff0e5ef630f6",
+    "router_identity_kind": "docker",
+    "status": "active",
+    "target_identity": "71cce524cf68ab0df96e2f4ece49422ec712a2f521bc652caebba0841a5554ed",
+    "target_identity_kind": "docker",
+    "target_image_digest": "sha256:2b8f3b00ada10d0a259f108d8e34f3129fe59b88978c51c34e73426f35d76c76",
+    "target_slot": "blue",
+    "target_version": "kkai-prod-20261109.1794239898-a552996db",
+    "updated_at": "2026-11-09T16:06:53Z"
+  },
+  "status": "active"
+}

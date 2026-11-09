@@ -1,0 +1,25 @@
+{
+  "baseline_start": "2026-11-09T15:51:38Z",
+  "baseline_end": "2026-11-09T15:56:38Z",
+  "active_baseline_slot": "green",
+  "active_baseline_version": "kkai-prod-20261109.1794233284-fc46400f3",
+  "scope": "backend-only;2h compensation;no schema/controller/frontend changes",
+  "transport_config": {
+    "RELAY_TIMEOUT": 960,
+    "STREAMING_TIMEOUT": 300,
+    "membership_enforced_deadline_seconds": 3600,
+    "settlement_grace_seconds": 60
+  },
+  "checked_at": "2026-11-09T15:57:38+00:00",
+  "source": "a552996db2adb65d9e2074dbfc2e97962d0ef9bd",
+  "version": "kkai-prod-20261109.1794239898-a552996db",
+  "metadata": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261109.1794239898-a552996db.json",
+  "target_slot": "blue",
+  "rollout_id": "7d656e43a7c645ad8a956f543b4e4d69",
+  "post_start_epoch": 1794241025,
+  "post_start": "2026-11-09T16:17:05Z",
+  "post_end": "2026-11-09T16:22:05Z",
+  "post_end_epoch": 1794241325,
+  "terminal_cutoff": 1794241132,
+  "recovery_apply_generation": "290edbfaf2474792b6f2beee231ad890"
+}

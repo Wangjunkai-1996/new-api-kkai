@@ -1,0 +1,15 @@
+{
+  "level": 50,
+  "decision": "continue_100",
+  "attribution": "unrelated_to_changed_paused_background_age_policy",
+  "evidence": [
+    "Target HTTP 197 completed/3 relay_chat 5xx; old active 258/0",
+    "Approved first-minute relay aggregate 116 events/0 errors; not identical to full two-minute HTTP cohort",
+    "Runtime change is background compensation eligibility only; recovery is paused; frontend/provider/shared components unchanged",
+    "Exact candidate member/wallet completion and settlement verified"
+  ],
+  "limits": [
+    "Three target chat failures not individually diagnosed; do not claim zero errors or provider fault",
+    "Do not infer cause from global event rates or differing cohorts"
+  ]
+}

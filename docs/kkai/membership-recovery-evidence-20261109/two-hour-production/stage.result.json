@@ -1,0 +1,12 @@
+{
+  "command": [
+    "scripts/kkai/deploy-manual-release.sh",
+    "--stage",
+    "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261109.1794239898-a552996db.json"
+  ],
+  "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai",
+  "started_at": "2026-11-09T15:59:35.459423+00:00",
+  "finished_at": "2026-11-09T16:01:54.821233+00:00",
+  "exit_code": 0,
+  "log": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-two-hour-20261109-k0as37h2/stage.log"
+}

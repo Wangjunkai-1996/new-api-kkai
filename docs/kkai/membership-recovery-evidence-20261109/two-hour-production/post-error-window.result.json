@@ -1,0 +1,16 @@
+{
+  "command": [
+    "env",
+    "BASELINE_START=2026-11-09T15:51:38Z",
+    "BASELINE_END=2026-11-09T15:56:38Z",
+    "CANDIDATE_START=2026-11-09T16:17:05Z",
+    "CANDIDATE_END=2026-11-09T16:22:05Z",
+    "make",
+    "newapi-error-window"
+  ],
+  "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/kkai-infra",
+  "started_at": "2026-11-09T16:23:35.076842+00:00",
+  "finished_at": "2026-11-09T16:23:39.050698+00:00",
+  "exit_code": 0,
+  "log": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-two-hour-20261109-k0as37h2/post-error-window.log"
+}

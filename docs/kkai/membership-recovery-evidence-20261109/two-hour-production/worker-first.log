@@ -1,0 +1,1 @@
+{"observed_at": "2026-11-09T16:18:51.303003+00:00", "other_failure_lines": [], "since": "1794239950", "summaries": [{"adjusted_quota": 0, "cache_refreshed": 25, "conflicts": 0, "failures": 0, "mode": "apply", "queued": 4, "released": 25, "scanned": 87, "settled": 0, "timestamp": "2026-11-09T16:18:29.746897000Z"}]}

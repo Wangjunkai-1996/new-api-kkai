@@ -1,0 +1,22 @@
+{
+  "command": [
+    "env",
+    "KKAI_MEMBERSHIP_ENABLED=true",
+    "GOMAXPROCS=2",
+    "go",
+    "test",
+    "-p",
+    "1",
+    "./model",
+    "./service",
+    "-run",
+    "^TestMembership(Recovery|RelayReconcile|BillingReview|EvidenceSuccessAddsNoSynchronousSQL)",
+    "-count=1",
+    "-timeout=120s"
+  ],
+  "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai",
+  "started_at": "2026-11-09T15:55:01.144930+00:00",
+  "finished_at": "2026-11-09T15:55:29.671992+00:00",
+  "exit_code": 1,
+  "log": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-two-hour-20261109-k0as37h2/targeted-tests.log"
+}

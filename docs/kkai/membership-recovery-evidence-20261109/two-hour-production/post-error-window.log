@@ -1,0 +1,22 @@
+python3 scripts/production/newapi_error_window.py
+Baseline:
+  Total events: 777
+  Error events: 20
+  Error rate: 2.5740%
+  Status codes: 404=14, 500=1, 502=5
+Candidate:
+  Total events: 430
+  Error events: 3
+  Error rate: 0.6977%
+  Status codes: 404=2, 502=1
+Error classes and request routes (labels do not establish fault origin):
+  Baseline error_code: unknown=15, unknown_error=5
+  Baseline error_type: claude_error=1, openai_error=19
+  Baseline request_route: /v1/messages=5, /v1/responses=1, unknown=14
+  Candidate error_code: unknown=2, unknown_error=1
+  Candidate error_type: openai_error=3
+  Candidate request_route: /v1/responses=1, unknown=2
+Cross-window exact error signatures (diagnostic only; repetition does not establish cause or exclude regression):
+  Baseline: repeated=1, unmatched=5, uncomparable=14
+  Candidate: repeated=1, unmatched=0, uncomparable=2
+Assessment: review_required (collection success is not release approval)

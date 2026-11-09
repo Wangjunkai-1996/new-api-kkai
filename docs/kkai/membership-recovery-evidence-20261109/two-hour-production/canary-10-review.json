@@ -1,0 +1,15 @@
+{
+  "level": 10,
+  "decision": "continue_50",
+  "attribution": "unrelated_to_changed_paused_background_age_policy",
+  "evidence": [
+    "Exact candidate membership and wallet SSE/settlement passed",
+    "Target 28 completed HTTP requests and old active 508, both zero HTTP5xx",
+    "Only runtime changes are four shared background compensation age references; recovery is paused throughout canary; no foreground/shared provider changes",
+    "Global errors include image-generation and responses; global aggregates are not target-slot errors"
+  ],
+  "limits": [
+    "Mixed workflow latency cannot measure first content or compare equivalent cohorts",
+    "Exact origin of all existing model errors not diagnosed"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "level": 100,
+  "decision": "promote",
+  "attribution": "unrelated_to_changed_paused_background_age_policy",
+  "evidence": [
+    "Target HTTP 551 completed/1 relay_chat 5xx; former active zero samples at 100 percent",
+    "Approved first-minute relay aggregate125/3errors,404 only",
+    "Independent exact runtime diff contains only background compensation age rules, paused during this window; candidate membership/wallet settlement passed"
+  ],
+  "limits": [
+    "Exact existing chat error origin not diagnosed",
+    "Mixed HTTP latency is not first-content timing; no claim of site-wide zero errors"
+  ]
+}

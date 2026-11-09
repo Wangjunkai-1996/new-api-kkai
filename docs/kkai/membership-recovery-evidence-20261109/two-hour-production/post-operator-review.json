@@ -1,0 +1,29 @@
+{
+  "decision": "accept_release",
+  "baseline": {
+    "events": 777,
+    "errors": 20
+  },
+  "post": {
+    "events": 430,
+    "errors": 3,
+    "status_codes": {
+      "404": 2,
+      "502": 1
+    }
+  },
+  "attribution": "no_release_specific_regression_found; unrelated_to_changed_background_age_policy",
+  "evidence": [
+    "Exact runtime diff only changes age eligibility; no foreground/provider/shared component modification",
+    "Six natural apply rounds each released25/cache_refreshed25/failures0; no other recovery failure lines",
+    "All accounting snapshots have zero invariant mismatches; fixed25 completed financial sample unchanged",
+    "Immediate and delayed exact-version status HEALTHY and rollback ready",
+    "Public exact-version membership and wallet SSE/settlement passed",
+    "404 and502 existed before release; one comparable signature repeated; signature alone is not causation"
+  ],
+  "limits": [
+    "Not all model errors individually root-caused",
+    "Model event rates are not final user failure rates",
+    "No repeated production latency benchmark; no absolute zero-overhead guarantee"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "command": [
+    "ssh",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=12",
+    "-o",
+    "IdentitiesOnly=yes",
+    "-o",
+    "ProxyCommand=none",
+    "-o",
+    "ProxyJump=none",
+    "-o",
+    "KexAlgorithms=curve25519-sha256",
+    "-i",
+    "/Users/tokk/.ssh/ovh_sys1",
+    "sys1",
+    "sudo",
+    "-n",
+    "/usr/local/sbin/kkai-newapi-schema-migrate",
+    "membership-billing-recovery",
+    "status"
+  ],
+  "cwd": "/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-two-hour-20261109-k0as37h2",
+  "started_at": "2026-11-09T15:53:53.602466+00:00",
+  "finished_at": "2026-11-09T15:54:18.963136+00:00",
+  "exit_code": 0,
+  "log": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-two-hour-20261109-k0as37h2/schema-before.log"
+}

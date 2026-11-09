@@ -1,0 +1,17 @@
+{
+  "logs": {
+    "stage.log": {
+      "original_sha256": "5757459b56139b2996ea083a0f3b236bf2acdbddd2c84785ee545bb31ef921c5",
+      "transformation": "strip trailing whitespace only"
+    },
+    "targeted-tests.log": {
+      "original_sha256": "dd0cc92ef63e681dfb303de2c7444845b15465fc78307d9e3cebe13959dbf6de",
+      "transformation": "strip trailing whitespace and expand tabs to 8 spaces"
+    },
+    "promote.log": {
+      "original_sha256": "7188cf944a0112b276bfc223410ba55aa6b07f70b8f9b561b1c7cbe086a19057",
+      "transformation": "strip trailing whitespace only"
+    }
+  },
+  "runtime_scope": "Exact original diff JSON-escaped; original temporary logs retained"
+}

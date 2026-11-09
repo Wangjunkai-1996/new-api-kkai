@@ -1,0 +1,345 @@
+RELEASE_RECORD=/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261109.1794239898-a552996db.stage-j1lwrynd.json
+KKAI_PREFLIGHT_RESULT=ready
+KKAI_MEMBERSHIP_BILLING_RECOVERY_MODE=paused
+KKAI_DEPLOYMENT_PROTOCOL=router-v3-staged
+KKAI_SCHEMA_CONTRACT=feature
+KKAI_CURRENT_FRONTEND_MODE=external
+KKAI_FRONTEND_MODE=external
+KKAI_INFRA_SHA=29e9a8e927ea35df939e912baa381e663591f4a2
+KKAI_ACTIVE_SLOT=green
+KKAI_ACTIVE_VERSION=kkai-prod-20261109.1794233284-fc46400f3
+KKAI_ROUTER_ID=cb6554cc477cd1bcdb857a66397cb33c180f9d8cbdc0b59c2fa0ff0e5ef630f6
+KKAI_REDIS_ID=7375a814d9b6acf6da89b50d6b7525d7e663985e8fdabe31ceb3c4e651e5273d
+KKAI_RISK_GUARD_ID=f491fb4b447f17419bc9c5b2dc08964bf403cff6756dd59ebd126b7829a84735
+KKAI_TENANT_ONLINE_PREFLIGHT=ready
+
+PLAY [Stage a New API candidate without switching traffic] *********************
+
+TASK [newapi : Read the current release and derive staged candidate inputs] ****
+included: /srv/kkai/controller-sources/29e9a8e927ea35df939e912baa381e663591f4a2/roles/newapi/tasks/deploy-simple-inputs.yml for ovh-sys1-prod
+
+TASK [newapi : Require a candidate slot and immutable application coordinates] ***
+ok: [ovh-sys1-prod] => {
+    "changed": false,
+    "msg": "All assertions passed"
+}
+
+TASK [newapi : Inspect the current New API release link] ***********************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Require the managed current release symlink] ********************
+ok: [ovh-sys1-prod] => {
+    "changed": false,
+    "msg": "All assertions passed"
+}
+
+TASK [newapi : Inspect the persistent rollback release link] *******************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Require a distinct managed rollback release symlink] ************
+ok: [ovh-sys1-prod] => {
+    "changed": false,
+    "msg": "All assertions passed"
+}
+
+TASK [newapi : Read the current release manifest] ******************************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Decode the current release manifest] ****************************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Derive the previous release and slot coordinates] ***************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Require the previous release frontend mode] *********************
+ok: [ovh-sys1-prod] => {
+    "changed": false,
+    "msg": "All assertions passed"
+}
+
+TASK [newapi : Require the candidate to target the idle slot] ******************
+ok: [ovh-sys1-prod] => {
+    "changed": false,
+    "msg": "All assertions passed"
+}
+
+TASK [newapi : Select the immutable candidate image reference] *****************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Preserve the previous slot image and metadata when available] ***
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Derive the previous slot frontend modes] ************************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Require both previous release slot identities] ******************
+ok: [ovh-sys1-prod] => {
+    "changed": false,
+    "msg": "All assertions passed"
+}
+
+TASK [newapi : Build the two-slot image map for the simple release] ************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Render and publish the immutable staged candidate release] ******
+included: /srv/kkai/controller-sources/29e9a8e927ea35df939e912baa381e663591f4a2/roles/newapi/tasks/deploy-simple-release.yml for ovh-sys1-prod
+
+TASK [newapi : Validate immutable membership recovery configuration] ***********
+included: /srv/kkai/controller-sources/29e9a8e927ea35df939e912baa381e663591f4a2/roles/newapi/tasks/membership-recovery-config.yml for ovh-sys1-prod
+
+TASK [newapi : Resolve immutable membership recovery modes for both slots] *****
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Require an explicit valid membership recovery mode for every rendered process] ***
+ok: [ovh-sys1-prod] => (item=paused) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": "paused",
+    "msg": "All assertions passed"
+}
+ok: [ovh-sys1-prod] => (item=paused) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": "paused",
+    "msg": "All assertions passed"
+}
+ok: [ovh-sys1-prod] => (item=paused) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": "paused",
+    "msg": "All assertions passed"
+}
+
+TASK [newapi : Validate tenant routing and health Host configuration] **********
+included: /srv/kkai/controller-sources/29e9a8e927ea35df939e912baa381e663591f4a2/roles/newapi/tasks/tenant-config.yml for ovh-sys1-prod
+
+TASK [newapi : Resolve complete tenant configuration snapshots for both slots] ***
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Require complete restricted slot configuration and platform health Hosts] ***
+ok: [ovh-sys1-prod] => (item={'health_host': 'api.kkrich.ltd', 'platform_hosts': ['api.kkrich.ltd', 'api-origin.kkrich.ltd', 'dt-api.kkrich.ltd', 'newapi-active'], 'root_domain': 'kkai.win', 'routing_enabled': True}) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": {
+        "health_host": "api.kkrich.ltd",
+        "platform_hosts": [
+            "api.kkrich.ltd",
+            "api-origin.kkrich.ltd",
+            "dt-api.kkrich.ltd",
+            "newapi-active"
+        ],
+        "root_domain": "kkai.win",
+        "routing_enabled": true
+    },
+    "msg": "All assertions passed"
+}
+ok: [ovh-sys1-prod] => (item={'health_host': 'api.kkrich.ltd', 'platform_hosts': ['api.kkrich.ltd', 'api-origin.kkrich.ltd', 'dt-api.kkrich.ltd', 'newapi-active'], 'root_domain': 'kkai.win', 'routing_enabled': True}) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": {
+        "health_host": "api.kkrich.ltd",
+        "platform_hosts": [
+            "api.kkrich.ltd",
+            "api-origin.kkrich.ltd",
+            "dt-api.kkrich.ltd",
+            "newapi-active"
+        ],
+        "root_domain": "kkai.win",
+        "routing_enabled": true
+    },
+    "msg": "All assertions passed"
+}
+
+TASK [newapi : Reject wildcard, IP and malformed platform hosts] ***************
+ok: [ovh-sys1-prod] => (item=api.kkrich.ltd) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": "api.kkrich.ltd",
+    "msg": "All assertions passed"
+}
+ok: [ovh-sys1-prod] => (item=api-origin.kkrich.ltd) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": "api-origin.kkrich.ltd",
+    "msg": "All assertions passed"
+}
+ok: [ovh-sys1-prod] => (item=dt-api.kkrich.ltd) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": "dt-api.kkrich.ltd",
+    "msg": "All assertions passed"
+}
+ok: [ovh-sys1-prod] => (item=newapi-active) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": "newapi-active",
+    "msg": "All assertions passed"
+}
+ok: [ovh-sys1-prod] => (item=api.kkrich.ltd) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": "api.kkrich.ltd",
+    "msg": "All assertions passed"
+}
+ok: [ovh-sys1-prod] => (item=api-origin.kkrich.ltd) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": "api-origin.kkrich.ltd",
+    "msg": "All assertions passed"
+}
+ok: [ovh-sys1-prod] => (item=dt-api.kkrich.ltd) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": "dt-api.kkrich.ltd",
+    "msg": "All assertions passed"
+}
+ok: [ovh-sys1-prod] => (item=newapi-active) => {
+    "ansible_loop_var": "item",
+    "changed": false,
+    "item": "newapi-active",
+    "msg": "All assertions passed"
+}
+
+TASK [newapi : Validate optional shop keyrings] ********************************
+included: /srv/kkai/controller-sources/29e9a8e927ea35df939e912baa381e663591f4a2/roles/newapi/tasks/shop-config.yml for ovh-sys1-prod
+
+TASK [newapi : Validate shop keyring configuration] ****************************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Inspect dedicated shop keyring files] ***************************
+ok: [ovh-sys1-prod] => (item=(censored due to no_log))
+ok: [ovh-sys1-prod] => (item=(censored due to no_log))
+
+TASK [newapi : Require safe complete shop keyring files] ***********************
+ok: [ovh-sys1-prod] => (item=(censored due to no_log))
+ok: [ovh-sys1-prod] => (item=(censored due to no_log))
+
+TASK [newapi : Validate optional invoice policy and private credentials] *******
+included: /srv/kkai/controller-sources/29e9a8e927ea35df939e912baa381e663591f4a2/roles/newapi/tasks/invoice-config.yml for ovh-sys1-prod
+
+TASK [newapi : Validate manual invoice configuration] **************************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Validate optional private invoice object storage] ***************
+skipping: [ovh-sys1-prod]
+
+TASK [newapi : Inspect the private invoice attachment directory] ***************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Reject unsafe invoice attachment directory links] ***************
+ok: [ovh-sys1-prod] => {
+    "changed": false,
+    "msg": "All assertions passed"
+}
+
+TASK [newapi : Create the private invoice attachment directory] ****************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Inspect the dedicated invoice secret files] *********************
+ok: [ovh-sys1-prod] => (item=(censored due to no_log))
+
+TASK [newapi : Require complete invoice secret inspection] *********************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Require safe dedicated invoice secret files] ********************
+ok: [ovh-sys1-prod] => (item=(censored due to no_log))
+
+TASK [newapi : Inspect the Video Studio R2 credential files] *******************
+ok: [ovh-sys1-prod] => (item=(censored due to no_log))
+ok: [ovh-sys1-prod] => (item=(censored due to no_log))
+
+TASK [newapi : Require both Video Studio R2 credential inspection results] *****
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Require safe Video Studio R2 credential files] ******************
+ok: [ovh-sys1-prod] => (item=(censored due to no_log))
+ok: [ovh-sys1-prod] => (item=(censored due to no_log))
+
+TASK [newapi : Define the small immutable release payload] *********************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Inspect the candidate release directory] ************************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Reset the candidate release staging directory] ******************
+ok: [ovh-sys1-prod] => (item={'state': 'absent'})
+ok: [ovh-sys1-prod] => (item={'state': 'directory', 'mode': '0750'})
+
+TASK [newapi : Create the candidate Redis configuration directory] *************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Render the simple release payload] ******************************
+ok: [ovh-sys1-prod] => (item=compose.yml)
+ok: [ovh-sys1-prod] => (item=redis/redis.conf)
+ok: [ovh-sys1-prod] => (item=candidate-router-nginx.conf)
+
+TASK [newapi : Ensure the stable New API router state directory exists] ********
+skipping: [ovh-sys1-prod]
+
+TASK [newapi : Render the stable New API router configuration] *****************
+skipping: [ovh-sys1-prod]
+
+TASK [newapi : Inspect the stable New API router active upstream] **************
+skipping: [ovh-sys1-prod]
+
+TASK [newapi : Seed the stable New API router active upstream] *****************
+skipping: [ovh-sys1-prod]
+
+TASK [newapi : Render the simple release manifest] *****************************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Validate the simple Compose definition] *************************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Compare an existing release with the new immutable payload] *****
+skipping: [ovh-sys1-prod]
+
+TASK [newapi : Remove the verified duplicate release staging directory] ********
+skipping: [ovh-sys1-prod]
+
+TASK [newapi : Publish the immutable simple release directory] *****************
+changed: [ovh-sys1-prod]
+
+TASK [newapi : Require the candidate application image to be present by digest] ***
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Require the pinned Redis image to be present] *******************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Start and verify the staged candidate in the idle slot] *********
+included: /srv/kkai/controller-sources/29e9a8e927ea35df939e912baa381e663591f4a2/roles/newapi/tasks/deploy-simple-candidate.yml for ovh-sys1-prod
+
+TASK [newapi : Start only the candidate service in the idle slot] **************
+changed: [ovh-sys1-prod]
+
+TASK [newapi : Probe the candidate application status] *************************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Confirm the candidate container is healthy] *********************
+ok: [ovh-sys1-prod]
+
+TASK [newapi : Require the idle-slot candidate to be healthy] ******************
+ok: [ovh-sys1-prod] => {
+    "changed": false,
+    "msg": "All assertions passed"
+}
+
+TASK [newapi : Start and verify loopback-only staged candidate access] *********
+included: /srv/kkai/controller-sources/29e9a8e927ea35df939e912baa381e663591f4a2/roles/newapi/tasks/deploy-simple-candidate-access.yml for ovh-sys1-prod
+
+TASK [newapi : Start the loopback-only candidate access proxy] *****************
+changed: [ovh-sys1-prod]
+
+TASK [newapi : Probe the loopback-only candidate access proxy] *****************
+ok: [ovh-sys1-prod]
+
+PLAY RECAP *********************************************************************
+ovh-sys1-prod              : ok=57   changed=3    unreachable=0    failed=0    skipped=7    rescued=0    ignored=0
+
+KKAI_CANDIDATE_STAGE_RESULT=staged
+KKAI_CANDIDATE_VERSION=kkai-prod-20261109.1794239898-a552996db
+KKAI_CANDIDATE_SLOT=blue
+KKAI_CANDIDATE_FRONTEND_MODE=external
+KKAI_CANDIDATE_MEMBERSHIP_BILLING_RECOVERY_MODE=paused
+KKAI_CANDIDATE_EXPIRES_AT=1794261673
+KKAI_CANDIDATE_TUNNEL_TARGET=172.30.1.26:3000

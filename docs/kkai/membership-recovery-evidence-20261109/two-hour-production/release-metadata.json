@@ -1,0 +1,31 @@
+{
+  "version": "kkai-prod-20261109.1794239898-a552996db",
+  "source_sha": "a552996db2adb65d9e2074dbfc2e97962d0ef9bd",
+  "image_tag": "kkai-newapi-manual:kkai-prod-20261109.1794239898-a552996db",
+  "schema_contract": "feature",
+  "console_contract": {
+    "format_version": 1,
+    "api_contracts": [
+      2,
+      3
+    ],
+    "capabilities": [
+      "token_group_inline",
+      "video_sample_categories",
+      "dashboard_jwt",
+      "scoped_access_tokens",
+      "task_plugins",
+      "studio_media_urls",
+      "membership_ratio_quotes",
+      "reseller_sites",
+      "reseller_group_pricing",
+      "image_output_edit_source",
+      "manual_invoice_requests",
+      "token_create_result_id"
+    ]
+  },
+  "frontend_mode": "external",
+  "archive": "kkai-prod-20261109.1794239898-a552996db.tar",
+  "archive_sha256": "421984c31eef75fc2bc9d41a71d18f30b272411e7b9038bf6b654b59780802cd",
+  "platform": "linux/amd64"
+}

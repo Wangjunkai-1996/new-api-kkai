@@ -1,0 +1,481 @@
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.022ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.038ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "control-fence" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.019ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "control-fence" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.018ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.038ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_order.go:422 [35;1mrecord not found
+[0m[33m[0.017ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_payments` WHERE receipt_key = "epay:receipt-auto-review" ORDER BY `kkai_membership_payments`.`id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.032ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "unverifiable" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.026ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "confirmed" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.035ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "conflicting" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.029ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "not-due" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.032ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "orphan" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.033ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "zero-charge" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.030ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.020ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_scan.go:113 [35;1mrecord not found
+[0m[33m[0.080ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_scan_progress` WHERE lane = "aged" ORDER BY `kkai_membership_billing_scan_progress`.`lane` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.025ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_scan.go:113 [35;1mrecord not found
+[0m[33m[0.052ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_scan_progress` WHERE lane = "aged" ORDER BY `kkai_membership_billing_scan_progress`.`lane` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.018ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_scan.go:113 [35;1mrecord not found
+[0m[33m[0.035ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_scan_progress` WHERE lane = "dispatched_orphan" ORDER BY `kkai_membership_billing_scan_progress`.`lane` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_scan.go:113 [35;1mrecord not found
+[0m[33m[0.024ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_scan_progress` WHERE lane = "aged" ORDER BY `kkai_membership_billing_scan_progress`.`lane` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_scan.go:130 [35;1mrecord not found
+[0m[33m[0.041ms] [34;1m[rows:0][0m SELECT `request_id`,`created_at`,`review_after` FROM `kkai_membership_billing` WHERE (billing_scope = "relay" AND state = "reserved") AND created_at <= 1794232515 AND (review_started_at > 0 OR dispatched_at = 0 OR (review_after > 0 AND review_after <= 1794239715)) ORDER BY created_at DESC, request_id DESC,`kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.026ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.022ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_scan.go:113 [35;1mrecord not found
+[0m[33m[0.048ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_scan_progress` WHERE lane = "aged" ORDER BY `kkai_membership_billing_scan_progress`.`lane` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.017ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.013ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_scan.go:113 [35;1mrecord not found
+[0m[33m[0.037ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_scan_progress` WHERE lane = "dispatched_orphan" ORDER BY `kkai_membership_billing_scan_progress`.`lane` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_scan.go:113 [35;1mrecord not found
+[0m[33m[0.029ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_scan_progress` WHERE lane = "undispatched_orphan" ORDER BY `kkai_membership_billing_scan_progress`.`lane` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_scan.go:113 [35;1mrecord not found
+[0m[33m[0.024ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_scan_progress` WHERE lane = "observe_dispatched_orphan" ORDER BY `kkai_membership_billing_scan_progress`.`lane` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_scan.go:113 [35;1mrecord not found
+[0m[33m[0.026ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_scan_progress` WHERE lane = "observe_undispatched_orphan" ORDER BY `kkai_membership_billing_scan_progress`.`lane` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_scan.go:113 [35;1mrecord not found
+[0m[33m[0.023ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_scan_progress` WHERE lane = "aged" ORDER BY `kkai_membership_billing_scan_progress`.`lane` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.019ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.038ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "terminal-write-failure" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.022ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "terminal-write-failure" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/user_quota.go:95 [35;1mconstraint failed: funds unavailable (1811)
+[0m[33m[0.043ms] [34;1m[rows:0][0m UPDATE `users` SET `quota`=quota + 50 WHERE (id = 1 AND quota <= 9223372036854775757) AND `users`.`deleted_at` IS NULL
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.026ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.041ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "conflicting-terminal" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.019ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "conflicting-terminal" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.017ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.021ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.038ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "receipt-first" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.051ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "receipt-first" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:163 [35;1mrecord not found
+[0m[33m[0.032ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE receipt_key = "07688d3002bddc3a0721281381169c56bebbe2dabf335c8d5d096a865433024d" AND request_id <> "receipt-first" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.037ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "receipt-reused" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.020ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "receipt-reused" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.029ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_order.go:422 [35;1mrecord not found
+[0m[33m[0.017ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_payments` WHERE receipt_key = "epay:receipt-recovery-membership" ORDER BY `kkai_membership_payments`.`id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.037ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "early-overrun" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.020ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "early-overrun" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.018ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.022ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.024ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.040ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "zero-terminal" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.077ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "zero-terminal" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.017ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "zero-terminal" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.024ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.038ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "zero-terminal" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.023ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "zero-terminal" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.018ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "zero-terminal" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.013ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.027ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.042ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "aged-unknown" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.019ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "aged-unknown" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.025ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.045ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "running-over-two-hours" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.022ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "running-over-two-hours" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+--- FAIL: TestMembershipRecoveryCompensationWaitsForRunningTransport (0.04s)
+    membership_billing_recovery_test.go:241:
+                Error Trace:    /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_test.go:241
+                Error:          Expected error with "membership state changed; refresh and retry" in chain but got nil.
+                Test:           TestMembershipRecoveryCompensationWaitsForRunningTransport
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.019ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.021ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.038ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "protected-authorization" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.024ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "protected-authorization" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.017ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "protected-authorization" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.017ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "protected-authorization" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "protected-authorization" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "protected-authorization" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "protected-authorization" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.022ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.017ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.021ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.039ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "lost-recovery-leader" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.022ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "lost-recovery-leader" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.031ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.048ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "corrupt-recovery" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.020ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "corrupt-recovery" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.022ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.040ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "corrupt-recovery" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.022ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "corrupt-recovery" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.019ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.020ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.042ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "corrupt-recovery" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.021ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "corrupt-recovery" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.025ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.042ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "corrupt-recovery" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.020ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "corrupt-recovery" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:15 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.022ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.024ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.048ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "corrupt-recovery" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery.go:43 [35;1mrecord not found
+[0m[33m[0.021ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing_recovery` WHERE request_id = "corrupt-recovery" ORDER BY `kkai_membership_billing_recovery`.`request_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.018ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.018ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.013ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [34;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_test.go:357
+[0m[35m[warn] [0mremoving callback `test:membership_recovery_token_lookup` from /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing_recovery_test.go:357
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:388 [35;1mrecord not found
+[0m[33m[0.030ms] [34;1m[rows:0][0m SELECT `id`,`key` FROM `tokens` WHERE `tokens`.`id` = 1 AND `tokens`.`deleted_at` IS NULL ORDER BY `tokens`.`id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.026ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_order.go:422 [35;1mrecord not found
+[0m[33m[0.019ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_payments` WHERE receipt_key = "epay:receipt-manual-review" ORDER BY `kkai_membership_payments`.`id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.039ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "unknown-call" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+[SYS] 2026/11/09 - 23:55:16 | membership billing overrun request=unknown-call user=1 source=membership authorized=80 actual=100 charged=80 platform_excess=20
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.029ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_order.go:422 [35;1mrecord not found
+[0m[33m[0.018ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_payments` WHERE receipt_key = "epay:receipt-review-wallet" ORDER BY `kkai_membership_payments`.`id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.032ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "unknown-wallet" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_order.go:422 [35;1mrecord not found
+[0m[33m[0.020ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_payments` WHERE receipt_key = "epay:receipt-review-upgrade" ORDER BY `kkai_membership_payments`.`id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.015ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.023ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.029ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "orphan-dispatch" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.016ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.023ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.032ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "image:owned" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.026ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "task:owned" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.017ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "gpt" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:139 [35;1mrecord not found
+[0m[33m[0.014ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_groups` WHERE group_key = "new" ORDER BY `kkai_membership_groups`.`group_key` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_catalog.go:258 [35;1mrecord not found
+[0m[33m[0.023ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_users` WHERE user_id = 1 ORDER BY `kkai_membership_users`.`user_id` LIMIT 1
+
+2026/11/09 23:55:16 [31;1m/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/model/membership_billing.go:94 [35;1mrecord not found
+[0m[33m[0.034ms] [34;1m[rows:0][0m SELECT * FROM `kkai_membership_billing` WHERE request_id = "retry-dispatch" ORDER BY `kkai_membership_billing`.`request_id` LIMIT 1
+FAIL
+FAIL    github.com/QuantumNous/new-api/model    1.249s
+ok      github.com/QuantumNous/new-api/service  0.646s
+FAIL
