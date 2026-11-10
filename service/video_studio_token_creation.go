@@ -134,7 +134,8 @@ func ensureVideoStudioTokenOnce(
 		created := &model.Token{
 			UserId: userID, Key: key, Status: common.TokenStatusEnabled, Name: videoStudioTokenName,
 			CreatedTime: now, AccessedTime: now, ExpiredTime: -1, UnlimitedQuota: true,
-			ModelLimitsEnabled: false, ModelLimits: "",
+			AllowUserQuotaQuery: true,
+			ModelLimitsEnabled:  false, ModelLimits: "",
 			Group: VideoStudioTokenGroup, CrossGroupRetry: false,
 		}
 		if err := tx.Create(created).Error; err != nil {

@@ -177,6 +177,7 @@ func TestVideoStudioTokenWithoutModelHintReplacesObsoleteRestrictedKey(t *testin
 	var created model.Token
 	require.NoError(t, db.First(&created, first.Token.ID).Error)
 	assert.Equal(t, videoStudioTokenName, created.Name)
+	assert.True(t, created.AllowUserQuotaQuery)
 	assert.False(t, created.ModelLimitsEnabled)
 	assert.Equal(t, VideoStudioTokenGroup, created.Group)
 }

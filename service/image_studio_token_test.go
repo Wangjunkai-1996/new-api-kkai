@@ -177,6 +177,7 @@ func TestEnsureImageStudioTokenIsIdempotentAndManaged(t *testing.T) {
 	assert.Equal(t, imageStudioTokenName, tokens[0].Name)
 	assert.Equal(t, ImageStudioTokenGroup, tokens[0].Group)
 	assert.True(t, tokens[0].UnlimitedQuota)
+	assert.True(t, tokens[0].AllowUserQuotaQuery)
 	assert.False(t, tokens[0].ModelLimitsEnabled)
 	assert.False(t, tokens[0].CrossGroupRetry)
 }

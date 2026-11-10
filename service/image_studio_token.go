@@ -213,7 +213,8 @@ func ensureImageStudioTokenOnce(
 		selected = &model.Token{
 			UserId: userID, Key: key, Status: common.TokenStatusEnabled, Name: imageStudioTokenName,
 			CreatedTime: now, AccessedTime: now, ExpiredTime: -1, UnlimitedQuota: true,
-			ModelLimitsEnabled: false, ModelLimits: "", Group: ImageStudioTokenGroup, CrossGroupRetry: false,
+			AllowUserQuotaQuery: true,
+			ModelLimitsEnabled:  false, ModelLimits: "", Group: ImageStudioTokenGroup, CrossGroupRetry: false,
 		}
 		if err := tx.Create(selected).Error; err != nil {
 			return fmt.Errorf("create image studio token: %w", err)
