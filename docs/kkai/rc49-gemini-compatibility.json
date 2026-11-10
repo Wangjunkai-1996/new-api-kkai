@@ -1,0 +1,104 @@
+{
+  "finding": "Confirmed regression: with Gemini ThinkingAdapter=false and no preservation entry, effort suffix medium was stripped at a552996db but preserved at e8742162e. Model fallback mapping and upstream URL both changed. The local fix restores only Gemini legacy effort aliases and preserves current Claude toggle semantics.",
+  "production_operations": false,
+  "business_requests": false,
+  "committed": true,
+  "full_suite_run": false,
+  "changed_files": [
+    "relaykit/relayconvert/reasoning/suffix.go",
+    "relaykit/relayconvert/reasoning/suffix_test.go",
+    "relaykit/relayconvert/convmeta/options.go"
+  ],
+  "three_version_test": {
+    "old": "PASS, basic model URL and medium effort",
+    "candidate": "EXPECTED FAIL, suffixed URL and missing effort; fallback mapping lost",
+    "fixed": "PASS, matches old"
+  },
+  "edge_cases": {
+    "thinking-abc": "New cases confirm opaque when disabled and error when enabled.",
+    "mapping": "Actual helper chain verified with no mapping and base-model mapping at all three versions. Existing successive-channel mapping test passed.",
+    "blacklist": "Host parseRequestModelName and BaseModelName check exact/regex preservation before parser. Existing host exact and regex exemption tests passed.",
+    "claude": "Existing host disabled-adapter effort-tail test and parser test passed unchanged."
+  },
+  "environment": {
+    "GOTOOLCHAIN": "local",
+    "GOWORK": "off",
+    "GOPROXY": "off",
+    "GOSUMDB": "off"
+  },
+  "commands": [
+    {
+      "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/relaykit",
+      "argv": [
+        "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/go/bin/go",
+        "test",
+        "-mod=readonly",
+        "-p",
+        "2",
+        "./relayconvert/reasoning",
+        "-count=1"
+      ],
+      "result": "PASS 0.009s before adding two malformed-budget cases"
+    },
+    {
+      "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai",
+      "argv": [
+        "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/go/bin/go",
+        "test",
+        "-mod=readonly",
+        "-p",
+        "2",
+        "./setting/reasoning",
+        "./relay/helper",
+        "-run",
+        "^Test(CanonicalBillingModelNames|ParseOpenAIReasoningEffortPreservesCodexMax|BaseModelNameStripsModifiers|ExemptAtNameIsOpaqueForBillingIdentity|ApplyReasoningModelSuffix.*|ModelPriceHelperNativeGeminiNoThinkingDoesNotAliasBillingModel)$",
+        "-count=1"
+      ],
+      "result": "PASS setting/reasoning 0.016s; relay/helper 0.049s"
+    },
+    {
+      "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/relaykit",
+      "argv": [
+        "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/go/bin/go",
+        "test",
+        "-mod=readonly",
+        "-p",
+        "2",
+        "./relayconvert/reasoning",
+        "./relayconvert",
+        "-run",
+        "^Test(ParseKnownProviderModelSuffix|GeminiThinkingLevelCaseInsensitiveAcrossPaths|ConvertRequestOpenAIChatToGeminiImageConfig|ConvertRequestOpenAIChatToGeminiAddsThoughtSignatureForAdvancedCustom)$",
+        "-count=1"
+      ],
+      "result": "PASS reasoning 0.025s; relayconvert 0.012s, includes new malformed-budget cases"
+    },
+    {
+      "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai",
+      "argv": [
+        "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/go/bin/go",
+        "test",
+        "-mod=readonly",
+        "-p",
+        "2",
+        "./relay",
+        "-run",
+        "^TestRequestDeepCopyResponses$/^model_mapping_on_successive_channel_attempts$",
+        "-count=1"
+      ],
+      "result": "PASS 0.080s"
+    }
+  ],
+  "source_sha256": {
+    "relaykit/relayconvert/reasoning/suffix.go": "efc63d91b95f276f5da15e6b892cc6497de7f1c5e2d816fa27c11e869decc68b",
+    "relaykit/relayconvert/reasoning/suffix_test.go": "9e89f5ba23cb8b86abdaa6c02ee49d87923b63e437df8ce2c7fd62454339c777"
+  },
+  "limitations": [
+    "No production replay was performed. Evidence proves model/URL regression under independently reported configuration; it does not prove account authorization beyond the original upstream failure."
+  ],
+  "comment_alignment": "GeminiOptions toggle comment synchronized with restored behavior.",
+  "image_response_precaution": {
+    "change": "Restore only Image Studio response validator to exact a552996db gjson implementation; retain response size and shape protections. Original 502 cause remains unknown.",
+    "verification": "Exact function source matches old commit. Targeted OpenAI image tests PASS 0.040s.",
+    "command": "GOTOOLCHAIN=local GOWORK=off GOPROXY=off GOSUMDB=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay/channel/openai -run ^Test(OpenAIImageStudioResponse.*|OpenaiImageHandlerUsesPositiveActualCountForFixedPrice|OpenaiImageHandlersReturnJSONError)$ -count=1"
+  }
+}

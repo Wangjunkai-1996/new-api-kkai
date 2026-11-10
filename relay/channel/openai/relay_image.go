@@ -18,6 +18,7 @@ import (
 
 	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 func updateOpenAIImageCount(info *relaycommon.RelayInfo, count int64) {
@@ -422,7 +423,7 @@ func validateImageStudioOpenAIResponse(
 			requestedCount = int(*request.N)
 		}
 	}
-	data := ojson.GetBytes(responseBody, "data")
+	data := gjson.GetBytes(responseBody, "data")
 	if !data.Exists() || !data.IsArray() {
 		return service.ErrInvalidImageRelayResponse
 	}
@@ -433,8 +434,8 @@ func validateImageStudioOpenAIResponse(
 	for _, item := range items {
 		url := item.Get("url")
 		base64 := item.Get("b64_json")
-		hasURL := url.Type == ojson.String && strings.TrimSpace(url.String()) != ""
-		hasBase64 := base64.Type == ojson.String && strings.TrimSpace(base64.String()) != ""
+		hasURL := url.Type == gjson.String && strings.TrimSpace(url.String()) != ""
+		hasBase64 := base64.Type == gjson.String && strings.TrimSpace(base64.String()) != ""
 		if hasURL == hasBase64 {
 			return service.ErrInvalidImageRelayResponse
 		}

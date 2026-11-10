@@ -142,7 +142,7 @@ func ParseOpenAIReasoningEffortFromModelSuffix(modelName string, preserveEffortT
 // name is returned verbatim and no intent is produced.
 func ParseClaudeModelSuffix(modelName string, allowSuffixAlias bool) (string, Intent, bool, error) {
 	prefix, bare := splitModelNamespace(modelName)
-	if !strings.HasPrefix(bare, "claude-") {
+	if !allowSuffixAlias || !strings.HasPrefix(bare, "claude-") {
 		return modelName, Intent{}, false, nil
 	}
 	base, intent, found, err := parseProviderModelSuffix(bare, "claude-", allowSuffixAlias, true)
@@ -175,8 +175,8 @@ func isKnownClaudeModel(modelName string) bool {
 	return false
 }
 
-// ParseGeminiModelSuffix is the gemini-* counterpart of ParseClaudeModelSuffix
-// and honours allowSuffixAlias the same way.
+// ParseGeminiModelSuffix preserves legacy effort aliases even when the
+// thinking adapter is disabled. The toggle gates only thinking aliases.
 func ParseGeminiModelSuffix(modelName string, allowSuffixAlias bool) (string, Intent, bool, error) {
 	prefix, bare := splitModelNamespace(modelName)
 	if !strings.HasPrefix(bare, "gemini-") {
@@ -221,13 +221,10 @@ func TrimGeminiThinkingSuffix(modelName string) (string, bool) {
 }
 
 // parseProviderModelSuffix recognises a provider family's naked model-name
-// aliases. allowSuffixAlias gates all of them, including effort tails, so a
-// disabled thinking adapter leaves the model name untouched.
+// aliases. allowSuffixAlias gates thinking aliases; effort tails are always
+// parsed. Providers that disable both must return before calling this helper.
 func parseProviderModelSuffix(modelName string, requiredPrefix string, allowSuffixAlias bool, includeThoughts bool) (string, Intent, bool, error) {
-	if !allowSuffixAlias {
-		return modelName, Intent{}, false, nil
-	}
-	if marker := strings.LastIndex(modelName, "-thinking-"); marker >= 0 {
+	if marker := strings.LastIndex(modelName, "-thinking-"); allowSuffixAlias && marker >= 0 {
 		baseModel := modelName[:marker]
 		if !strings.HasPrefix(baseModel, requiredPrefix) {
 			return modelName, Intent{}, false, nil
@@ -243,10 +240,10 @@ func parseProviderModelSuffix(modelName string, requiredPrefix string, allowSuff
 		}
 		return baseModel, intent, true, nil
 	}
-	if baseModel, ok := strings.CutSuffix(modelName, "-nothinking"); ok {
+	if baseModel, ok := strings.CutSuffix(modelName, "-nothinking"); allowSuffixAlias && ok {
 		return baseModel, Intent{Mode: ModeDisabled, Effort: EffortNone, Source: SourceSuffix}, true, nil
 	}
-	if baseModel, ok := strings.CutSuffix(modelName, "-thinking"); ok {
+	if baseModel, ok := strings.CutSuffix(modelName, "-thinking"); allowSuffixAlias && ok {
 		intent := Intent{Mode: ModeEnabled, Source: SourceSuffix}
 		if includeThoughts {
 			value := true

@@ -70,9 +70,9 @@ type GeminiOptions struct {
 	// ThinkingAdapterEnabled is the host thinking-suffix adapter toggle. The
 	// host and gemini_chat request conversion pass it to
 	// reasoning.ParseGeminiModelSuffix, so -thinking, -nothinking,
-	// -thinking-<budget>, and effort tails such as -high on gemini-* names
-	// become reasoning intent only while it is on; when off the model name is
-	// sent verbatim. Explicit @ modifiers are unaffected.
+	// -thinking-<budget> on gemini-* names become reasoning intent only while
+	// it is on. Legacy effort tails such as -high are parsed regardless of
+	// this toggle. Explicit @ modifiers are unaffected.
 	ThinkingAdapterEnabled bool
 	// ThinkingAdapterBudgetTokensPercentage sizes thinkingBudget as a fraction
 	// of maxOutputTokens when the adapter fires.

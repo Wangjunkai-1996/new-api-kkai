@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,6 +48,26 @@ func TestOpenAIImageStudioResponseValidationRejectsEmptyAndAmbiguousData(t *test
 		_, apiErr := OpenaiImageHandler(c, &relaycommon.RelayInfo{Request: &dto.ImageRequest{N: &n}}, response)
 		require.NotNil(t, apiErr, body)
 		require.Equal(t, service.ErrInvalidImageRelayResponse.Error(), apiErr.Error(), body)
+	}
+}
+
+func TestOpenAIImageStudioResponseValidationAcceptsSingleImage(t *testing.T) {
+	for name, body := range map[string]string{
+		"url":    `{"data":[{"url":"https://example.test/image.png"}]}`,
+		"base64": `{"data":[{"b64_json":"YQ=="}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, recorder, response, info := newImageTestContext(t, body, "application/json", false)
+			c.Request = c.Request.WithContext(service.WithImageStudioResponseLimit(c.Request.Context(), 1<<20))
+			n := uint(1)
+			info.Request = &dto.ImageRequest{N: &n}
+
+			_, apiErr := OpenaiImageHandler(c, info, response)
+
+			require.Nil(t, apiErr)
+			assert.Equal(t, http.StatusOK, recorder.Code)
+			assert.Equal(t, body, recorder.Body.String())
+		})
 	}
 }
 
