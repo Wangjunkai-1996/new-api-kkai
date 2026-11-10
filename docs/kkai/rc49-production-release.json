@@ -1,0 +1,198 @@
+{
+  "source_sha": "21cb44e38f6f5e4b6825d7af87064dea879b861e",
+  "backend_version": "kkai-prod-20261110.1794294463-21cb44e38",
+  "backend_metadata": ".local-releases/kkai-prod-20261110.1794294463-21cb44e38.json",
+  "schema_contract": "feature",
+  "schema_evidence": "schema-before-gemini-fix.json",
+  "frontend_release": "kkai-frontend-20261110.1794289195-e8742162e",
+  "frontend_action": "reuse unchanged",
+  "infra_sha": "8fe80d1a4f2e6a6233b16b7de32aff3a60a8e9fa",
+  "business_acceptance": "user-owned; agent not verified",
+  "original_release_record": "production-release-evidence.json",
+  "build": "passed",
+  "backend_image_id": "sha256:d4922dc9577cdf5d2df3a2499a1bd399cbd98b809cb98010bdb9e15bdb699d15",
+  "baseline_start": "2026-11-10T07:04:20Z",
+  "baseline_end": "2026-11-10T07:09:20Z",
+  "old_version": "kkai-prod-20261109.1794239898-a552996db",
+  "rollback_delayed_health": "passed",
+  "stage": "passed",
+  "target_slot": "green",
+  "tunnel_socket": "/tmp/kkai-rc49-fix-21cb44e38.sock",
+  "candidate_acceptance": {
+    "version": "kkai-prod-20261110.1794294463-21cb44e38",
+    "health": "passed",
+    "business": "user-owned; agent not verified",
+    "local_regression": "Gemini actual helper/URL matches old; image validator exact old source",
+    "initial_probe": "localhost Host rejected TENANT_HOST_INVALID; corrected Host to configured api.kkrich.ltd"
+  },
+  "rollout_id": "205fc1df0fef4cdc8c51198a4e6dc1c5",
+  "canary": {
+    "10": {
+      "start": "2026-11-10T07:15:44Z",
+      "end": "2026-11-10T07:17:44Z",
+      "collected": true,
+      "review": "passed",
+      "attribution": "Target96 HTTP requests:15 Responses503 all exact model/group no available channel, SQL abilities0/enabled channels0, same pair fails on unchanged active. Old active938 requests with11 HTTP5xx; global502 /v1/messages attributable to old blue only, target has no chat route samples. Global404 is Gemini models route without effort suffix; exact model/account content only matches old blue3 times, target0. Original full120s window retained. No router error. User-owned business acceptance.",
+      "evidence": [
+        "fix-channel-availability.json",
+        "fix-404-provenance.json",
+        "fix-canary-10-router-diagnostic.json",
+        "fix-canary-10-active-http.log",
+        "fix-canary-10-full-relay.log"
+      ]
+    },
+    "50": {
+      "start": "2026-11-10T07:25:14Z",
+      "end": "2026-11-10T07:27:14Z",
+      "collected": true,
+      "review": "passed",
+      "attribution": "Target629 completed,1 chat5xx; old1181,1 chat5xx. Global502 nativeClaude channel14 has exact same channel/model/content twice before stage. Native non200 response/error handling unchanged aside logging translation; provider-origin structured502, no demonstrated candidate-only failure. 429 not investigated per user. No Responses5xx on either slot. Timing/identity/health passed; business acceptance user-owned."
+    },
+    "100": {
+      "start": "2026-11-10T07:32:03Z",
+      "end": "2026-11-10T07:34:03Z",
+      "collected": true,
+      "review": "passed",
+      "attribution": "2338 target completed/17 HTTP503:16 English and1 Chinese no-channel messages; all exact model/group pairs SQL abilities0/enabled channels0, old active had29/46/1 same pair failures. Router errors0. Global full120s680 events includes upstream rate_limit_error500 previously exact same channel/model/content3 times and429; per user no further rate-limit investigation. No Gemini suffix recurrence evidenced. Source/identity/timing/health gates pass; user owns business acceptance."
+    }
+  },
+  "membership_restore_required": false,
+  "schema_contract_verified_by_stage": true,
+  "cleanup_protection": {
+    "backend": "v10 schema snapshot freezes online managed release/image retention; retain protected assets",
+    "frontend": "no releases outside protected set have aged30days",
+    "local_unknown_archive": "retain d3e640059; owner local NewAPI maintenance"
+  },
+  "promotion": "passed",
+  "post_window": {
+    "start": "2026-11-10T07:47:15Z",
+    "end": "2026-11-10T07:52:15Z"
+  },
+  "immediate_health": "passed",
+  "frontend_pointers_unchanged": true,
+  "redis_router_identity_unchanged": true,
+  "frontend_rollback_order": "backend-only",
+  "cleanup_warnings": [],
+  "protected_cleanup_defer": "v10 schema snapshot retains all managed backend releases/images; no expiry bypass",
+  "frontend_retention": {
+    "installed_trees": 118,
+    "eligible_after30days": 0,
+    "oldest_unprotected_days_at_inventory": 14.49,
+    "prune": "not applicable; no expired candidates/warnings"
+  },
+  "backend_retention": {
+    "managed_release_directories": 177,
+    "image_inventory_count": 97,
+    "protected_by": "v10 schema snapshot",
+    "manual_delete": false
+  },
+  "delayed_health": "passed",
+  "post_release_error_review": "passed",
+  "post_error_attribution": {
+    "window": "fixed original300second window, not replaced",
+    "events": 1759,
+    "errors": 25,
+    "http500_count12": "provider rate_limit_error; user instructed no further limit investigation, same signature on rolled-back old runtime",
+    "http400_count5": "Provider says model unsupported on endpoint. Native OpenAI channel1, no suffix/@/mapping/override; compatible_handler routing and OpenAI GetRequestURL/ConvertOpenAIRequest unchanged vs old except unrelated image/Azure behavior. Endpoint capability mismatch outside upgrade.",
+    "http404_count2": "Provider account/model availability. Both exact channel/model/content predate first canary. Suffix-bearing request error now names base model only, directly confirming corrected stripping; no suffix regression remains.",
+    "http502_count6": "Sub2API provider upstream_error / upstream request failed plus retained provider502 signature; exact same signatures predate release on multiple paths. Native error handler remains unchanged except log translation. No parser/transport failure signature or candidate-only mechanism identified.",
+    "business_acceptance": "user-owned; agent not verified",
+    "original_image_502": "Original incident still lacks raw response evidence; fixed version restores exact old validation behavior, no image502 in final window. Do not claim its root cause proven."
+  },
+  "membership_final_mode": "apply",
+  "membership_final_acknowledged": true,
+  "cleanup": {
+    "result": "completed_with_documented_retention",
+    "local_archives_removed": 4,
+    "local_rehearsal_image_tags_removed": 122,
+    "remote_temporary_files_removed": 6,
+    "failures": [],
+    "verification": "cleanup-final-verification.json",
+    "retained_historical_archive": "d3e640059 retained for ownership review; local NewAPI maintenance",
+    "retained_source_evidence": "cleanup-source-evidence-disposition.json",
+    "retained_online_backend_release_directories": 177,
+    "retained_online_backend_image_inventory_entries": 97,
+    "retained_frontend_release_trees": 118,
+    "candidate_sockets_closed": true,
+    "verification_details": {
+      "at": "2026-11-10T08:04:47.686858+00:00",
+      "health": "HEALTHY",
+      "rollback": "ready",
+      "pointers_unchanged": true,
+      "all_container_identities_unchanged": true,
+      "frontend_retention_unchanged": true,
+      "online_releases_and_images_preserved": true,
+      "local_deleted_set_absent": true,
+      "local_retained_set_present": true,
+      "candidate_sockets_closed": true,
+      "remote_temporary_paths_removed": true,
+      "failures": [],
+      "verification_adjustment": "Initial comparison included human-readable Docker CreatedSince and failed as time elapsed; immutable image IDs, repository/tags and digests match exactly."
+    }
+  },
+  "final_health": "passed",
+  "candidate_tunnel": "closed",
+  "release_status": "deployed; user-owned business acceptance pending",
+  "completed_at": "2026-11-10T08:04:47.686858+00:00",
+  "record_scope": "Final production deployment evidence; business E2E remains user-owned and was not performed by the agent.",
+  "first_attempt": {
+    "source": "e8742162e0746027cfb3725c9982dbdcb3fd55c7",
+    "result": "failed_gemini_suffix_regression; formally rolled back before corrected release",
+    "record": "production-release-evidence.json",
+    "image_502_root_cause": "not proven; exact previous validator restored as precaution"
+  },
+  "verification": {
+    "current_turn_scope": "L0 release documentation and mandated operational cleanup/status checks; no runtime changes",
+    "full_suite_rerun": false,
+    "historical_full_suites": "Previously run; initial failures repaired with targeted reruns. Not a single fully green run. See rc49-full-validation.json.",
+    "targeted_fix_commands": "Exact argv/environment/results in rc49-gemini-compatibility.json, including Image Studio tests",
+    "business_acceptance_scope": [
+      "real login and session flows",
+      "model Relay",
+      "Image Studio",
+      "Video Studio"
+    ],
+    "gaps": [
+      "User-owned production business acceptance remains unverified by the agent.",
+      "Existing unchanged frontend lint/format gaps remain in rc49-full-validation.json.",
+      "Original Image Studio 502 root cause not proven.",
+      "Historical uninstalled d3e640059 archive ownership review remains with local NewAPI maintenance."
+    ],
+    "commands": [
+      {
+        "cwd": "../kkai-infra",
+        "command": "make newapi-status",
+        "result": "HEALTHY; exact target; snapshot stable; rollback ready after cleanup"
+      },
+      {
+        "cwd": ".",
+        "command": "python3 .local-releases/rc49-integration/cleanup-local-final.py",
+        "result": "4 archives and 122 rehearsal tags removed; zero failures"
+      },
+      {
+        "cwd": ".",
+        "command": "ssh -o BatchMode=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -o ProxyCommand=none -o ProxyJump=none -o KexAlgorithms=curve25519-sha256 -i ~/.ssh/ovh_sys1 sys1 'sudo -n python3 -' < .local-releases/rc49-integration/cleanup-remote-final.py > .local-releases/rc49-integration/cleanup-remote-result.json",
+        "result": "6 temporary files removed; protected copies and exact current identities verified"
+      }
+    ]
+  },
+  "evidence_root": ".local-releases/rc49-integration",
+  "evidence_sha256": {
+    "fix-release-evidence.json": "7d83e8b219e5fd05662bfa6e758bd36907c61eda79697b6dd2fa5a892a3522fd",
+    "production-release-evidence.json": "44f87de62fdce99aa3c2a1b208454c4796230541f9af80b6935d3aa22595897d",
+    "fix-promote.log": "24d986e8067db55404b8fd6848c469323be986d8e9933be9575c2089cb103431",
+    "fix-status-immediate.log": "eb1f5a16447852de0fdc195ee5e0f20b966f65f8445700dfe857fdecf2ec7573",
+    "fix-status-delayed.log": "eb1f5a16447852de0fdc195ee5e0f20b966f65f8445700dfe857fdecf2ec7573",
+    "fix-status-after-cleanup.log": "eb1f5a16447852de0fdc195ee5e0f20b966f65f8445700dfe857fdecf2ec7573",
+    "fix-post-error-window.log": "8f0a754adcc4d7b7983234ac13e5357ef9f905b5bf43236e981885c3bb4c762e",
+    "fix-post-cause.json": "972da3c9ba5a4ab089f74b7f3264e6602cf5ff5fbe5e649cb90f0c22fd499887",
+    "fix-post-semantics.json": "579f0391d408df3d8a45ee48b7d1c8cc389b361e6d4adcb0631d54eb74d63c93",
+    "fix-membership-resumed.json": "389ec4e6d0f6aaf900317d0cc179c5bda9a432e7f7754592c642fd1389e1d0d7",
+    "fix-frontend-rollback-plan.json": "fe2eb08d4998b5deeb19b319e49a5214b0078e04d954124944b2da70cb6172e4",
+    "cleanup-local-result.json": "0dcdaf9e72ede5c68a39c884a8cbe09852eb0aac4746e75e8169dc3eef97db6d",
+    "cleanup-remote-result.json": "584012b03bfc6bb96e8d85d1cf95acab913848a727b3cba2bab1af3c2d122298",
+    "cleanup-final-verification.json": "4efb269b72c98a76be2218e80e6eab068f415dbf55bf65f0c81f1f91764aa7cd",
+    "cleanup-source-evidence-disposition.json": "5033cfc6465e1dc9420f99dc8621ffe764407c185e375733e47c2b2d27b543c4",
+    "production-inventory-after-cleanup.json": "db2177b6608cc6e341358f34c1ed5ef017c50d47373b56024a5c005809fc97f8"
+  }
+}
