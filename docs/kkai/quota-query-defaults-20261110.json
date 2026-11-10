@@ -1,0 +1,176 @@
+{
+  "default": true,
+  "existing_tokens": {
+    "result": "enabled",
+    "changed": 21273,
+    "before_disabled": 21273,
+    "after": {
+      "total": 21284,
+      "enabled": 21284,
+      "remaining_off": 0,
+      "live_off": 0
+    },
+    "audit_directory": "/srv/kkai/newapi-data-maintenance/quota-query-20261110T082616Z",
+    "backup_sha256": "ffd3a238e06c8b764cc26d9b2b260892377478b474b4a23b07eb62c04b2ae5aa",
+    "only_changed_column": "allow_user_quota_query",
+    "schema_changed": false,
+    "redis_mutations": false,
+    "cache_refresh": "existing signed metadata expires after 60 seconds",
+    "finished_at": "2026-11-10T08:26:26.789488+00:00"
+  },
+  "read_only_verification": {
+    "at": "2026-11-10T08:28:09.504161+00:00",
+    "http_status": 200,
+    "code": true,
+    "token_valid": true,
+    "user_balance_fields_restored": true,
+    "user_balance_positive": true,
+    "ccswitch_script_valid": true,
+    "key_printed": false
+  },
+  "creation_paths": {
+    "manual_api": "controller/token.go: omitted allow_user_quota_query becomes true; explicit false remains a deliberate opt-out",
+    "registration_default": "controller/user.go: explicitly true",
+    "image_studio": "service/image_studio_token.go: explicitly true in source 8a796af03",
+    "video_studio": "service/video_studio_token_creation.go: explicitly true in source 8a796af03"
+  },
+  "database_schema": "Frozen rc49 expansion retains physical DEFAULT FALSE; every supported creation path supplies its business default explicitly. No ALTER, trigger, or migration digest rewrite.",
+  "cache": "No Redis mutation or service restart for the backfill; signed cache metadata expires in60seconds; CC Switch query passed after expiry.",
+  "token_status": "Only allow_user_quota_query updated. Disabled, expired, deleted states and balances are unchanged.",
+  "test_command": "GOTOOLCHAIN=local GOWORK=off GOPROXY=off GOSUMDB=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./service -run '^Test(EnsureImageStudioTokenIsIdempotentAndManaged|VideoStudioTokenWithoutModelHintReplacesObsoleteRestrictedKey|EnsureVideoStudioTokenIsIdempotentAndUsesEnabledModelWhitelist)$' -count=1 -timeout=60s",
+  "test_result": "passed 0.072s",
+  "full_suite": "not rerun; scoped defaults only",
+  "release": {
+    "source_sha": "8a796af030e9b5194dd7dc3b0d7b63aacec00a47",
+    "infra_sha": "8fe80d1a4f2e6a6233b16b7de32aff3a60a8e9fa",
+    "schema_contract": "feature",
+    "schema_evidence": "schema-before-build.json",
+    "frontend_action": "reuse unchanged",
+    "business_acceptance": "user-owned; agent not verified; read-only quota query verified",
+    "quota_backfill": "enable-existing-result.json",
+    "defaults_test": "passed",
+    "backend_metadata": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261110.1794299358-8a796af03.json",
+    "backend_version": "kkai-prod-20261110.1794299358-8a796af03",
+    "backend_image_id": "sha256:52f49ec24e08aa10f2057c08c2e3c35cabcc8c01bc3eca8d5489873d790aae46",
+    "build": "passed",
+    "baseline_start": "2026-11-10T08:26:43Z",
+    "baseline_end": "2026-11-10T08:31:43Z",
+    "membership_restore_required": false,
+    "membership_original_mode": "apply",
+    "stage": "passed",
+    "target_slot": "blue",
+    "candidate_acceptance": {
+      "version": "kkai-prod-20261110.1794299358-8a796af03",
+      "health": "passed",
+      "business": "user-owned; agent not verified",
+      "local_regression": "persisted Studio token defaults tested; existing production key quota query restored"
+    },
+    "tunnel_socket": "/tmp/kkai-quota-8a796af03.sock",
+    "rollout_id": "5ebcf61868c04dbdb550b90cf13e95c7",
+    "canary": {
+      "10": {
+        "start": "2026-11-10T08:37:12Z",
+        "end": "2026-11-10T08:39:12Z",
+        "collected": true,
+        "review": "passed",
+        "attribution": "Full120s target41 completed requests,0HTTP5xx; approved first60s relay aggregate290events,0errors. Identity/health and120s observation passed; no business writes for testing."
+      },
+      "50": {
+        "start": "2026-11-10T08:41:11Z",
+        "end": "2026-11-10T08:43:11Z",
+        "collected": true,
+        "review": "passed",
+        "attribution": "Full120s target2151 completed requests,0HTTP5xx; approved first60s relay aggregate292events,0errors. Identity/health and120s observation passed. Mid-rollout all21285stored keys have quota-query permission enabled."
+      },
+      "100": {
+        "start": "2026-11-10T08:44:20Z",
+        "end": "2026-11-10T08:46:20Z",
+        "collected": true,
+        "review": "passed",
+        "attribution": "Full120s target895 completed,3 chatHTTP503. All3 are no-available-channel; exact requested model/group has0abilities and0enabled channels. Change only initializes quota-query permission for new studio keys and does not change channel/group selection or chat path. Full120s approved relay aggregate639events,0loggederrors. No regression identified; original window preserved.",
+        "evidence": [
+          "canary-100-full-relay.log",
+          "canary-100-cause.json"
+        ]
+      }
+    },
+    "schema_contract_verified_by_stage": true,
+    "promotion": "passed",
+    "post_window": {
+      "start": "2026-11-10T08:53:01Z",
+      "end": "2026-11-10T08:58:01Z"
+    },
+    "immediate_health": "passed",
+    "frontend_pointers_unchanged": true,
+    "redis_router_unchanged": true,
+    "rollback_backend": "kkai-prod-20261110.1794294463-21cb44e38",
+    "rollback_image": "sha256:d4922dc9577cdf5d2df3a2499a1bd399cbd98b809cb98010bdb9e15bdb699d15",
+    "frontend_release": "kkai-frontend-20261110.1794289195-e8742162e",
+    "frontend_rollback_order": "backend-only",
+    "cleanup_warnings": [],
+    "protected_cleanup_defer": "v10 schema snapshot retains managed backend releases/images",
+    "retention_inventory": {
+      "backend_release_directories": 179,
+      "backend_image_entries": 98,
+      "frontend_trees": 118
+    },
+    "delayed_health": "passed",
+    "post_release_error_review": "passed",
+    "post_error_review": {
+      "events": 1716,
+      "errors": 11,
+      "status_counts": {
+        "400": 1,
+        "429": 4,
+        "502": 6
+      },
+      "basis": "Exact runtime diff changes only AllowUserQuotaQuery=true in two persisted Studio token constructors. Manual and registration creation already supply true. Flag is read only for balance-query disclosure and included by unchanged cache signing. No relay request validation, channel selection, provider handling, billing or cache algorithm changes; these relay errors are outside the changed behavior. Read-only CC Switch lookup succeeds after rollout.",
+      "limits": "No claim that every external error root cause was diagnosed. Additional read-only aggregate transport was closed without result; user explicitly requested ending unrelated error investigation. Original approved window retained.",
+      "user_instruction": "Finish cleanup; do not extend investigation of small unrelated errors."
+    },
+    "membership_final_mode": "apply",
+    "membership_final_acknowledged": true,
+    "cleanup": "completed_with_documented_retention",
+    "candidate_tunnel": "closed",
+    "final_health": "passed",
+    "retained_assets_verified": true,
+    "release_status": "deployed and cleanup completed; business E2E user-owned",
+    "completed_at": "2026-11-10T09:10:47.484819+00:00"
+  },
+  "cleanup": {
+    "at": "2026-11-10T09:09:12.177829+00:00",
+    "removed_archive": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261110.1794299358-8a796af03.tar",
+    "sha256": "18f265a4f40d415d90d4135563b1e75f066c0fd62366ba816725ffd8787da5a3",
+    "bytes": 98738176,
+    "metadata_retained": true,
+    "candidate_socket_closed": true,
+    "local_images_removed": 0,
+    "retained": "Historical d3e640059 frontend archive and prior formal image retained under existing documented ownership/evidence disposition. Source/test evidence and toolchain retained.",
+    "remote": "Promotion removed exact uploaded archive; online release/image retention protected by v10 snapshot; frontend resources within30day retention.",
+    "failures": []
+  },
+  "final_quota_query": {
+    "checked_at": "2026-11-10T08:59:11.666270+00:00",
+    "http_status": 200,
+    "valid_key": true,
+    "account_balance_returned": true,
+    "account_balance_positive": true,
+    "original_ccswitch_script_accepts": true,
+    "credentials_returned": false
+  },
+  "evidence_root": ".local-releases/ccswitch-quota-20261110",
+  "evidence_sha256": {
+    "enable-existing-result.json": "eea9c67645c327ef27e46522cecfd8c1ffc73fd8e25d5eee60d40934a9a92037",
+    "ccswitch-final.json": "24355449876bb3dcd8342718aa3700a12c9acf492abd804047d1ab35e8546e4d",
+    "defaults-test.log": "34f0f39275196750e912e29eb9c58dcb365eb576e461239b9b34c28b595eae03",
+    "release-evidence.json": "cbca3f4497b3d70ef8e0447a0ee748a9473c4df426d1839c715f6cc84cdcff90",
+    "fix-promote.log": "c2640cac65faea493ae064adbc3103e957370f7284cbfcd00945022c30f19fa9",
+    "fix-status-immediate.log": "d085bbe27f244c917fb978df46a422619f251da6fcc00022af11d668aa8cfd61",
+    "status-delayed.log": "d085bbe27f244c917fb978df46a422619f251da6fcc00022af11d668aa8cfd61",
+    "status-final.log": "d085bbe27f244c917fb978df46a422619f251da6fcc00022af11d668aa8cfd61",
+    "post-error-window.log": "31850f44193a934420c6fb337045696808d31d487d6ce7faaf308e15bc5d33a5",
+    "membership-resumed.json": "2f3f0141a8241bb88e6f26f25a2a356a4a55c4b543b9236ac175c053d0812471",
+    "cleanup-result.json": "0acd1ab34453aecfd5f37b6f41f54a3cb8e0f2c2e18ef6fee62369a9394cc674",
+    "inventory-final.json": "057d851bc6e0e221880208d9c8aca9bd0ccac450da980719055df131bb9ecb64"
+  }
+}
