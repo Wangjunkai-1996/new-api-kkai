@@ -219,14 +219,14 @@ func CreemWebhook(c *gin.Context) {
 		return
 	}
 
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem webhook 解析成功 event_type=%s event_id=%s request_id=%s order_id=%s order_status=%s", webhookEvent.EventType, webhookEvent.Id, webhookEvent.Object.RequestId, webhookEvent.Object.Order.Id, webhookEvent.Object.Order.Status))
+	logger.LogInfo(c.Request.Context(), common.LogText("Creem webhook parsed event_type=%s event_id=%s request_id=%s order_id=%s order_status=%s", webhookEvent.EventType, webhookEvent.Id, webhookEvent.Object.RequestId, webhookEvent.Object.Order.Id, webhookEvent.Object.Order.Status))
 
 	// 根据事件类型处理不同的webhook
 	switch webhookEvent.EventType {
 	case "checkout.completed":
 		handleCheckoutCompleted(c, &webhookEvent)
 	default:
-		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem webhook 忽略事件 event_type=%s event_id=%s", webhookEvent.EventType, webhookEvent.Id))
+		logger.LogInfo(c.Request.Context(), common.LogText("Creem webhook ignored event event_type=%s event_id=%s", webhookEvent.EventType, webhookEvent.Id))
 		c.Status(http.StatusOK)
 	}
 }
@@ -235,7 +235,7 @@ func CreemWebhook(c *gin.Context) {
 func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 	// 验证订单状态
 	if event.Object.Order.Status != "paid" {
-		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 订单状态未支付，忽略处理 request_id=%s order_id=%s order_status=%s", event.Object.RequestId, event.Object.Order.Id, event.Object.Order.Status))
+		logger.LogInfo(c.Request.Context(), common.LogText("Creem order not paid, ignored request_id=%s order_id=%s order_status=%s", event.Object.RequestId, event.Object.Order.Id, event.Object.Order.Status))
 		c.Status(http.StatusOK)
 		return
 	}
@@ -243,7 +243,7 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 	// 获取引用ID（这是我们创建订单时传递的request_id）
 	referenceId := event.Object.RequestId
 	if referenceId == "" {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem webhook 缺少 request_id event_id=%s order_id=%s", event.Id, event.Object.Order.Id))
+		logger.LogWarn(c.Request.Context(), common.LogText("Creem webhook missing request_id event_id=%s order_id=%s", event.Id, event.Object.Order.Id))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
@@ -261,11 +261,11 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 	LockOrder(referenceId)
 	defer UnlockOrder(referenceId)
 	if err := model.CompleteSubscriptionOrder(referenceId, common.GetJsonString(event), model.PaymentProviderCreem, ""); err == nil {
-		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 订阅订单处理成功 trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
+		logger.LogInfo(c.Request.Context(), common.LogText("Creem subscription order processed trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
 		c.Status(http.StatusOK)
 		return
 	} else if err != nil && !errors.Is(err, model.ErrSubscriptionOrderNotFound) {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅订单处理失败 trade_no=%s creem_order_id=%s error=%q", referenceId, event.Object.Order.Id, err.Error()))
+		logger.LogError(c.Request.Context(), common.LogText("Creem subscription order processing failed trade_no=%s creem_order_id=%s error=%q", referenceId, event.Object.Order.Id, err.Error()))
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
@@ -280,7 +280,7 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 	// 查询本地订单确认存在
 	topUp := model.GetTopUpByTradeNo(referenceId)
 	if topUp == nil {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem 充值订单不存在 trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
+		logger.LogWarn(c.Request.Context(), common.LogText("Creem top-up order not found trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
@@ -319,19 +319,19 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 
 	// 防护性检查，确保邮箱和姓名不为空字符串
 	if customerEmail == "" {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem 回调客户邮箱为空 trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
+		logger.LogWarn(c.Request.Context(), common.LogText("Creem callback customer email is empty trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
 	}
 	if customerName == "" {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem 回调客户姓名为空 trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
+		logger.LogWarn(c.Request.Context(), common.LogText("Creem callback customer name is empty trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
 	}
 	err := model.RechargeCreem(referenceId, customerEmail, customerName, c.ClientIP())
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 充值处理失败 trade_no=%s creem_order_id=%s client_ip=%s error=%q", referenceId, event.Object.Order.Id, c.ClientIP(), err.Error()))
+		logger.LogError(c.Request.Context(), common.LogText("Creem top-up processing failed trade_no=%s creem_order_id=%s client_ip=%s error=%q", referenceId, event.Object.Order.Id, c.ClientIP(), err.Error()))
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
 
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 充值成功 trade_no=%s creem_order_id=%s quota=%d money=%.2f client_ip=%s", referenceId, event.Object.Order.Id, topUp.Amount, topUp.Money, c.ClientIP()))
+	logger.LogInfo(c.Request.Context(), common.LogText("Creem top-up succeeded trade_no=%s creem_order_id=%s quota=%d money=%.2f client_ip=%s", referenceId, event.Object.Order.Id, topUp.Amount, topUp.Money, c.ClientIP()))
 	c.Status(http.StatusOK)
 }
 
@@ -351,14 +351,14 @@ type CreemCheckoutResponse struct {
 
 func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct, email string, username string) (string, error) {
 	if setting.CreemApiKey == "" {
-		return "", fmt.Errorf("未配置Creem API密钥")
+		return "", errors.New("Creem API key is not configured")
 	}
 
 	// 根据测试模式选择 API 端点
 	apiUrl := "https://api.creem.io/v1/checkouts"
 	if setting.CreemTestMode {
 		apiUrl = "https://test-api.creem.io/v1/checkouts"
-		logger.LogInfo(ctx, fmt.Sprintf("Creem 使用测试环境 api_url=%s", apiUrl))
+		logger.LogInfo(ctx, common.LogText("Creem using test environment api_url=%s", apiUrl))
 	}
 
 	// 构建请求数据，确保包含用户邮箱
@@ -382,13 +382,13 @@ func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct
 	// 序列化请求数据
 	jsonData, err := common.Marshal(requestData)
 	if err != nil {
-		return "", fmt.Errorf("序列化请求数据失败: %v", err)
+		return "", fmt.Errorf("failed to marshal request data: %v", err)
 	}
 
 	// 创建 HTTP 请求
 	req, err := http.NewRequest("POST", apiUrl, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", fmt.Errorf("创建HTTP请求失败: %v", err)
+		return "", fmt.Errorf("failed to create HTTP request: %v", err)
 	}
 
 	// 设置请求头
@@ -403,14 +403,14 @@ func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("发送HTTP请求失败: %v", err)
+		return "", fmt.Errorf("failed to send HTTP request: %v", err)
 	}
 	defer resp.Body.Close()
 
 	// 读取响应
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("读取响应失败: %v", err)
+		return "", fmt.Errorf("failed to read response: %v", err)
 	}
 
 	// 检查响应状态
@@ -421,7 +421,7 @@ func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct
 	var checkoutResp CreemCheckoutResponse
 	err = common.Unmarshal(body, &checkoutResp)
 	if err != nil {
-		return "", fmt.Errorf("解析响应失败: %v", err)
+		return "", fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if checkoutResp.CheckoutUrl == "" {

@@ -4,12 +4,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"unsafe"
 
+	"github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/samber/lo"
 )
 
@@ -187,79 +187,8 @@ func maskHostForPlainDomain(domain string) string {
 	return stars + "." + strings.Join(tail, ".")
 }
 
-// MaskSensitiveInfo masks sensitive information like URLs, IPs, and domain names in a string
-// Example:
-// http://example.com -> http://***.com
-// https://api.test.org/v1/users/123?key=secret -> https://***.org/***/***/?key=***
-// https://sub.domain.co.uk/path/to/resource -> https://***.co.uk/***/***
-// 192.168.1.1 -> ***.***.***.***
-// openai.com -> ***.com
-// www.openai.com -> ***.***.com
-// api.openai.com -> ***.***.com
-func MaskSensitiveInfo(str string) string {
-	// Mask URLs
-	str = maskURLPattern.ReplaceAllStringFunc(str, func(urlStr string) string {
-		u, err := url.Parse(urlStr)
-		if err != nil {
-			return urlStr
-		}
-
-		host := u.Host
-		if host == "" {
-			return urlStr
-		}
-
-		// Mask host with unified logic
-		maskedHost := maskHostForURL(host)
-
-		result := u.Scheme + "://" + maskedHost
-
-		// Mask path
-		if u.Path != "" && u.Path != "/" {
-			pathParts := strings.Split(strings.Trim(u.Path, "/"), "/")
-			maskedPathParts := make([]string, len(pathParts))
-			for i := range pathParts {
-				if pathParts[i] != "" {
-					maskedPathParts[i] = "***"
-				}
-			}
-			if len(maskedPathParts) > 0 {
-				result += "/" + strings.Join(maskedPathParts, "/")
-			}
-		} else if u.Path == "/" {
-			result += "/"
-		}
-
-		// Mask query parameters
-		if u.RawQuery != "" {
-			values, err := url.ParseQuery(u.RawQuery)
-			if err != nil {
-				// If can't parse query, just mask the whole query string
-				result += "?***"
-			} else {
-				maskedParams := make([]string, 0, len(values))
-				for key := range values {
-					maskedParams = append(maskedParams, key+"=***")
-				}
-				if len(maskedParams) > 0 {
-					result += "?" + strings.Join(maskedParams, "&")
-				}
-			}
-		}
-
-		return result
-	})
-
-	// Mask domain names without protocol (like openai.com, www.openai.com)
-	str = maskDomainPattern.ReplaceAllStringFunc(str, func(domain string) string {
-		return maskHostForPlainDomain(domain)
-	})
-
-	// Mask IP addresses
-	str = maskIPPattern.ReplaceAllString(str, "***.***.***.***")
-
-	// Mask API keys (e.g., "api_key:AIzaSyAAAaUooTUni8AdaOkSRMda30n_Q4vrV70" -> "api_key:***")
-	str = maskApiKeyPattern.ReplaceAllString(str, "${1}api_key:***${3}")
-
-	return str
+// MaskSensitiveInfo moved to the conversion kit (kitutil) because the types
+// package error formatting depends on it; host callers keep this name.
+func MaskSensitiveInfo(str string, upstreamURLs ...string) string {
+	return kitutil.MaskSensitiveInfo(str, upstreamURLs...)
 }

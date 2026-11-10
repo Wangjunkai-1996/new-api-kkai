@@ -18,15 +18,15 @@ func TestTenantTransitionLegacyQuotaCachePreservesCreditsAndRefunds(t *testing.T
 	user := createReserveTestUser(t, 100)
 	ctx := context.Background()
 	key := getUserCacheKey(user.Id)
-	// Schema 11 (55744a4ed) writes these fields without TenantID. Its quota
-	// reserve/delta Lua is unchanged, but always passes cache schema 2.
+	// The production predecessor writes schema 2 and TenantID without MAC.
+	// Its quota reserve/delta Lua must continue to accept the repaired hash.
 	require.NoError(t, common.RDB.HSet(ctx, key, map[string]any{
-		"Id": user.Id, "Group": user.Group, "Status": user.Status,
+		"Id": user.Id, "TenantID": user.TenantID, "Group": user.Group, "Status": user.Status,
 		"Role": user.Role, "Username": user.Username, "Quota": 100,
 		"AuthVersion": user.AuthVersion, "CacheSchema": 2,
 	}).Err())
 	_, err := cacheGetUserBase(user.Id)
-	require.Error(t, err, "a missing tenant must force an authoritative lookup")
+	require.Error(t, err, "unsigned metadata must force an authoritative lookup")
 	loaded, err := GetUserCache(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, PlatformTenantID, loaded.TenantID)
@@ -99,7 +99,8 @@ func TestTenantTransitionLegacySessionCacheFallsBackAndRetainsDenyFence(t *testi
 	require.NoError(t, common.RDB.HSet(ctx, key, "CacheSchema", 1, "Status", UserSessionStatusRevoking).Err())
 	require.NoError(t, common.RDB.HDel(ctx, key, "TenantID").Err())
 	_, err = GetUserSessionCached(session.SID)
-	require.ErrorIs(t, err, ErrUserSessionInactive)
+	require.ErrorIs(t, err, errUserSessionCachePending)
+	assert.NotErrorIs(t, err, ErrUserSessionInactive, "an unconfirmed legacy fence must not clear the login")
 }
 
 func TestTenantTransitionLegacyGORMWritesKeepNewSnapshots(t *testing.T) {

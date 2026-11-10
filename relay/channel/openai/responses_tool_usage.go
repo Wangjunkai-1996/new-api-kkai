@@ -150,5 +150,8 @@ func (u *responsesToolUsage) commit(info *relaycommon.RelayInfo, includeImages b
 	for _, name := range u.functionCalls {
 		info.CountBillableToolCall(dto.BuildInCallFunctionCall, name)
 	}
+	for name, count := range info.VendorToolCounts {
+		info.SetBillableToolCount(name, count)
+	}
 	info.ResponsesUsageInfo.ImageGenerationCalls = append([]relaycommon.ResponsesImageGenerationCall{}, u.images...)
 }

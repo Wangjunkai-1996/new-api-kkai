@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -275,6 +276,10 @@ func getTokenKeyColumnType(t *testing.T, db *gorm.DB, dialect string) string {
 
 func runTokenMigrationCompatibilityTest(t *testing.T, db *gorm.DB, dialect string, managedTokensTable *bool) {
 	t.Helper()
+	if !db.Migrator().HasTable(&model.User{}) {
+		require.NoError(t, db.AutoMigrate(&model.User{}))
+		t.Cleanup(func() { require.NoError(t, db.Migrator().DropTable(&model.User{})) })
+	}
 
 	legacyKey := strings.Repeat("a", 48)
 	longKey := strings.Repeat("b", 64)

@@ -107,7 +107,8 @@ func ProcessChannelErrorAfterPolicy(c *gin.Context, channelError types.ChannelEr
 		return
 	}
 	requestCancelled := IsRequestCancelled(c, err)
-	message := err.MaskSensitiveErrorWithStatusCode()
+	upstreamURLs := common.UpstreamAddresses(c)
+	message := err.MaskSensitiveErrorWithStatusCode(upstreamURLs...)
 	if policyDetected {
 		message = fmt.Sprintf("status_code=%d, policy event detected", err.StatusCode)
 	}
@@ -117,7 +118,7 @@ func ProcessChannelErrorAfterPolicy(c *gin.Context, channelError types.ChannelEr
 		logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(message)))
 	}
 	if !requestCancelled && !policyDetected && ShouldDisableChannel(err) && channelError.AutoBan {
-		reason := err.MaskSensitiveErrorWithStatusCode()
+		reason := err.MaskSensitiveErrorWithStatusCode(upstreamURLs...)
 		gopool.Go(func() {
 			DisableChannel(channelError, reason)
 		})

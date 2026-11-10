@@ -191,7 +191,23 @@ func prepareRequestBudget(info *relaycommon.RelayInfo, price *types.PriceData, p
 			upper.DisplayExprString = snapshot.ExprString
 		}
 		upper.GroupRatio = 1
-		maximum, err = billingexpr.MaximumTokenQuota(&upper, billingexpr.TokenParams{P: input, C: output, Len: input, CR: input, CC: input, CC1h: input, Img: input, ImgCR: input, ImgO: output, AI: input, AO: output}, copies)
+		bounds := billingexpr.TokenParams{P: input, C: output, Len: input, CR: input, CC: input, CC1h: input, CC12h: input, Img: input, ImgCR: input, ImgO: output, AI: input, AO: output}
+		usedVars := billingexpr.UsedVarsByHash(upper.ExprString, upper.ExprHash)
+		cacheWriteWeight := 1.0
+		if !usedVars["cc12h"] {
+			cacheWriteWeight = max(cacheWriteWeight, types.OpenAICacheCreation12hMultiplier)
+		}
+		if !usedVars["cc1h"] {
+			cacheWriteWeight = max(cacheWriteWeight, types.ClaudeCacheCreation1hMultiplier)
+		}
+		// Settlement folds an unpriced long-lived write into cc, or p when cc
+		// is absent. Expand only that destination; len remains the raw input.
+		if usedVars["cc"] {
+			bounds.CC *= cacheWriteWeight
+		} else {
+			bounds.P *= cacheWriteWeight
+		}
+		maximum, err = billingexpr.MaximumTokenQuota(&upper, bounds, copies)
 		if err != nil {
 			return nil, err
 		}
@@ -205,7 +221,11 @@ func prepareRequestBudget(info *relaycommon.RelayInfo, price *types.PriceData, p
 	} else {
 		// Cache categories may overlap in provider usage. Bounding each category is
 		// intentionally conservative; actual settlement retains normal normalization.
-		inputWeight := 1 + max(0, price.CacheRatio) + max(0, price.CacheCreationRatio) + max(0, price.CacheCreation5mRatio) + max(0, price.CacheCreation1hRatio) + max(0, price.ImageRatio) + max(0, price.AudioRatio)
+		cacheWriteWeight := max(0, price.CacheCreationRatio) + max(0, price.CacheCreation5mRatio) + max(0, price.CacheCreation1hRatio)
+		// The 12h count is a subset of total writes. Retain the existing
+		// conservative bound, raising it only when the 12h price exceeds it.
+		cacheWriteWeight = max(cacheWriteWeight, price.CacheCreation12hRatio)
+		inputWeight := 1 + max(0, price.CacheRatio) + cacheWriteWeight + max(0, price.ImageRatio) + max(0, price.AudioRatio)
 		outputWeight := max(0, price.CompletionRatio) + max(0, price.AudioRatio*price.AudioCompletionRatio)
 		maximum = price.ApplyOtherRatiosToFloat((input*inputWeight+output*outputWeight)*price.ModelRatio + input*audioPrice/1_000_000*common.QuotaPerUnit)
 	}

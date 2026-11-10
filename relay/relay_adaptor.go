@@ -63,6 +63,13 @@ type tenantTransportAdaptor struct {
 	channel.Adaptor
 }
 
+func (a tenantTransportAdaptor) FinalizeResponsesRequest(info *relaycommon.RelayInfo, body []byte) ([]byte, error) {
+	if finalizer, ok := a.Adaptor.(channel.ResponsesRequestFinalizer); ok {
+		return finalizer.FinalizeResponsesRequest(info, body)
+	}
+	return body, nil
+}
+
 func (a tenantTransportAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
 	if err := service.ValidateTenantChannelTransport(info); err != nil {
 		return nil, relaytypes.NewError(err, relaytypes.ErrorCodeInvalidRequest, relaytypes.ErrOptionWithSkipRetry())

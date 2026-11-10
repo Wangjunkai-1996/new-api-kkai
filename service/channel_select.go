@@ -59,37 +59,53 @@ func pinnedTaskPluginIdentities(c *gin.Context, expected string) ([]int, []strin
 	if c == nil || expected == "" {
 		return nil, nil
 	}
+	// A shared host endpoint and a native route several plugins declare both
+	// admit a channel of any candidate.
+	var generation *jsplugin.RoutingGeneration
+	var candidates []*jsplugin.LoadedPlugin
 	if value, exists := c.Get(jsplugin.ContextKeyPinnedEndpoint); exists {
-		pinned, ok := value.(jsplugin.PinnedEndpoint)
-		if ok && pinned.Generation != nil && len(pinned.Candidates) > 1 {
-			expectedFound := false
-			channelTypes := make([]int, 0, len(pinned.Candidates))
-			pluginKeys := make([]string, 0, len(pinned.Candidates))
-			seen := make(map[int]struct{}, len(pinned.Candidates))
+		if pinned, ok := value.(jsplugin.PinnedEndpoint); ok && len(pinned.Candidates) > 1 {
+			generation = pinned.Generation
 			for _, candidate := range pinned.Candidates {
-				if candidate.Plugin == nil {
+				candidates = append(candidates, candidate.Plugin)
+			}
+		}
+	} else if value, exists := c.Get(jsplugin.ContextKeyPinnedRoute); exists {
+		if pinned, ok := value.(jsplugin.PinnedRoute); ok && len(pinned.Candidates) > 1 {
+			generation = pinned.Generation
+			for _, candidate := range pinned.Candidates {
+				candidates = append(candidates, candidate.Plugin)
+			}
+		}
+	}
+	if generation != nil {
+		expectedFound := false
+		channelTypes := make([]int, 0, len(candidates))
+		pluginKeys := make([]string, 0, len(candidates))
+		seen := make(map[int]struct{}, len(candidates))
+		for _, candidate := range candidates {
+			if candidate == nil {
+				continue
+			}
+			if candidate.Meta.Key == expected {
+				expectedFound = true
+			}
+			pluginKeys = append(pluginKeys, candidate.Meta.Key)
+			for _, channelType := range candidate.Meta.ChannelTypes {
+				if channelType == 0 || channelType == constant.ChannelTypeTaskPlugin {
 					continue
 				}
-				if candidate.Plugin.Meta.Key == expected {
-					expectedFound = true
+				if _, duplicate := seen[channelType]; duplicate {
+					continue
 				}
-				pluginKeys = append(pluginKeys, candidate.Plugin.Meta.Key)
-				for _, channelType := range candidate.Plugin.Meta.ChannelTypes {
-					if channelType == 0 || channelType == constant.ChannelTypeTaskPlugin {
-						continue
-					}
-					if _, duplicate := seen[channelType]; duplicate {
-						continue
-					}
-					if plugin, indexed := pinned.Generation.GetByChannelType(channelType); indexed && plugin == candidate.Plugin {
-						seen[channelType] = struct{}{}
-						channelTypes = append(channelTypes, channelType)
-					}
+				if plugin, indexed := generation.GetByChannelType(channelType); indexed && plugin == candidate {
+					seen[channelType] = struct{}{}
+					channelTypes = append(channelTypes, channelType)
 				}
 			}
-			if expectedFound {
-				return channelTypes, pluginKeys
-			}
+		}
+		if expectedFound {
+			return channelTypes, pluginKeys
 		}
 	}
 	value, exists := c.Get(jsplugin.ContextKeyPinnedPlugin)
@@ -106,6 +122,12 @@ func pinnedTaskPluginIdentities(c *gin.Context, expected string) ([]int, []strin
 	}
 	return channelTypes, []string{expected}
 }
+
+// ChannelSelectError explains why SelectChannelForRequest found no channel.
+// Callers render it for their transport: the HTTP distributor localizes
+// MessageID with its own helpers and the Responses WebSocket relay wraps it in
+// a NewAPIError. Message is set instead of MessageID when the text is a fixed
+// error code that clients match on.
 
 type RetryParam struct {
 	Ctx                *gin.Context
@@ -207,6 +229,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	if len(param.ExcludedChannelIDs) > 0 {
 		filters = append(filters, dto.ChannelFilter{Kind: dto.FilterExcludedChannels, ExcludedChannelIDs: param.ExcludedChannelIDs})
 	}
+	affinityRetryOffset := param.Ctx.GetInt(ginKeyChannelAffinityRetryOffset)
 
 	if setting.IsAutoGroup(param.TokenGroup) {
 		autoGroups := GetRequestAutoGroupCandidates(param.Ctx, userGroup, param.TokenGroup)
@@ -229,14 +252,14 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			autoGroup := autoGroups[i]
 			// Calculate priorityRetry for current group
 			// 计算当前分组的 priorityRetry
-			priorityRetry := param.GetRetry()
+			groupRetry := param.GetRetry()
+			// A new group starts from its highest priority without the affinity offset.
+			if i > startGroupIndex {
+				groupRetry = 0
+			}
+			priorityRetry := max(groupRetry-affinityRetryOffset, 0)
 			if len(param.ExcludedChannelIDs) > 0 {
 				priorityRetry = param.PriorityRetry
-			}
-			// If moved to a new group, reset priorityRetry and update startRetryIndex
-			// 如果切换到新分组，重置 priorityRetry 并更新 startRetryIndex
-			if i > startGroupIndex {
-				priorityRetry = 0
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
@@ -257,6 +280,8 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				// Reset retry counter so outer loop can continue for next group
 				// 重置重试计数器，以便外层循环可以为下一个分组继续
 				param.SetRetry(0)
+				affinityRetryOffset = 0
+				param.Ctx.Set(ginKeyChannelAffinityRetryOffset, 0)
 				continue
 			}
 			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, autoGroup)
@@ -265,17 +290,18 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 
 			// Prepare state for next retry
 			// 为下一次重试准备状态
-			if crossGroupRetry && param.GetRetry() >= common.RetryTimes {
+			if crossGroupRetry && groupRetry >= common.RetryTimes {
 				// Current group has exhausted all retries, prepare to switch to next group
 				// This request still uses current group, but next retry will use next group
 				// 当前分组已用完所有重试次数，准备切换到下一个分组
 				// 本次请求仍使用当前分组，但下次重试将使用下一个分组
-				logger.LogDebug(param.Ctx, "Current group %s retries exhausted (retry=%d >= RetryTimes=%d), preparing switch to next group for next retry", autoGroup, param.GetRetry(), common.RetryTimes)
+				logger.LogDebug(param.Ctx, "Current group %s retries exhausted (groupRetry=%d >= RetryTimes=%d), preparing switch to next group for next retry", autoGroup, groupRetry, common.RetryTimes)
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
 				// Reset retry counter so outer loop can continue for next group
 				// 重置重试计数器，以便外层循环可以为下一个分组继续
 				param.SetRetry(0)
 				param.ResetRetryNextTry()
+				param.Ctx.Set(ginKeyChannelAffinityRetryOffset, 0)
 			} else {
 				// Stay in current group, save current state
 				// 保持在当前分组，保存当前状态
@@ -289,7 +315,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			priorityRetry = param.PriorityRetry
 		}
 		channel, err = model.GetRandomSatisfiedChannel(
-			param.TokenGroup, param.ModelName, priorityRetry, filters,
+			param.TokenGroup, param.ModelName, max(priorityRetry-affinityRetryOffset, 0), filters,
 		)
 		if err != nil {
 			return nil, param.TokenGroup, err
@@ -340,7 +366,7 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 	constraints := GetChannelConstraints(c)
 	if pin, found, overridden := constraints.ResolvedPin(); found {
 		for _, lost := range overridden {
-			logger.LogWarn(c, fmt.Sprintf(
+			logger.LogWarn(c, common.LogText(
 				"channel pin overridden: winning_source=%s winning_channel_id=%d overridden_source=%s overridden_channel_id=%d",
 				pin.Source, pin.ChannelId, lost.Source, lost.ChannelId,
 			))

@@ -19,13 +19,6 @@ var (
 		"flux-",
 		"flux.1-",
 	}
-	OpenAITextModels = []string{
-		"gpt-",
-		"o1",
-		"o3",
-		"o4",
-		"chatgpt",
-	}
 	gptImageModelPattern = regexp.MustCompile(`^gpt-image-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+(?:[._-][a-z0-9]+)*)?$`)
 )
 
@@ -48,16 +41,6 @@ func IsImageGenerationModel(modelName string) bool {
 			return true
 		}
 		if strings.HasPrefix(m, "prefix:") && strings.HasPrefix(modelName, strings.TrimPrefix(m, "prefix:")) {
-			return true
-		}
-	}
-	return false
-}
-
-func IsOpenAITextModel(modelName string) bool {
-	modelName = strings.ToLower(modelName)
-	for _, m := range OpenAITextModels {
-		if strings.Contains(modelName, m) {
 			return true
 		}
 	}

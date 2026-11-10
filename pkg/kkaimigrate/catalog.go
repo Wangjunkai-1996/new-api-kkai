@@ -181,6 +181,7 @@ func migrationSet() []migration {
 			ChecksumVersion:  migrationChecksumSchemaCurrent,
 			Statements:       membershipBillingRecoverySchemaStatements,
 		},
+		{Version: RC49SchemaVersion, Name: "rc49_token_permission_and_cache_usage", Kind: MigrationKindExpand, ImplementationID: "rc49_token_permission_and_cache_usage_v22", ChecksumVersion: migrationChecksumSchemaCurrent, Statements: rc49SchemaStatements, ApplyDialects: []string{DialectPostgres}},
 	}
 }
 

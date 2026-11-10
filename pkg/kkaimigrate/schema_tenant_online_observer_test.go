@@ -77,5 +77,5 @@ FROM pg_catalog.pg_class c WHERE c.oid=pg_catalog.to_regclass('kkai_tenant_onlin
 	assert.Equal(t, "finalized", plan.State)
 	assert.EqualValues(t, TenantOnlineSchemaVersion, plan.CurrentVersion)
 	require.NoError(t, CheckTenantOnlineSchema(ctx, observer))
-	require.NoError(t, CheckRequired(ctx, observer))
+	require.NoError(t, checkThroughVersion(ctx, observer, TenantOnlineSchemaVersion, TenantOnlineSchemaVersion, TenantOnlineSchemaVersion))
 }

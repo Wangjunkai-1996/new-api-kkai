@@ -190,3 +190,7 @@ func (s *membershipTaskBillingSession) Reserve(quota int) error {
 	}
 	return nil
 }
+
+func (s *membershipTaskBillingSession) ReserveBeforeSubmit(targetQuota int) error {
+	return s.Reserve(targetQuota)
+}

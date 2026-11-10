@@ -677,6 +677,7 @@ func TestChannelSettingsHTTPTransportJSONRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(encoded), "http_protocol")
 	assert.NotContains(t, string(encoded), "http2_connection_shards")
+	assert.NotContains(t, string(encoded), "tls_insecure_skip_verify")
 
 	explicit := ChannelSettings{
 		Proxy:                 "socks5://127.0.0.1:1080",
@@ -687,6 +688,7 @@ func TestChannelSettingsHTTPTransportJSONRoundTrip(t *testing.T) {
 	encoded, err = json.Marshal(explicit)
 	require.NoError(t, err)
 	assert.Contains(t, string(encoded), `"http_protocol":"http1"`)
+	assert.Contains(t, string(encoded), `"tls_insecure_skip_verify":true`)
 
 	var decoded ChannelSettings
 	require.NoError(t, json.Unmarshal(encoded, &decoded))

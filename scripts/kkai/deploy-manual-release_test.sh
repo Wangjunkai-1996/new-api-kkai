@@ -456,8 +456,12 @@ test_maintenance_preparation_prevents_remote_calls() {
 }
 
 test_online_stage_requires_explicit_action_and_verified_plan() {
+  local protocol=${1:-tenant-online-v1} action=--stage-online purpose=tenant-online-preparation profile=bridge
+  if [[ ${protocol} == rc49-expansion-v1 ]]; then
+    action=--stage-rc49 purpose=rc49-online-preparation profile=feature
+  fi
   local online_metadata="${test_root}/online.json" output verify_line preflight_line
-  jq '.release_purpose = "tenant-online-preparation" | .schema_contract = "bridge" | .frontend_mode = "external"' \
+  jq --arg purpose "${purpose}" --arg profile "${profile}" '.release_purpose = $purpose | .schema_contract = $profile | .frontend_mode = "external"' \
     "${metadata}" > "${online_metadata}"
   if output="$(run_stage ready "${online_metadata}" 2>&1)"; then
     fail "online artifact bypassed the explicit stage-online action"
@@ -465,16 +469,16 @@ test_online_stage_requires_explicit_action_and_verified_plan() {
   [[ ! -s ${call_log} ]] || fail 'ordinary online stage made a remote call'
   : > "${call_log}"
   if output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" KKAI_TEST_ONLINE_PLAN=invalid \
-    "${DEPLOY_SCRIPT}" --stage-online "${online_metadata}" 2>&1)"; then
+    "${DEPLOY_SCRIPT}" "${action}" "${online_metadata}" 2>&1)"; then
     fail 'invalid online plan reached staging'
   fi
   ! grep -Eq '^ssh |^scp ' "${call_log}" || fail 'invalid online plan made a remote call'
   : > "${call_log}"
   output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
-    KKAI_TEST_EXPECTED_SCHEMA_CONTRACT=bridge KKAI_TEST_EXPECTED_FRONTEND_MODE=external \
-    "${DEPLOY_SCRIPT}" --stage-online "${online_metadata}")"
+    KKAI_TEST_EXPECTED_SCHEMA_CONTRACT="${profile}" KKAI_TEST_EXPECTED_FRONTEND_MODE=external \
+    "${DEPLOY_SCRIPT}" "${action}" "${online_metadata}")"
   grep -Fx 'KKAI_CANDIDATE_STAGE_RESULT=staged' <<<"${output}" >/dev/null || fail 'verified online bridge did not stage'
-  grep -F -- "--planned-infra-sha ${KKAI_INFRA_SHA} --planned-deployment-protocol tenant-online-v1" "${call_log}" >/dev/null ||
+  grep -F -- "--planned-infra-sha ${KKAI_INFRA_SHA} --planned-deployment-protocol ${protocol}" "${call_log}" >/dev/null ||
     fail 'online artifact verification did not bind the exact installed controller'
   verify_line="$(grep -n '^python3 .*prepare-maintenance-release.py verify ' "${call_log}" | cut -d: -f1)"
   preflight_line="$(grep -n '/kkai-newapi-manual-deploy preflight ' "${call_log}" | cut -d: -f1)"
@@ -982,6 +986,7 @@ test_checksum_failure_is_recorded_without_remote_calls
 test_invalid_schema_contract_prevents_remote_calls
 test_maintenance_preparation_prevents_remote_calls
 test_online_stage_requires_explicit_action_and_verified_plan
+test_online_stage_requires_explicit_action_and_verified_plan rc49-expansion-v1
 test_invalid_frontend_mode_prevents_remote_calls
 test_preflight_output_must_match_contract
 test_preflight_protocol_must_match_contract

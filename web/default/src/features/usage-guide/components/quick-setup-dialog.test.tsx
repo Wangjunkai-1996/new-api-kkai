@@ -26,6 +26,10 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { QuickSetupDialog } from './quick-setup-dialog'
 
+vi.mock('@/hooks/use-console-contract', () => ({
+  useConsoleContract: mocks.useConsoleContract,
+}))
+
 const mocks = vi.hoisted(() => ({
   createApiKey: vi.fn(),
   getApiKey: vi.fn(),
@@ -45,9 +49,6 @@ vi.mock('../../keys/api', () => ({
 }))
 
 vi.mock('@/lib/api', () => ({ getUserGroups: mocks.getUserGroups }))
-vi.mock('@/hooks/use-console-contract', () => ({
-  useConsoleContract: mocks.useConsoleContract,
-}))
 vi.mock('@/features/site-config', () => ({
   useSiteConfig: mocks.useSiteConfig,
 }))

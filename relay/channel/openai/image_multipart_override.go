@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/tidwall/gjson"
 )
@@ -36,6 +39,15 @@ func writeOpenAIImageMultipartFields(writer *multipart.Writer, info *relaycommon
 	if err := relaycommon.ValidateOutboundImagePricingJSON(info, jsonData); err != nil {
 		return err
 	}
+	var quantity dto.ImageRequest
+	if err := common.Unmarshal(jsonData, &quantity); err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	count, err := quantity.ImageCount(false)
+	if err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	info.ImageRequestCount = count
 	info.UpstreamIsStream = gjson.GetBytes(jsonData, "stream").Bool()
 
 	var overridden map[string]json.RawMessage

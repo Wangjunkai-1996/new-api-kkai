@@ -329,6 +329,9 @@ func applyThroughMigrationSet(ctx context.Context, db *gorm.DB, options Options,
 				continue
 			}
 
+			if item.Version == RC49SchemaVersion {
+				return fmt.Errorf("%w: use separately authorized ApplyRC49Expand", ErrUnsafeMigration)
+			}
 			started := time.Now()
 			if err := applyMigration(lockedDB.WithContext(ctx), dialect, item, checksum, started); err != nil {
 				return fmt.Errorf("apply KKAI migration %d %s: %w", item.Version, item.Name, err)
@@ -374,7 +377,7 @@ func CheckRequired(ctx context.Context, db *gorm.DB) error {
 		return err
 	}
 	if isTenantOnlineLedger(state.currentVersion) && state.currentVersion >= RuntimeMinVersion && state.currentVersion <= RuntimeMaxVersion {
-		return nil // loadValidatedState checked the complete tenant and versioned extra shape.
+		return CheckRC49OnlineExpansion(ctx, db)
 	}
 	if RuntimeMinVersion == MembershipSchemaVersion && state.currentVersion == MembershipSchemaVersion {
 		return CheckTenantOnlineExpansion(ctx, db)

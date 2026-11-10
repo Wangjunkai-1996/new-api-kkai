@@ -83,10 +83,10 @@ func TestMembershipBillingRecoveryExpandPreservesPriorState(t *testing.T) {
 	} {
 		require.NoError(t, check(ctx, db))
 	}
-	if RuntimeMaxVersion >= MembershipBillingRecoverySchemaVersion {
+	if RuntimeMinVersion < MembershipBillingRecoverySchemaVersion && RuntimeMaxVersion >= MembershipBillingRecoverySchemaVersion {
 		require.NoError(t, CheckRequired(ctx, db))
 	} else {
-		assert.ErrorIs(t, CheckRequired(ctx, db), ErrSchemaNotReady, "bridge remains incompatible with v21")
+		assert.Error(t, CheckRequired(ctx, db), "rc49 requires PostgreSQL and the independent online expansion receipt")
 	}
 	_, err = ApplyMembershipBillingRecoveryExpand(ctx, db, Options{Offline: true})
 	require.NoError(t, err)

@@ -124,6 +124,24 @@ func (m Meta) SupportsUpstream(kind string) bool {
 	return kind == UpstreamKindVendor || slices.Contains(m.Upstreams, kind)
 }
 
+// PreservesJSONOrder reports whether the plugin declared json-order@1: its
+// hooks receive JSON request bodies with members in the order the client sent
+// them, and its JSON request bodies go upstream as JSON.stringify writes them.
+// Other plugins keep the cheaper Go-map path, whose members enumerate sorted.
+func (m Meta) PreservesJSONOrder() bool {
+	return slices.Contains(m.RequiredCapabilities, CapabilityJSONOrder)
+}
+
+// JSONTextMember names the member of a hook result (a decoded requestBody, a
+// request descriptor's body) that the host also takes as JSON text, for a
+// plugin that preserves JSON order; it is empty for other plugins.
+func (m Meta) JSONTextMember(member string) string {
+	if !m.PreservesJSONOrder() {
+		return ""
+	}
+	return member
+}
+
 // UsageProfile replaces the plugin's default usage metadata for its models.
 type UsageProfile struct {
 	Models   []string                    `json:"models"`
@@ -196,8 +214,22 @@ type UsageFieldSchema struct {
 }
 
 type LoadedPlugin struct {
-	Meta   Meta
-	Engine *Engine
+	Meta    Meta
+	Engine  *Engine
+	factory bool
+}
+
+// IsFactory reports host registration provenance; plugin metadata and user
+// overrides cannot acquire this capability by reusing a built-in key.
+func (p *LoadedPlugin) IsFactory() bool { return p != nil && p.factory }
+
+// UsesSubmitEventDelta reports whether SSE submissions go through
+// parseSubmitEventDelta: the plugin declares submit-sse-delta@1, or exports
+// parseSubmitEventDelta without parseSubmitEvent. A plugin that exports both
+// and declares nothing keeps the snapshot hook, as before.
+func UsesSubmitEventDelta(meta Meta, engine *Engine) bool {
+	return slices.Contains(meta.RequiredCapabilities, CapabilitySubmitSSEDelta) ||
+		engine.HasExport("parseSubmitEventDelta") && !engine.HasExport("parseSubmitEvent")
 }
 
 // RegistrySnapshot is a read-only copy of the metadata currently stored in
@@ -275,6 +307,7 @@ func (r *Registry) register(source string, options Options, factory bool) (*Load
 	if err != nil {
 		return nil, err
 	}
+	plugin.factory = factory
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -323,7 +356,7 @@ func CompilePlugin(source string, options Options) (*LoadedPlugin, error) {
 	engine.version = meta.Version
 	requiredHooks := []string{"buildSubmitRequest", "parseSubmitResponse", "parseTaskResult"}
 	if slices.Contains(meta.SubmitResponseTypes, "sse") {
-		if slices.Contains(meta.RequiredCapabilities, CapabilitySubmitSSEDelta) {
+		if UsesSubmitEventDelta(meta, engine) {
 			requiredHooks = append(requiredHooks, "parseSubmitEventDelta")
 		} else {
 			requiredHooks = append(requiredHooks, "parseSubmitEvent")
@@ -710,6 +743,12 @@ func (r *Registry) prepareGeneration(
 	}
 	if err != nil {
 		return nil, nil, err
+	}
+	// The preparer decides admission by whether a key is built in, which the
+	// filtered factory passed here no longer tells for a switched-off key.
+	generation.factoryKeys = pluginMapKeys(r.factory)
+	for key := range factory {
+		generation.factoryKeys[key] = struct{}{}
 	}
 	if r.preparer != nil {
 		prepared, prepareErr := r.preparer(generation, current)
@@ -1269,6 +1308,14 @@ func normalizeV1Meta(meta *Meta) error {
 	}
 	if !ValidPluginKey(meta.Key) {
 		return fmt.Errorf("plugin meta key must match %s", pluginKeyPattern)
+	}
+	// The host serves the plugin's routes under /{key}, so the key must not
+	// name a host namespace.
+	if meta.Key == "api" || slices.ContainsFunc(reservedRouteNamespaces, func(namespace string) bool {
+		first, _, _ := strings.Cut(strings.TrimPrefix(namespace, "/"), "/")
+		return first == meta.Key
+	}) {
+		return fmt.Errorf("plugin meta key %q is a reserved path segment", meta.Key)
 	}
 	if !pluginVersionPattern.MatchString(meta.Version) {
 		return fmt.Errorf("plugin meta version must be semver")

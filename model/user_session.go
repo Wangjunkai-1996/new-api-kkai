@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -34,6 +33,7 @@ var (
 	ErrUserSessionLimit                 = errors.New("active user session limit reached")
 	ErrUserSessionIssuanceLimit         = errors.New("user session issuance limit reached")
 	errUserSessionCacheObservationStale = errors.New("user session cache observation is stale")
+	errUserSessionCachePending          = errors.New("user session cache revocation or version update is pending")
 )
 
 // UserSession is the server-side control plane for short-lived access JWTs.
@@ -84,6 +84,12 @@ type userSessionCacheEntry struct {
 	RevokedAt       int64
 	RevokedReason   string
 	CacheSchema     int
+	CacheExpiresAt  int64  `gorm:"-"`
+	CacheMAC        string `json:"-" gorm:"-"`
+}
+
+func (entry userSessionCacheEntry) cacheMAC() (string, error) {
+	return authCacheMAC(userSessionCacheKey(entry.SID), entry)
 }
 
 func (session *UserSession) cacheEntry() *userSessionCacheEntry {
@@ -173,16 +179,7 @@ func createUserSessionWithTx(tx *gorm.DB, session *UserSession) error {
 }
 
 func publishCreatedUserSession(session *UserSession, cacheDeadline time.Time) error {
-	if err := writeUserSessionCache(session.cacheEntry(), cacheDeadline); err != nil {
-		if errors.Is(err, errUserSessionCacheObservationStale) {
-			return confirmUserSessionActiveSnapshot(session)
-		}
-		if errors.Is(err, ErrUserSessionInactive) {
-			return err
-		}
-		common.SysLog("failed to populate newly created user session cache: " + err.Error())
-	}
-	return nil
+	return writeUserSessionCache(session.cacheEntry(), cacheDeadline)
 }
 
 func CountActiveUserSessions(userID int, now int64) (int64, error) {
@@ -226,7 +223,9 @@ func GetUserSessionBySID(sid string) (*UserSession, error) {
 }
 
 // GetUserSessionCached validates cached state first and falls back to the
-// database on a miss or Redis read failure. A deny tombstone never falls back.
+// database on a miss or Redis read failure. A deny tombstone cannot authorize
+// a session; unsigned legacy denies only become logout responses after the
+// database confirms that the session is inactive.
 func GetUserSessionCached(sid string) (*UserSession, error) {
 	if sid == "" {
 		return nil, ErrUserSessionInvalid
@@ -235,6 +234,16 @@ func GetUserSessionCached(sid string) (*UserSession, error) {
 		entry, err := getUserSessionCache(sid)
 		if err == nil {
 			return entry.session(), nil
+		}
+		if errors.Is(err, errUserSessionCachePending) {
+			// Old writers publish unsigned denies before committing revocation.
+			// Confirm only an inactive row; an active row or failed lookup must
+			// preserve the refusal without replacing or extending the fence.
+			session, lookupErr := GetUserSessionBySID(sid)
+			if lookupErr == nil && (session.Status != UserSessionStatusActive || session.RevokedAt != 0 || session.ExpiresAt <= time.Now().Unix()) {
+				return nil, ErrUserSessionInactive
+			}
+			return nil, err
 		}
 		if errors.Is(err, ErrUserSessionInactive) {
 			return nil, err
@@ -257,16 +266,9 @@ func GetUserSessionCached(sid string) (*UserSession, error) {
 	}
 	if common.RedisEnabled {
 		if err := writeUserSessionCache(session.cacheEntry(), cacheDeadline); err != nil {
-			if errors.Is(err, errUserSessionCacheObservationStale) {
-				if confirmErr := confirmUserSessionActiveSnapshot(session); confirmErr != nil {
-					return nil, confirmErr
-				}
-				return session, nil
-			}
-			if errors.Is(err, ErrUserSessionInactive) {
-				return nil, err
-			}
-			common.SysLog("failed to synchronously populate user session cache: " + err.Error())
+			// A failed guard cannot rule out a concurrent revocation or newer
+			// version. Reject temporarily without declaring the session revoked.
+			return nil, err
 		}
 	}
 	return session, nil
@@ -277,8 +279,21 @@ func getUserSessionCache(sid string) (*userSessionCacheEntry, error) {
 	if err := common.RedisHGetObj(userSessionCacheKey(sid), &entry); err != nil {
 		return nil, err
 	}
-	if entry.TenantID < 0 || entry.CacheSchema != userSessionCacheSchema || entry.SID != sid || entry.UserID <= 0 || entry.Version <= 0 || entry.UserAuthVersion <= 0 {
-		return nil, fmt.Errorf("user session cache schema is stale")
+	validIdentity := entry.TenantID >= 0 && entry.CacheSchema == userSessionCacheSchema &&
+		entry.SID == sid && entry.UserID > 0 && entry.Version > 0 && entry.UserAuthVersion > 0
+	mac, macErr := entry.cacheMAC()
+	validMAC := validIdentity && macErr == nil && validAuthCacheMAC(mac, entry.CacheMAC, entry.CacheExpiresAt)
+	if entry.Status == UserSessionStatusRevoking || entry.Status == UserSessionStatusRevoked {
+		if validMAC && entry.Status == UserSessionStatusRevoked {
+			return nil, ErrUserSessionInactive
+		}
+		// Old writers do not sign their pre-commit deny fences. Preserve the
+		// refusal without treating unsigned or tampered state as proof that
+		// the client's login has ended.
+		return nil, errUserSessionCachePending
+	}
+	if !validMAC {
+		return nil, errAuthCacheIntegrity
 	}
 	if entry.Status != UserSessionStatusActive || entry.RevokedAt != 0 || entry.ExpiresAt <= time.Now().Unix() {
 		return nil, ErrUserSessionInactive
@@ -319,6 +334,7 @@ func writeUserSessionCache(entry *userSessionCacheEntry, cacheDeadline time.Time
 			return errUserSessionCacheObservationStale
 		}
 		redisExpiration = cacheExpiresAt.UnixMilli()
+		entry.CacheExpiresAt = redisExpiration
 	} else {
 		ttl := min(sessionTTL, time.Duration(userCacheTTLSeconds())*time.Second)
 		if ttl <= 0 {
@@ -328,15 +344,27 @@ func writeUserSessionCache(entry *userSessionCacheEntry, cacheDeadline time.Time
 		if redisExpiration <= 0 {
 			redisExpiration = 1
 		}
+		entry.CacheExpiresAt = now.UnixMilli() + redisExpiration
 	}
 	entry.CacheSchema = userSessionCacheSchema
+	mac, err := entry.cacheMAC()
+	if err != nil {
+		return err
+	}
 	const script = `
 local current_status = redis.call('HGET', KEYS[1], 'Status')
 local current_version = tonumber(redis.call('HGET', KEYS[1], 'Version') or '0')
 if ARGV[5] == 'active' and (current_status == 'revoking' or current_status == 'revoked') then
-  return 0
+  return -1
 end
 if current_version > tonumber(ARGV[3]) then
+  return -1
+end
+-- Refresh updates LastActiveAt without advancing Version, including in old
+-- writers that leave CacheMAC unchanged. Security changes advance Version or
+-- publish a deny status; none of these observations may move backwards.
+if ARGV[5] == 'active' and current_version == tonumber(ARGV[3])
+  and tonumber(redis.call('HGET', KEYS[1], 'LastActiveAt') or '0') > tonumber(ARGV[10]) then
   return 0
 end
 redis.call('HSET', KEYS[1],
@@ -344,7 +372,8 @@ redis.call('HSET', KEYS[1],
   'UserAuthVersion', ARGV[4], 'Status', ARGV[5],
   'LoginMethod', ARGV[6], 'IP', ARGV[7], 'UserAgent', ARGV[8],
   'CreatedAt', ARGV[9], 'LastActiveAt', ARGV[10], 'ExpiresAt', ARGV[11],
-  'RevokedAt', ARGV[12], 'RevokedReason', ARGV[13], 'CacheSchema', ARGV[14], 'TenantID', ARGV[16])
+  'RevokedAt', ARGV[12], 'RevokedReason', ARGV[13], 'CacheSchema', ARGV[14], 'TenantID', ARGV[16],
+  'CacheExpiresAt', ARGV[17], 'CacheMAC', ARGV[18])
 if ARGV[5] == 'active' then
   redis.call('PEXPIREAT', KEYS[1], ARGV[15])
 else
@@ -355,12 +384,16 @@ return 1`
 		entry.SID, entry.UserID, entry.Version, entry.UserAuthVersion, entry.Status,
 		entry.LoginMethod, entry.IP, entry.UserAgent, entry.CreatedAt, entry.LastActiveAt,
 		entry.ExpiresAt, entry.RevokedAt, entry.RevokedReason, entry.CacheSchema, redisExpiration, entry.TenantID,
+		entry.CacheExpiresAt, mac,
 	).Int()
 	if err != nil {
 		return err
 	}
+	if result == -1 {
+		return errUserSessionCachePending
+	}
 	if result == 0 {
-		return ErrUserSessionInactive
+		return errUserSessionCacheObservationStale
 	}
 	if entry.Status == UserSessionStatusActive {
 		completedAt := time.Now()
@@ -370,32 +403,6 @@ return 1`
 		if !completedAt.Before(sessionExpiresAt) {
 			return ErrUserSessionInactive
 		}
-	}
-	return nil
-}
-
-func confirmUserSessionActiveSnapshot(session *UserSession) error {
-	if session == nil || session.SID == "" || session.UserID <= 0 || session.Version <= 0 || session.UserAuthVersion <= 0 {
-		return ErrUserSessionInvalid
-	}
-	var count int64
-	err := DB.Model(&UserSession{}).
-		Where(
-			"sid = ? AND user_id = ? AND status = ? AND revoked_at = ? AND expires_at > ? AND version = ? AND user_auth_version = ?",
-			session.SID,
-			session.UserID,
-			UserSessionStatusActive,
-			0,
-			time.Now().Unix(),
-			session.Version,
-			session.UserAuthVersion,
-		).
-		Count(&count).Error
-	if err != nil {
-		return err
-	}
-	if count != 1 {
-		return ErrUserSessionInactive
 	}
 	return nil
 }
@@ -493,35 +500,35 @@ func RotateUserSessionRefresh(userID int, sid, presentedHash, nextHash string, n
 		}
 
 		if hmac.Equal([]byte(session.RefreshHash), []byte(presentedHash)) {
-			result := DB.Model(&UserSession{}).
-				Where("sid = ? AND user_id = ? AND status = ? AND revoked_at = ? AND expires_at > ? AND refresh_hash = ?",
-					sid, userID, UserSessionStatusActive, 0, now, presentedHash).
-				Updates(map[string]any{
-					"previous_refresh_hash": session.RefreshHash,
-					"previous_valid_until":  now + graceSeconds,
-					"refresh_hash":          nextHash,
-					"last_active_at":        now,
-				})
-			if result.Error != nil {
-				return nil, result.Error
-			}
-			if result.RowsAffected == 0 {
-				continue
-			}
-			session.PreviousRefreshHash = session.RefreshHash
-			session.PreviousValidUntil = now + graceSeconds
-			session.RefreshHash = nextHash
-			session.LastActiveAt = now
-			if err := writeUserSessionCache(session.cacheEntry(), cacheDeadline); err != nil {
-				if errors.Is(err, errUserSessionCacheObservationStale) {
-					if confirmErr := confirmUserSessionActiveSnapshot(&session); confirmErr != nil {
-						return nil, confirmErr
-					}
-				} else if errors.Is(err, ErrUserSessionInactive) {
-					return nil, err
-				} else {
-					common.SysLog("failed to update rotated user session cache: " + err.Error())
+			var rotated bool
+			err := DB.Transaction(func(tx *gorm.DB) error {
+				result := tx.Model(&UserSession{}).
+					Where("sid = ? AND user_id = ? AND status = ? AND revoked_at = ? AND expires_at > ? AND refresh_hash = ?",
+						sid, userID, UserSessionStatusActive, 0, now, presentedHash).
+					Updates(map[string]any{
+						"previous_refresh_hash": session.RefreshHash,
+						"previous_valid_until":  now + graceSeconds,
+						"refresh_hash":          nextHash,
+						"last_active_at":        now,
+					})
+				if result.Error != nil || result.RowsAffected == 0 {
+					return result.Error
 				}
+				rotated = true
+				session.PreviousRefreshHash = session.RefreshHash
+				session.PreviousValidUntil = now + graceSeconds
+				session.RefreshHash = nextHash
+				session.LastActiveAt = now
+				// Do not consume the browser's current secret unless the cache
+				// guard succeeds. Otherwise a temporary failure could turn its
+				// retry after the grace window into apparent refresh-token reuse.
+				return writeUserSessionCache(session.cacheEntry(), cacheDeadline)
+			})
+			if err != nil {
+				return nil, err
+			}
+			if !rotated {
+				continue
 			}
 			return &session, nil
 		}
@@ -713,13 +720,7 @@ func AdvanceUserSessionAuthVersion(userID int, sid string, expectedSessionVersio
 		return nil, err
 	}
 	if err := writeUserSessionCache(session.cacheEntry(), cacheDeadline); err != nil {
-		if errors.Is(err, errUserSessionCacheObservationStale) {
-			if confirmErr := confirmUserSessionActiveSnapshot(&session); confirmErr != nil {
-				return nil, confirmErr
-			}
-		} else {
-			return nil, err
-		}
+		return nil, err
 	}
 	return &session, nil
 }

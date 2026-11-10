@@ -58,7 +58,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import dayjs from '@/lib/dayjs'
 import { formatDateTimeStr, formatTimestampToDate } from '@/lib/format'
-import { createServerError } from '@/lib/server-error-message'
+import { createServerError, getServerMessage } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import {
@@ -948,7 +948,7 @@ export function CodexUsageDialog({
 
   const errorMessage =
     response?.success === false
-      ? response?.message?.trim() || t('Failed to fetch usage')
+      ? getServerMessage(response)?.trim() || t('Failed to fetch usage')
       : ''
 
   const loadResetCredits = useCallback(

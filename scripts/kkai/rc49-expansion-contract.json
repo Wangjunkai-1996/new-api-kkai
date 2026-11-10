@@ -1,0 +1,14 @@
+{
+  "runtime_min_version": 21,
+  "runtime_max_version": 21,
+  "migration_target_version": 21,
+  "migration_kind": "none",
+  "migration_set_digest": "sha256:84687631f06a71630ad6035a28ce29c91bd24fb5cf824e72e394b7f8fc0680f0",
+  "compatible_prefixes": {
+    "21": "sha256:84687631f06a71630ad6035a28ce29c91bd24fb5cf824e72e394b7f8fc0680f0"
+  },
+  "schema_management": "external",
+  "required_expansions": {
+    "rc49-online-v1": "sha256:ff1dbaacac62dd31c931ecb62a497c0dc16be5dbba6e46538ec427739bb7db4e"
+  }
+}

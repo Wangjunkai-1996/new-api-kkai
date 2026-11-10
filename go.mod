@@ -1,7 +1,7 @@
 module github.com/QuantumNous/new-api
 
-// +heroku goVersion go1.18
-go 1.25.1
+// +heroku goVersion go1.26.10
+go 1.26.10
 
 require (
 	github.com/Calcium-Ion/go-epay v0.0.5
@@ -26,7 +26,7 @@ require (
 	github.com/go-webauthn/webauthn v0.14.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.5.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/grafana/pyroscope-go v1.2.7
 	github.com/jfreymuth/oggvorbis v1.0.5
 	github.com/jinzhu/copier v0.4.0
@@ -45,7 +45,7 @@ require (
 	github.com/thanhpk/randstr v1.0.6
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
-	github.com/tiktoken-go/tokenizer v0.6.2
+	github.com/tiktoken-go/tokenizer v0.8.1
 	github.com/waffo-com/waffo-go v1.3.2
 	github.com/yapingcat/gomedia v0.0.0-20240906162731-17feea57090c
 	golang.org/x/crypto v0.52.0
@@ -76,7 +76,7 @@ require (
 	github.com/casbin/govaluate v1.10.0 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/hashicorp/go-version v1.8.0 // indirect
@@ -109,7 +109,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
-	github.com/dlclark/regexp2 v1.11.5 // indirect
+	github.com/dlclark/regexp2/v2 v2.5.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/expr-lang/expr v1.17.8
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
@@ -135,7 +135,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.18.3 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -173,9 +173,11 @@ require (
 )
 
 require (
-	github.com/Calcium-Ion/moejs v0.1.0-alpha.3
+	github.com/Calcium-Ion/moejs v0.1.0-alpha.7
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
+	github.com/MoeForge/moego v0.1.0-alpha.1
 	github.com/QuantumNous/new-api/relaykit v0.0.0
+	github.com/QuantumNous/new-api/tokenkit v0.0.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	golang.org/x/oauth2 v0.36.0
 )
@@ -183,3 +185,5 @@ require (
 replace github.com/QuantumNous/new-api/relaykit => ./relaykit
 
 replace github.com/tiktoken-go/tokenizer => ./third_party/tokenizer
+
+replace github.com/QuantumNous/new-api/tokenkit => ./tokenkit

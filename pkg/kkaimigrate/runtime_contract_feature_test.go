@@ -3,45 +3,23 @@
 package kkaimigrate
 
 import (
-	"context"
-	"testing"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
-func TestContractForDialectRequiresTenantSchema(t *testing.T) {
-	for _, dialect := range []string{DialectPostgres, DialectSQLite, DialectMySQL} {
-		t.Run(dialect, func(t *testing.T) {
-			contract, err := ContractForDialect(dialect)
-			require.NoError(t, err)
-			assert.EqualValues(t, 14, contract.RuntimeMinVersion)
-			assert.EqualValues(t, 21, contract.RuntimeMaxVersion)
-			assert.EqualValues(t, 14, contract.MigrationTargetVersion)
-			assert.Equal(t, MigrationKindNone, contract.MigrationKind)
-			assert.Equal(t, contract.MigrationSetDigest, contract.CompatiblePrefixes["14"])
-			assert.Contains(t, contract.CompatiblePrefixes, "15")
-			assert.Contains(t, contract.CompatiblePrefixes, "16")
-			assert.Contains(t, contract.CompatiblePrefixes, "17")
-			assert.Contains(t, contract.CompatiblePrefixes, "18")
-			assert.Contains(t, contract.CompatiblePrefixes, "19")
-			assert.Contains(t, contract.CompatiblePrefixes, "20")
-			assert.Contains(t, contract.CompatiblePrefixes, "21")
-			assert.Len(t, contract.CompatiblePrefixes, 8)
-		})
+func TestContractForDialectRequiresRC49Schema(t *testing.T) {
+	contract, err := ContractForDialect(DialectPostgres)
+	require.NoError(t, err)
+	assert.EqualValues(t, 21, contract.RuntimeMinVersion)
+	assert.EqualValues(t, 21, contract.RuntimeMaxVersion)
+	assert.EqualValues(t, 21, contract.MigrationTargetVersion)
+	assert.Equal(t, MigrationKindNone, contract.MigrationKind)
+	assert.Equal(t, contract.MigrationSetDigest, contract.CompatiblePrefixes["21"])
+	assert.Len(t, contract.CompatiblePrefixes, 1, "canonical21 remains the only accepted ledger")
+	assert.Equal(t, map[string]string{RC49OnlineExpansion: RC49OnlineExpansionDigest()}, contract.RequiredExpansions)
+	for _, dialect := range []string{DialectSQLite, DialectMySQL} {
+		_, err := ContractForDialect(dialect)
+		require.Error(t, err)
 	}
-}
-func TestRuntimeRejectsV11UntilExplicitTenantMigration(t *testing.T) {
-	db := newMigrationTestDB(t)
-	prepareTenantMigrationFixture(t, db)
-	assert.ErrorIs(t, CheckRequired(context.Background(), db), ErrSchemaNotReady)
-	_, err := ApplyTenantOnlineExpansion(context.Background(), db, Options{})
-	require.NoError(t, err)
-	assert.ErrorIs(t, CheckRequired(context.Background(), db), ErrSchemaNotReady)
-	_, err = FinalizeTenantOnlineSchema(context.Background(), db, Options{})
-	require.NoError(t, err)
-	require.NoError(t, CheckRequired(context.Background(), db))
-	_, err = ApplyResellerApplicationExpand(context.Background(), db, Options{})
-	require.NoError(t, err)
-	require.NoError(t, CheckRequired(context.Background(), db), "the compatibility runtime must still start after the additive v15 receipt")
 }

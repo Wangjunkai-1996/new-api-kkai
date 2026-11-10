@@ -130,6 +130,37 @@ class MaintenanceReleaseTests(unittest.TestCase):
             maintenance.release_plan(self.metadata, "3" * 40, "unreviewed-maintenance-v1")
         self.assertEqual(self.calls, [])
 
+    def test_rc49_preparation_binds_expansion_and_preserves_same_application_archive(self):
+        metadata = json.loads(self.metadata.read_text())
+        metadata["release_purpose"] = "rc49-online-preparation"
+        self.console["api_contracts"] = [2, 3]
+        metadata["console_contract"] = self.console
+        archive_path = self.root / metadata["archive"]
+        with tarfile.open(archive_path) as archive:
+            config = json.load(archive.extractfile("config.json"))
+        config["config"]["Labels"]["io.kkrich.console-contract"] = json.dumps(self.console)
+        with tarfile.open(archive_path, "w") as archive:
+            for name, value in {
+                "manifest.json": [{"Config": "config.json", "RepoTags": [metadata["image_tag"]]}],
+                "config.json": config,
+            }.items():
+                data = json.dumps(value).encode()
+                member = tarfile.TarInfo(name)
+                member.size = len(data)
+                archive.addfile(member, io.BytesIO(data))
+        self.local_image["Config"] = config["config"]
+        metadata["archive_sha256"] = maintenance.digest_file(archive_path)
+        self.metadata.write_text(json.dumps(metadata))
+        self.schema = copy.deepcopy(maintenance.MAINTENANCE_PROFILES["rc49-expansion-v1"][1])
+        plan = maintenance.release_plan(self.metadata, "3" * 40, "rc49-expansion-v1")
+        self.assertEqual(plan["purpose"], "rc49-online-preparation")
+        self.assertEqual(plan["schema_contract"]["runtime_max_version"], 21)
+        self.assertEqual(plan["archive_sha256"], metadata["archive_sha256"])
+        self.assertEqual(plan["schema_contract"]["required_expansions"], self.schema["required_expansions"])
+        del self.schema["required_expansions"]
+        with self.assertRaisesRegex(ValueError, "binary schema contract"):
+            maintenance.release_plan(self.metadata, "3" * 40, "rc49-expansion-v1")
+
     def test_online_preparation_binds_bridge_and_both_supported_prefixes(self):
         metadata = json.loads(self.metadata.read_text())
         metadata.update(release_purpose="tenant-online-preparation", schema_contract="bridge")

@@ -9,7 +9,6 @@ import (
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/gin-contrib/gzip"
-	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 )
 
@@ -31,11 +30,12 @@ func (assets ThemeAssets) hasEmbeddedFrontend() bool {
 func SetWebRouter(router *gin.Engine, assets ThemeAssets, pluginDispatcher gin.HandlerFunc) {
 	defaultFS := common.EmbedFolder(assets.DefaultBuildFS, "web/default/dist")
 
-	router.Use(gzip.Gzip(gzip.DefaultCompression))
-	router.Use(middleware.GlobalWebRateLimit())
-	router.Use(middleware.Cache())
-	router.Use(static.Serve("/", defaultFS))
-	router.NoRoute(pluginDispatcher, func(c *gin.Context) {
+	compress := gzip.Gzip(gzip.DefaultCompression)
+	router.NoRoute(pluginDispatcher, middleware.RouteTag("web"), func(c *gin.Context) {
+		if !defaultFS.Exists("/", c.Request.URL.Path) {
+			compress(c)
+		}
+	}, middleware.AccessTokenAudit(), middleware.GlobalWebRateLimit(defaultFS), middleware.Cache(), middleware.ServeFrontendFiles(defaultFS), func(c *gin.Context) {
 		c.Set(middleware.RouteTagKey, "web")
 		if isAPIStylePath(c.Request.URL.Path) {
 			c.Header("Cache-Control", "no-store, no-cache, must-revalidate, private, max-age=0")

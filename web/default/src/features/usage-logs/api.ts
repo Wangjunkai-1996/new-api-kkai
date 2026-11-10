@@ -18,9 +18,15 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
-import { api, type ApiRequestConfig } from '@/lib/api'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import { api, getFreshAuthHeaders, type ApiRequestConfig } from '@/lib/api'
+import { getCurrentHost } from '@/lib/host-scope'
+import {
+  createServerError,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
+import type { UsageLog } from './data/schema'
 import { buildQueryParams } from './lib/query-params'
 import {
   parseTaskArtifactsResponse,
@@ -94,6 +100,90 @@ export const getLogStats = (params: GetLogStatsParams = {}) =>
 export const getUserLogStats = (
   params: Omit<GetLogStatsParams, 'username' | 'channel'> = {}
 ) => fetchLogStats('/api/log', params, false)
+
+/**
+ * Stream the logs matching params, newest first. The server sends one JSON
+ * log per line and ends with an API response object; a stream that ends
+ * without a successful one is a failed export. Resolves with the log count.
+ */
+export async function exportLogs(
+  params: GetLogsParams,
+  isAdmin: boolean,
+  options: { signal: AbortSignal; onLog: (log: UsageLog) => void }
+): Promise<number> {
+  const startingAuth = useAuthStore.getState().auth
+  const host = getCurrentHost()
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  options.signal.addEventListener('abort', abort, { once: true })
+  if (options.signal.aborted) abort()
+  const unsubscribe = useAuthStore.subscribe((state) => {
+    if (
+      state.auth.user?.id !== startingAuth.user?.id ||
+      state.auth.session?.sid !== startingAuth.session?.sid ||
+      getCurrentHost() !== host
+    ) {
+      abort()
+    }
+  })
+  try {
+    const headers = await getFreshAuthHeaders()
+    controller.signal.throwIfAborted()
+    const queryParams = buildQueryParams(
+      params as unknown as Record<string, unknown>
+    )
+    const response = await fetch(
+      `${buildApiPath('/api/log', isAdmin)}/export?${queryParams}`,
+      {
+        credentials: 'include',
+        headers,
+        signal: controller.signal,
+      }
+    )
+    if (!response.ok || !response.body) {
+      const body: unknown = await response.json().catch(() => null)
+      throw createServerError(body ?? { status: response.status })
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let result: { success?: unknown; data?: { count?: number } } | null = null
+    for (;;) {
+      const { done, value } = await reader.read()
+      controller.signal.throwIfAborted()
+      buffer += done
+        ? decoder.decode()
+        : decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = done ? '' : (lines.pop() ?? '')
+      for (const line of lines) {
+        if (!line.trim()) continue
+        let parsed
+        try {
+          parsed = JSON.parse(line)
+        } catch {
+          throw createServerError(null)
+        }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw createServerError(null)
+        }
+        if (typeof parsed.success === 'boolean') result = parsed
+        else options.onLog(parsed as UsageLog)
+      }
+      if (done) break
+    }
+    if (result?.success !== true) {
+      throw createServerError(result)
+    }
+    controller.signal.throwIfAborted()
+    return result.data?.count ?? 0
+  } finally {
+    unsubscribe()
+    options.signal.removeEventListener('abort', abort)
+    controller.abort()
+  }
+}
 
 export async function getUserInfo(
   userId: number

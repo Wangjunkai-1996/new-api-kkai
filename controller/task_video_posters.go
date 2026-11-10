@@ -215,7 +215,7 @@ func resolveTaskVideoPosterSource(ctx context.Context, task *model.Task, key str
 		if !ok {
 			return service.TaskVideoPosterSource{}, service.ErrTaskVideoPosterUnavailable
 		}
-		descriptor, err = provider.BuildContentRequest(task, key, relaychannel.TaskArtifactClientRequest{Method: http.MethodGet})
+		descriptor, err = provider.BuildContentRequest(ctx, task, key, relaychannel.TaskArtifactClientRequest{Method: http.MethodGet})
 		if err != nil {
 			return service.TaskVideoPosterSource{}, err
 		}

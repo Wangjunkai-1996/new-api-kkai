@@ -30,6 +30,9 @@ type taskSubmissionOutcome struct {
 }
 
 func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
+	if c.Writer.Written() {
+		return
+	}
 	if outcome == nil || outcome.Task == nil || outcome.RelayInfo == nil {
 		respondTaskError(c, service.TaskErrorWrapperLocal(errors.New("task submission returned no result"), "task_submit_failed", http.StatusInternalServerError))
 		return
@@ -46,8 +49,9 @@ func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
 					if requestValue, exists := c.Get(pluginruntime.ContextKeyRouteRequest); exists {
 						if requestContext, ok := requestValue.(pluginruntime.RouteRequestContext); ok {
 							if body, err := pinned.Plugin.Engine.CallPath(c.Request.Context(), "native", []string{pinned.Route.Render}, requestContext.JSValue(), encoded); err == nil {
-								c.JSON(http.StatusOK, body)
-								return
+								if err := middleware.WriteNativeReply(c, http.StatusOK, body); err == nil {
+									return
+								}
 							}
 						}
 					}
@@ -76,6 +80,9 @@ func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
 }
 
 func respondTaskSubmissionError(c *gin.Context, taskErr *dto.TaskError) {
+	if c.Writer.Written() {
+		return
+	}
 	if taskErr == nil {
 		taskErr = service.TaskErrorWrapperLocal(errors.New("task submission failed"), "task_submit_failed", http.StatusInternalServerError)
 	}
@@ -92,7 +99,8 @@ func respondTaskSubmissionError(c *gin.Context, taskErr *dto.TaskError) {
 }
 
 // executeTaskSubmission performs channel selection, retry, persistence and
-// billing without writing an HTTP response. Protocol bridges can therefore
+// billing. A native plugin may already stream a response during submission.
+// Protocol bridges can therefore
 // observe the same durable task outcome as the native task endpoint.
 func executeTaskSubmission(c *gin.Context, relayInfo *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
 	if relayInfo == nil {
@@ -103,7 +111,7 @@ func executeTaskSubmission(c *gin.Context, relayInfo *relaycommon.RelayInfo) (*t
 	var taskErr *dto.TaskError
 	durable := false
 	defer func() {
-		if durable || (result != nil && !result.CanRefund()) {
+		if durable || c.Writer.Written() || (result != nil && !result.CanRefund()) {
 			return
 		}
 		if relayInfo.Billing != nil {
@@ -174,7 +182,7 @@ func executeTaskSubmission(c *gin.Context, relayInfo *relaycommon.RelayInfo) (*t
 			policyDetected = processKKAIPolicyTaskError(c, channelError, taskErr)
 		}
 		decision := decideTaskRetry(c, taskErr, common.RetryTimes-retryParam.GetRetry())
-		if result != nil && !result.CanRetry() {
+		if c.Writer.Written() || (result != nil && !result.CanRetry()) {
 			decision = service.PolicyDecision{Action: "stop", Reason: "task_accepted", Source: "system"}
 		}
 		service.RecordPolicyFailure(c, channel.Id, kkaiTaskAPIError(taskErr), decision)

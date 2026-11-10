@@ -147,7 +147,7 @@ func TestCreditEpochReversalUsesRecordedWalletDelta(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&KKAIInternalBalanceAdjustment{}))
 	require.NoError(t, db.Create(&User{Id: 1, Username: "epoch-user", Quota: 100}).Error)
 	setTestCreditEpoch(t, map[string]int64{"kkai_internal_balance_adjustments": 1})
-	old := KKAIInternalBalanceAdjustment{ID: 1, OperationID: "old", UserID: 1, Delta: 40,
+	old := KKAIInternalBalanceAdjustment{OperationID: "old", UserID: 1, Delta: 40,
 		Reason: KKAIBalanceAdjustmentReasonCredit, Metadata: "{}", PayloadSHA256: strings.Repeat("a", 64),
 		BalanceBefore: 1290, BalanceAfter: 1330, CreatedAt: 50}
 	require.NoError(t, db.Create(&old).Error)

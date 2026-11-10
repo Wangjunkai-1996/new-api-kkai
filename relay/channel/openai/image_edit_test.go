@@ -35,6 +35,13 @@ func TestConvertImageEditRequestMultipart(t *testing.T) {
 		require.NoError(t, err)
 		_, err = part.Write([]byte("fake image"))
 		require.NoError(t, err)
+		require.NoError(t, writer.WriteField("complexity", "low"))
+		for _, name := range []string{"mask", "markup"} {
+			part, err := writer.CreateFormFile(name, name+".png")
+			require.NoError(t, err)
+			_, err = part.Write([]byte("fake " + name))
+			require.NoError(t, err)
+		}
 		require.NoError(t, writer.Close())
 
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -67,6 +74,9 @@ func TestConvertImageEditRequestMultipart(t *testing.T) {
 		require.Equal(t, "true", replayedRequest.PostForm.Get("stream"))
 		require.Equal(t, "3", replayedRequest.PostForm.Get("partial_images"))
 		require.Len(t, replayedRequest.MultipartForm.File["image"], 1)
+		require.Equal(t, "low", replayedRequest.PostForm.Get("complexity"))
+		require.Len(t, replayedRequest.MultipartForm.File["mask"], 1)
+		require.Len(t, replayedRequest.MultipartForm.File["markup"], 1)
 
 		file, err := replayedRequest.MultipartForm.File["image"][0].Open()
 		require.NoError(t, err)
@@ -138,6 +148,7 @@ func TestConvertImageEditRequestMultipartAppliesParamOverride(t *testing.T) {
 				"conditions": [{"path":"original_model","mode":"full","value":"gpt-image-2-4k"}]
 			},
 			{"path":"stream","mode":"set","value":true},
+			{"path":"n","mode":"set","value":4},
 			{
 				"path":"partial_images",
 				"mode":"set",
@@ -166,6 +177,8 @@ func TestConvertImageEditRequestMultipartAppliesParamOverride(t *testing.T) {
 	require.Equal(t, "mapped-image-model", replayed.PostForm.Get("model"))
 	require.Equal(t, "edit this image", replayed.PostForm.Get("prompt"))
 	require.Equal(t, "true", replayed.PostForm.Get("stream"))
+	require.Equal(t, "4", replayed.PostForm.Get("n"))
+	require.Equal(t, 4, info.ImageRequestCount)
 	require.Equal(t, "1", replayed.PostForm.Get("partial_images"))
 	require.Equal(t, "preserved", replayed.PostForm.Get("custom_parameter"))
 	require.False(t, replayed.PostForm.Has("quality"))

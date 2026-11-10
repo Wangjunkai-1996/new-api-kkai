@@ -27,20 +27,21 @@ type TaskBillingRecoveryPayload struct {
 }
 
 type TaskBillingRecoveryAcceptanceReceipt struct {
-	PluginState     json.RawMessage              `json:"plugin_state,omitempty"`
-	ResultURL       string                       `json:"result_url,omitempty"`
-	ArchiveSource   string                       `json:"archive_source,omitempty"`
-	ResultDiscarded bool                         `json:"result_discarded,omitempty"`
-	TieredSnapshot  *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
-	UpstreamTaskID  string                       `json:"upstream_task_id"`
-	RawResponse     json.RawMessage              `json:"raw_response"`
-	ChannelID       int                          `json:"channel_id"`
-	Status          model.TaskStatus             `json:"status"`
-	Progress        string                       `json:"progress"`
-	FailReason      string                       `json:"fail_reason,omitempty"`
-	FinishTime      int64                        `json:"finish_time,omitempty"`
-	OtherRatios     map[string]float64           `json:"other_ratios,omitempty"`
-	TargetQuota     int                          `json:"target_quota"`
+	SubmissionInline bool                         `json:"submission_inline,omitempty"`
+	PluginState      json.RawMessage              `json:"plugin_state,omitempty"`
+	ResultURL        string                       `json:"result_url,omitempty"`
+	ArchiveSource    string                       `json:"archive_source,omitempty"`
+	ResultDiscarded  bool                         `json:"result_discarded,omitempty"`
+	TieredSnapshot   *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
+	UpstreamTaskID   string                       `json:"upstream_task_id"`
+	RawResponse      json.RawMessage              `json:"raw_response"`
+	ChannelID        int                          `json:"channel_id"`
+	Status           model.TaskStatus             `json:"status"`
+	Progress         string                       `json:"progress"`
+	FailReason       string                       `json:"fail_reason,omitempty"`
+	FinishTime       int64                        `json:"finish_time,omitempty"`
+	OtherRatios      map[string]float64           `json:"other_ratios,omitempty"`
+	TargetQuota      int                          `json:"target_quota"`
 }
 
 type TaskBillingRecoveryHandler struct{}
@@ -135,20 +136,21 @@ func (TaskBillingRecoveryHandler) Handle(ctx context.Context, event model.KKAIOu
 	if payload.Acceptance != nil {
 		receipt := payload.Acceptance
 		recoveredTask, recovered, err := model.RecoverTaskSubmissionAcceptance(ctx, payload.TaskID, model.TaskSubmissionAcceptance{
-			PluginState:     receipt.PluginState,
-			ResultURL:       receipt.ResultURL,
-			ArchiveSource:   receipt.ArchiveSource,
-			ResultDiscarded: receipt.ResultDiscarded,
-			TieredSnapshot:  receipt.TieredSnapshot,
-			UpstreamTaskID:  receipt.UpstreamTaskID,
-			TaskData:        receipt.RawResponse,
-			ChannelID:       receipt.ChannelID,
-			Status:          receipt.Status,
-			Progress:        receipt.Progress,
-			FailReason:      receipt.FailReason,
-			FinishTime:      receipt.FinishTime,
-			OtherRatios:     receipt.OtherRatios,
-			TargetQuota:     receipt.TargetQuota,
+			PluginState:      receipt.PluginState,
+			ResultURL:        receipt.ResultURL,
+			ArchiveSource:    receipt.ArchiveSource,
+			ResultDiscarded:  receipt.ResultDiscarded,
+			SubmissionInline: receipt.SubmissionInline,
+			TieredSnapshot:   receipt.TieredSnapshot,
+			UpstreamTaskID:   receipt.UpstreamTaskID,
+			TaskData:         receipt.RawResponse,
+			ChannelID:        receipt.ChannelID,
+			Status:           receipt.Status,
+			Progress:         receipt.Progress,
+			FailReason:       receipt.FailReason,
+			FinishTime:       receipt.FinishTime,
+			OtherRatios:      receipt.OtherRatios,
+			TargetQuota:      receipt.TargetQuota,
 		})
 		if err != nil {
 			return err

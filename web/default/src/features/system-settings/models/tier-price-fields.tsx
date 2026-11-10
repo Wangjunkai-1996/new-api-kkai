@@ -110,6 +110,7 @@ function PriceField({
 }
 
 type TierPriceFieldsProps = {
+  imageCount?: boolean
   billingUnit?: 'token' | 'request'
   fixedPrice?: string
   onBillingUnitChange?: (unit: 'token' | 'request') => void
@@ -141,6 +142,8 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
       label = t('Cache read billing price')
     } else if (variable.key === 'cc' && props.prices.cc1h !== undefined) {
       label = t('Cache Creation (5m)')
+    } else if (variable.key === 'cc' && props.prices.cc12h !== undefined) {
+      label = t('Cache Creation (30m)')
     }
     return (
       <PriceField
@@ -165,7 +168,10 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
     <Select
       items={[
         { value: 'token', label: t('Per token') },
-        { value: 'request', label: t('Per-call') },
+        {
+          value: 'request',
+          label: props.imageCount ? t('Price per image') : t('Per-call'),
+        },
       ]}
       value={props.billingUnit ?? 'token'}
       onValueChange={(value) => {
@@ -184,7 +190,9 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
       <SelectContent alignItemWithTrigger={false}>
         <SelectGroup>
           <SelectItem value='token'>{t('Per token')}</SelectItem>
-          <SelectItem value='request'>{t('Per-call')}</SelectItem>
+          <SelectItem value='request'>
+            {props.imageCount ? t('Price per image') : t('Per-call')}
+          </SelectItem>
         </SelectGroup>
       </SelectContent>
     </Select>
@@ -195,10 +203,12 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
         {billingControl}
         <PriceField
           currency={props.currency}
-          label={t('Price per request')}
+          label={
+            props.imageCount ? t('Price per image') : t('Price per request')
+          }
           value={props.fixedPrice ?? ''}
           onChange={(value) => props.onFixedPriceChange?.(value)}
-          hint={`${props.currency.symbol}/${t('request')}`}
+          hint={`${props.currency.symbol}/${props.imageCount ? t('image') : t('request')}`}
           invalid={props.invalidVariables?.includes('fixed')}
         />
       </>

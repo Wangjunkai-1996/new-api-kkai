@@ -167,7 +167,7 @@ function tokenTier(
         const category = remainder.right
         if (
           category.kind !== 'variable' ||
-          !['cr', 'cc', 'cc1h', 'img', 'ai'].includes(category.name) ||
+          !['cr', 'cc', 'cc1h', 'cc12h', 'img', 'ai'].includes(category.name) ||
           excluded.has(category.name)
         ) {
           return null

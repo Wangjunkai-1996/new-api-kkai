@@ -20,10 +20,14 @@ import { useQuery } from '@tanstack/react-query'
 import { Mail, Shield, Send, Link2, Unlink } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { SiGithub, SiWechat, SiLinux } from 'react-icons/si'
 import { toast } from 'sonner'
 
-import { IconDiscord } from '@/assets/brand-icons'
+import {
+  IconGithub,
+  IconWeChat,
+  IconLinuxDo,
+  IconDiscord,
+} from '@/assets/brand-icons'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
@@ -234,7 +238,7 @@ function AccountBindingsContent({ profile, onUpdate }: AccountBindingsProps) {
     {
       id: 'wechat',
       label: t('WeChat'),
-      icon: SiWechat as React.ComponentType<{ className?: string }>,
+      icon: IconWeChat,
       value: undefined,
       isBound: Boolean(
         (profile as unknown as Record<string, unknown>).wechat_id
@@ -245,7 +249,7 @@ function AccountBindingsContent({ profile, onUpdate }: AccountBindingsProps) {
     {
       id: 'github',
       label: t('GitHub'),
-      icon: SiGithub,
+      icon: IconGithub,
       value: (profile as unknown as Record<string, unknown>).github_id as
         | string
         | undefined,
@@ -295,7 +299,7 @@ function AccountBindingsContent({ profile, onUpdate }: AccountBindingsProps) {
     {
       id: 'linuxdo',
       label: t('LinuxDO'),
-      icon: SiLinux as React.ComponentType<{ className?: string }>,
+      icon: IconLinuxDo,
       value: (profile as unknown as Record<string, unknown>).linux_do_id as
         | string
         | undefined,

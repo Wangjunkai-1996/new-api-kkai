@@ -15,14 +15,23 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	var db *gorm.DB
+	var err error
+	cleanup := func() {}
+	databaseType := common.DatabaseTypeSQLite
+	if dsn := os.Getenv("TEST_AUTH_CACHE_POSTGRES_DSN"); dsn != "" {
+		db, cleanup, err = openAuthCacheTestPostgres(dsn)
+		databaseType = common.DatabaseTypePostgreSQL
+	} else {
+		db, err = gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	}
 	if err != nil {
 		panic("failed to open test db: " + err.Error())
 	}
 	DB = db
 	LOG_DB = db
 
-	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.SetDatabaseTypes(databaseType, databaseType)
 	common.RedisEnabled = false
 	common.BatchUpdateEnabled = false
 	common.LogConsumeEnabled = true
@@ -56,7 +65,9 @@ func TestMain(m *testing.M) {
 		panic("failed to migrate: " + err.Error())
 	}
 
-	os.Exit(m.Run())
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 func truncateTables(t *testing.T) {
@@ -518,4 +529,32 @@ func TestPersistTaskSubmissionAcceptanceKeepsRequestPolicy(t *testing.T) {
 	assert.JSONEq(t, string(audit), string(reloaded.PrivateData.RequestPolicy))
 	assert.Equal(t, 100, reloaded.Quota, "audit persistence does not change the accepted charge")
 	assert.Equal(t, TaskBillingStateAccepted, reloaded.PrivateData.BillingState)
+}
+
+func TestTaskSubmissionInlineFactSurvivesPersistenceWithoutPollingInference(t *testing.T) {
+	if DB.Dialector.Name() != "postgres" {
+		t.Skip("rc49 persistence regression uses PostgreSQL")
+	}
+	truncateTables(t)
+	for _, inline := range []bool{false, true} {
+		task := &Task{TaskID: map[bool]string{false: "async-result", true: "inline-result"}[inline], Status: TaskStatusNotStart, PrivateData: TaskPrivateData{BillingState: TaskBillingStateDispatching}}
+		insertTask(t, task)
+		status := TaskStatus(TaskStatusSubmitted)
+		if inline {
+			status = TaskStatusSuccess
+		}
+		accepted, won, err := PersistTaskSubmissionAcceptance(nil, task.ID, TaskSubmissionAcceptance{UpstreamTaskID: task.TaskID, Status: status, SubmissionInline: inline})
+		require.NoError(t, err)
+		require.True(t, won)
+		if !inline {
+			accepted.Status = TaskStatusSuccess
+			won, err = accepted.UpdateWithStatus(TaskStatusSubmitted)
+			require.NoError(t, err)
+			require.True(t, won)
+		}
+		var stored Task
+		require.NoError(t, DB.First(&stored, task.ID).Error)
+		assert.EqualValues(t, TaskStatusSuccess, stored.Status)
+		assert.Equal(t, inline, stored.PrivateData.SubmissionInline, "later successful polling cannot turn an async submission into an inline delivery")
+	}
 }

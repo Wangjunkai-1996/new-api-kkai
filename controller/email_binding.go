@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -51,7 +52,7 @@ func EmailBindStart(c *gin.Context) {
 		writeSecurityOperationError(c, err)
 		return
 	}
-	data, err := service.StartEmailBinding(identity, authorization, email, siteName)
+	data, err := service.StartEmailBinding(identity, authorization, email, siteName, service.AccountMailLanguage(c, identity.UserID))
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return
@@ -80,7 +81,7 @@ func EmailBindResend(c *gin.Context) {
 		writeSecurityOperationError(c, err)
 		return
 	}
-	data, err := service.ResendAccountEmailBinding(identity, request.FlowToken, siteName)
+	data, err := service.ResendAccountEmailBinding(identity, request.FlowToken, siteName, service.AccountMailLanguage(c, identity.UserID))
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return
@@ -115,8 +116,8 @@ func EmailBind(c *gin.Context) {
 		return
 	}
 	succeeded = true
-	notificationFailed = service.NotifyAccountSecurityChangeForSite(state.CurrentEmail, "Email address changed", siteName) != nil
-	if err := service.NotifyAccountSecurityChangeForSite(state.Email, "Email address confirmed", siteName); err != nil {
+	notificationFailed = service.NotifyAccountSecurityChangeForSite(service.AccountMailLanguage(c, identity.UserID), state.CurrentEmail, i18n.MsgSecurityEventEmailChanged, siteName) != nil
+	if err := service.NotifyAccountSecurityChangeForSite(service.AccountMailLanguage(c, identity.UserID), state.Email, i18n.MsgSecurityEventEmailConfirmed, siteName); err != nil {
 		notificationFailed = true
 	}
 	if err := model.PublishUserAuthCache(identity.UserID); err != nil {

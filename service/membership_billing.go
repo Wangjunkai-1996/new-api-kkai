@@ -283,3 +283,7 @@ func FinalizeFailedRequestUsage(c *gin.Context, info *relaycommon.RelayInfo, api
 	info.BillingFailureUsage = nil
 	return true
 }
+
+func (s *membershipBillingSession) ReserveBeforeSubmit(targetQuota int) error {
+	return s.Reserve(targetQuota)
+}

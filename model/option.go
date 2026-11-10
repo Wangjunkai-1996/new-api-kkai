@@ -73,6 +73,9 @@ func InitOptionMap() {
 	common.OptionMap["EmailAliasRestrictionEnabled"] = strconv.FormatBool(common.EmailAliasRestrictionEnabled)
 	common.OptionMap["EmailDomainWhitelist"] = strings.Join(common.EmailDomainWhitelist, ",")
 	common.OptionMap["SMTPServer"] = ""
+	common.OptionMap["EmailProvider"] = "smtp"
+	common.OptionMap["ResendApiKey"] = ""
+	common.OptionMap["ResendFrom"] = ""
 	common.OptionMap["SMTPFrom"] = ""
 	common.OptionMap["SMTPPort"] = strconv.Itoa(common.SMTPPort)
 	common.OptionMap["SMTPAccount"] = ""
@@ -150,6 +153,7 @@ func InitOptionMap() {
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
 	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
+	common.OptionMap["QuotaRemindEnabled"] = strconv.FormatBool(common.QuotaRemindEnabled)
 	common.OptionMap["QuotaRemindThreshold"] = strconv.Itoa(common.QuotaRemindThreshold)
 	common.OptionMap["PreConsumedQuota"] = strconv.Itoa(common.PreConsumedQuota)
 	common.OptionMap["ModelRequestRateLimitCount"] = strconv.Itoa(setting.ModelRequestRateLimitCount)
@@ -469,6 +473,8 @@ func updateOptionMap(key string, value string) (err error) {
 			common.AutomaticDisableChannelEnabled = boolValue
 		case "AutomaticEnableChannelEnabled":
 			common.AutomaticEnableChannelEnabled = boolValue
+		case "QuotaRemindEnabled":
+			common.QuotaRemindEnabled = boolValue
 		case "CyberPolicyKeyCooldownEnabled":
 			common.CyberPolicyKeyCooldownEnabled = boolValue
 		case "LogConsumeEnabled":
@@ -754,6 +760,30 @@ func updateOptionMap(key string, value string) (err error) {
 }
 
 func validateOptionValue(key, value string) error {
+	if key == "EmailProvider" || key == "ResendApiKey" || key == "ResendFrom" {
+		if key == "EmailProvider" && value != "smtp" && value != "resend" {
+			return common.NewMessage("Email sending method must be SMTP or Resend")
+		}
+		common.OptionMapRWMutex.RLock()
+		settings := map[string]string{
+			"EmailProvider": common.OptionMap["EmailProvider"],
+			"ResendApiKey":  common.OptionMap["ResendApiKey"],
+			"ResendFrom":    common.OptionMap["ResendFrom"],
+		}
+		common.OptionMapRWMutex.RUnlock()
+		settings[key] = value
+		// While Resend is the active method, a change must keep settings it can
+		// send with. Inactive drafts are checked when Resend is turned on.
+		if settings["EmailProvider"] == "resend" {
+			return common.ValidateResendConfiguration(settings["ResendApiKey"], settings["ResendFrom"])
+		}
+	}
+	if key == "ResendKeyConfigured" {
+		return common.NewMessage("Resend key configuration status is read-only")
+	}
+	if key == operation_setting.LogMaxRangeDaysOptionKey {
+		return operation_setting.ValidateLogMaxRangeDays(value)
+	}
 	if key == MembershipBillingRecoveryControlOption {
 		return ErrMembershipRecoveryControlReadOnly
 	}

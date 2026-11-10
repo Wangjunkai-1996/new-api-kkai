@@ -26,7 +26,7 @@ func (resellerApplicationV15Prefix) TableName() string { return "reseller_applic
 // These explicit canonical online prefixes exclude the retired v12/v13 branch.
 // Unknown future versions must never inherit this compatibility implicitly.
 func isTenantOnlineLedger(version int64) bool {
-	return version == TenantOnlineSchemaVersion || version == ResellerApplicationSchemaVersion || version == RequestTicketSchemaVersion || version == InvoiceSchemaVersion || version == WalletPaymentSchemaVersion || version == ShopSchemaVersion || version == MembershipPaymentSchemaVersion || version == MembershipBillingRecoverySchemaVersion
+	return version == TenantOnlineSchemaVersion || version == ResellerApplicationSchemaVersion || version == RequestTicketSchemaVersion || version == InvoiceSchemaVersion || version == WalletPaymentSchemaVersion || version == ShopSchemaVersion || version == MembershipPaymentSchemaVersion || version == MembershipBillingRecoverySchemaVersion || version == RC49SchemaVersion
 }
 
 type ResellerApplicationExpandPrecheck struct {

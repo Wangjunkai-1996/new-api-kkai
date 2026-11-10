@@ -55,7 +55,14 @@ func TestMembershipRecoveryRetainsEvidenceAfterFundsRollback(t *testing.T) {
 	require.NoError(t, RecordMembershipRelayEvidence(context.Background(), evidence))
 
 	// The real funds transaction fails after the separately committed receipt.
-	require.NoError(t, DB.Exec("CREATE TRIGGER recovery_fail_funds BEFORE UPDATE ON users BEGIN SELECT RAISE(ABORT, 'funds unavailable'); END").Error)
+	failFunds := true
+	callback := "test:membership_recovery_fail_funds"
+	require.NoError(t, DB.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+		if failFunds && tx.Statement.Table == "users" {
+			tx.AddError(errors.New("funds unavailable"))
+		}
+	}))
+	t.Cleanup(func() { require.NoError(t, DB.Callback().Update().Remove(callback)) })
 	_, err = ResolveMembershipRelayEvidence(context.Background(), record.RequestID)
 	require.ErrorContains(t, err, "funds unavailable")
 	var recovery MembershipBillingRecovery
@@ -64,7 +71,7 @@ func TestMembershipRecoveryRetainsEvidenceAfterFundsRollback(t *testing.T) {
 	stored, err := GetMembershipBillingRecord(record.RequestID)
 	require.NoError(t, err)
 	assert.Equal(t, "reserved", stored.State)
-	require.NoError(t, DB.Exec("DROP TRIGGER recovery_fail_funds").Error)
+	failFunds = false
 
 	settled, err := ResolveMembershipRelayEvidence(context.Background(), record.RequestID)
 	require.NoError(t, err)

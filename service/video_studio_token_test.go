@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -21,9 +22,26 @@ import (
 
 func newVideoStudioTokenTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := fmt.Sprintf("file:video-token-%d?mode=memory&cache=shared", time.Now().UnixNano())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	var db *gorm.DB
+	var err error
+	previousType := common.MainDatabaseType()
+	databaseType := common.DatabaseTypeSQLite
+	if dsn := os.Getenv("TEST_AUTH_CACHE_POSTGRES_DSN"); dsn != "" {
+		var cleanup func() error
+		db, cleanup, err = openAuthCachePostgresTestDB(dsn)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, cleanup()) })
+		databaseType = common.DatabaseTypePostgreSQL
+	} else {
+		dsn := fmt.Sprintf("file:video-token-%d?mode=memory&cache=shared", time.Now().UnixNano())
+		db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+	}
+	common.SetMainDatabaseType(databaseType)
+	t.Cleanup(func() { common.SetMainDatabaseType(previousType) })
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.KKAIVideoModelProfile{}, &model.Ability{}))
 	return db
 }

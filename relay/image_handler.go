@@ -24,6 +24,8 @@ import (
 
 func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
+	info.BillingImageCount = nil
+	info.ImageRequestCount = 0
 	info.ImagePricingOutboundValidated = false
 	info.UpstreamIsStream = false
 
@@ -48,7 +50,12 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
 	}
 	adaptor.Init(info)
+	imageCount, err := request.ImageCount(false)
+	if err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
 
+	var jsonData []byte
 	var requestBody io.Reader
 	var requestBodyCloser io.Closer
 	defer func() {
@@ -63,7 +70,14 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 		if info.ImagePricingSnapshot == nil {
-			requestBody = common.NewReplayableBodyReader(storage)
+			if strings.Contains(c.Request.Header.Get("Content-Type"), "multipart/form-data") {
+				requestBody = common.NewReplayableBodyReader(storage)
+			} else {
+				jsonData, err = storage.Bytes()
+				if err != nil {
+					return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+				}
+			}
 		} else {
 			requestBody, _, requestBodyCloser, err = buildPricedImagePassthroughBody(c, info, storage)
 			if err != nil {
@@ -73,6 +87,10 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	} else {
 		convertedRequest, err := adaptor.ConvertImageRequest(c, info, *request)
 		if err != nil {
+			var apiErr *types.NewAPIError
+			if errors.As(err, &apiErr) {
+				return apiErr
+			}
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed)
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
@@ -81,7 +99,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		case *bytes.Buffer:
 			requestBody = convertedRequest.(io.Reader)
 		default:
-			jsonData, err := common.Marshal(convertedRequest)
+			jsonData, err = common.Marshal(convertedRequest)
 			if err != nil {
 				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 			}
@@ -93,26 +111,48 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 					return newAPIErrorFromParamOverride(err)
 				}
 			}
-			if err := relaycommon.ValidateOutboundImagePricingJSON(info, jsonData); err != nil {
-				return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-			}
-			info.UpstreamIsStream = gjson.GetBytes(jsonData, "stream").Bool()
-
-			logger.LogDebug(c, "image request body: %s", jsonData)
-			body, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
-			if err != nil {
-				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-			}
-			requestBodyCloser = closer
-			jsonData = nil
-			requestBody = body
 		}
 	}
+	if jsonData != nil {
+		if err := relaycommon.ValidateOutboundImagePricingJSON(info, jsonData); err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		// Overrides and passthrough may change the quantity after ingress validation.
+		var outbound struct {
+			N *uint `json:"n"`
+		}
+		if err := common.Unmarshal(jsonData, &outbound); err != nil {
+			return types.NewErrorWithStatusCode(fmt.Errorf("invalid image billing parameters: %w", err), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		if outbound.N != nil {
+			quantity := dto.ImageRequest{N: outbound.N}
+			imageCount, err = quantity.ImageCount(false)
+			if err != nil {
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
+		}
+		info.UpstreamIsStream = gjson.GetBytes(jsonData, "stream").Bool()
+		logger.LogDebug(c, "image request body: %s", jsonData)
+		body, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
+		requestBodyCloser = closer
+		requestBody = body
+	} else if info.ImageRequestCount > 0 {
+		// Multipart adaptors validate the effective fields while rebuilding the body.
+		imageCount = info.ImageRequestCount
+	}
+
 	if info.ImagePricingSnapshot != nil && !info.ImagePricingOutboundValidated {
 		return types.NewErrorWithStatusCode(
 			fmt.Errorf("image pricing outbound request was not validated"),
 			types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry(),
 		)
+	}
+
+	if billingErr := service.PrepareImageBillingForRequest(c, info, imageCount); billingErr != nil {
+		return billingErr
 	}
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
@@ -157,9 +197,11 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		return newAPIError
 	}
 
-	imageN := uint(1)
-	if request.N != nil {
-		imageN = *request.N
+	imageN := info.RequestedImageCount()
+	if info.BillingImageCount != nil {
+		imageN = *info.BillingImageCount
+	} else if count, ok := info.PriceData.OtherRatios()["n"]; ok && info.PriceData.UsePrice && count >= 1 && count <= dto.MaxImageN {
+		imageN = common.QuotaRound(count)
 	}
 
 	if usage.(*dto.Usage).TotalTokens == 0 {
@@ -174,16 +216,16 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		quality = "standard"
 	}
 
-	var logContent []string
+	var logContent []*common.Message
 
 	if len(request.Size) > 0 {
-		logContent = append(logContent, fmt.Sprintf("大小 %s", request.Size))
+		logContent = append(logContent, common.NewMessage("Size {{size}}", map[string]any{"size": request.Size}))
 	}
 	if len(quality) > 0 {
-		logContent = append(logContent, fmt.Sprintf("品质 %s", quality))
+		logContent = append(logContent, common.NewMessage("Quality {{quality}}", map[string]any{"quality": quality}))
 	}
 	if imageN > 0 {
-		logContent = append(logContent, fmt.Sprintf("生成数量 %d", imageN))
+		logContent = append(logContent, common.NewMessage("Image count {{count}}", map[string]any{"count": imageN}))
 	}
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), logContent)

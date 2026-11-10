@@ -164,9 +164,13 @@ func RecordImageGenerationAccountingLog(
 	}
 	createdAt := common.GetTimestamp()
 	params := payload.LogParams
+	if params.Other == nil {
+		params.Other = NewLogOther()
+	}
+	content := params.Other.setContent(params.Content)
 	log := &Log{
 		UserId: generation.UserID, Username: payload.Username, CreatedAt: createdAt,
-		Type: LogTypeConsume, Content: params.Content, PromptTokens: params.PromptTokens,
+		Type: LogTypeConsume, Content: content, PromptTokens: params.PromptTokens,
 		CompletionTokens: params.CompletionTokens, TokenName: params.TokenName,
 		ModelName: params.ModelName, Quota: params.Quota, ChannelId: params.ChannelId,
 		TokenId: params.TokenId, UseTime: params.UseTimeSeconds, IsStream: params.IsStream,

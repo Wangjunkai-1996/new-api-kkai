@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/jinzhu/copier"
@@ -18,12 +19,8 @@ func DeepCopy[T any](src *T) (*T, error) {
 			SrcType: RawMessage{},
 			DstType: RawMessage{},
 			Fn: func(src any) (any, error) {
-				// Raw JSON must stay independent without reflecting over every byte.
-				// Keep copier's capacity and non-nil empty slice behavior.
-				raw := src.(RawMessage)
-				cloned := make(RawMessage, len(raw), cap(raw))
-				copy(cloned, raw)
-				return cloned, nil
+				// Preserve nil JSON values and isolate bytes between channel attempts.
+				return RawMessage(bytes.Clone(src.(RawMessage))), nil
 			},
 		}},
 	})

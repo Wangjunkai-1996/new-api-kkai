@@ -54,7 +54,7 @@ func assertResellerApplicationExpand(t *testing.T, db *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, CheckResellerApplicationSchema(ctx, db))
 	require.NoError(t, CheckTenantOnlineSchema(ctx, db))
-	if RuntimeMaxVersion >= 15 {
+	if RuntimeMinVersion <= 15 && RuntimeMaxVersion >= 15 {
 		require.NoError(t, CheckRequired(ctx, db))
 	}
 	var old tenantV12ResellerApplication

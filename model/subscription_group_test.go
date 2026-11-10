@@ -61,7 +61,8 @@ func TestSubscriptionUpgradeRefreshesAuthoritativeGroup(t *testing.T) {
 			case "admin":
 				message, err := AdminBindSubscription(user.Id, plan.Id, "")
 				require.NoError(t, err)
-				assert.Contains(t, message, "vip")
+				require.NotNil(t, message)
+				assert.Equal(t, "vip", message.Params["group"])
 			case "balance":
 				require.NoError(t, PurchaseSubscriptionWithBalance(user.Id, plan.Id))
 			}

@@ -1,11 +1,53 @@
 package billingexpr
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMaximumTokenQuotaBounds12hCacheWrites(t *testing.T) {
+	snapshot := &BillingSnapshot{ExprString: `tier("cache", cc12h * 25)`, ExprVersion: 1, QuotaPerUnit: 500_000}
+	for _, tc := range []struct {
+		name  string
+		bound float64
+		want  float64
+		valid bool
+	}{
+		{name: "reported writes", bound: 100, want: 1250, valid: true},
+		{name: "no writes", valid: true},
+		{name: "negative bound", bound: -1},
+		{name: "nonfinite bound", bound: math.Inf(1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			maximum, err := MaximumTokenQuota(snapshot, TokenParams{CC12h: tc.bound}, 1)
+			if !tc.valid {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, maximum)
+		})
+	}
+}
+
+func TestRequestPricingPreserves12hUsagePredicates(t *testing.T) {
+	expression := `cc12h > 100 && param("fast") == true ? tier("fast", cc12h * 2) : tier("normal", cc12h)`
+	frozen, err := FreezeRequestPricing(expression, RequestInput{Body: []byte(`{"fast":true}`)})
+	require.NoError(t, err)
+	for _, tc := range []struct{ tokens, want float64 }{{50, 50}, {200, 400}} {
+		cost, _, err := RunExpr(frozen, TokenParams{CC12h: tc.tokens})
+		require.NoError(t, err)
+		assert.Equal(t, tc.want, cost)
+	}
+
+	// This predicate cannot discard the request string without also freezing
+	// the still-unknown token count. Reject it instead of pricing cc12h as zero.
+	_, err = FreezeRequestPricing(`header("x-cache-count") == string(cc12h) ? tier("match", cc12h * 2) : tier("other", cc12h)`, RequestInput{Headers: map[string]string{"x-cache-count": "100"}})
+	require.ErrorContains(t, err, "request pricing must reduce")
+}
 
 func TestMembershipMaximumBoundsAllTierBranches(t *testing.T) {
 	for _, tc := range []struct {

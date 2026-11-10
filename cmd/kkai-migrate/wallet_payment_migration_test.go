@@ -59,6 +59,7 @@ func walletPaymentProofFixture(t *testing.T) (*walletPaymentControllerProof, *wa
 }
 
 func TestWalletPaymentProofRejectsDriftAndIncompatibleRuntimes(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	proof, status, now := walletPaymentProofFixture(t)
 	require.NoError(t, validateWalletPaymentControllerProof(proof, status, now))
 	encoded, err := common.Marshal(proof)
@@ -153,6 +154,7 @@ func TestWalletPaymentCommandRequiresItsOwnFixedProof(t *testing.T) {
 }
 
 func TestWalletPaymentInspectionRejectsUnreceiptedObjects(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	db := newInvoiceCommandFixture(t)
 	ctx := context.Background()
 	_, err := kkaimigrate.ApplyInvoiceExpand(ctx, db, kkaimigrate.Options{Offline: true})

@@ -99,6 +99,9 @@ func TestVideoFetchByIDRedactsAssetHostedResultForAllFormats(t *testing.T) {
 
 func TestVideoFetchByIDPersistsManagedRealtimeResultWithoutExposingIt(t *testing.T) {
 	setupTaskReliabilityDB(t)
+	previousFactory := service.GetTaskAdaptorFunc
+	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor { return GetTaskAdaptor(platform) }
+	t.Cleanup(func() { service.GetTaskAdaptorFunc = previousFactory })
 	service.InitHttpClient()
 	client := service.GetHttpClient()
 	originalTransport := client.Transport
@@ -106,7 +109,7 @@ func TestVideoFetchByIDPersistsManagedRealtimeResultWithoutExposingIt(t *testing
 	responseBody := `{
 		"name":"operations/generated-video",
 		"done":true,
-		"response":{"generateVideoResponse":{"generatedVideos":[{"video":{"uri":"https://media.example/private.mp4"}}]}}
+		"response":{"generateVideoResponse":{"generatedSamples":[{"video":{"uri":"https://media.example/private.mp4"}}]}}
 	}`
 	client.Transport = taskVisibilityRoundTripper(func(request *http.Request) (*http.Response, error) {
 		upstreamCalls++
@@ -179,7 +182,7 @@ func TestVideoFetchByIDPersistsManagedRealtimeResultWithoutExposingIt(t *testing
 	responseBody = `{
 		"name":"operations/generated-video",
 		"done":true,
-		"response":{"generateVideoResponse":{"generatedVideos":[{"video":{"uri":"https://media.example/resurrected.mp4"}}]}}
+		"response":{"generateVideoResponse":{"generatedSamples":[{"video":{"uri":"https://media.example/resurrected.mp4"}}]}}
 	}`
 	thirdRecorder := httptest.NewRecorder()
 	thirdContext, _ := gin.CreateTestContext(thirdRecorder)

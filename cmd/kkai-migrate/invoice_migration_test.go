@@ -62,6 +62,7 @@ func invoiceProofFixture(t *testing.T) (*invoiceControllerProof, *invoiceMigrati
 }
 
 func TestInvoiceProofBindsDatabasePlanProcessAndEveryRuntime(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	proof, status, now := invoiceProofFixture(t)
 	require.NoError(t, validateInvoiceControllerProof(proof, status, now))
 	encoded, err := common.Marshal(proof)
@@ -191,6 +192,7 @@ func newInvoiceCommandFixture(t *testing.T) *gorm.DB {
 }
 
 func TestInvoiceInspectionIsReadOnlyAndRequiresCompleteReceiptAndShape(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	db := newInvoiceCommandFixture(t)
 	ctx := context.Background()
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)

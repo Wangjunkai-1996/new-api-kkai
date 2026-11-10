@@ -60,6 +60,7 @@ func requestTicketProofFixture(t *testing.T) (*requestTicketControllerProof, *re
 }
 
 func TestRequestTicketProofBindsDatabasePlanEveryRuntimeAndActiveImage(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	proof, status, now := requestTicketProofFixture(t)
 	require.NoError(t, validateRequestTicketProof(proof, status, now))
 	encoded, err := common.Marshal(proof)
@@ -153,6 +154,7 @@ func TestRequestTicketCommandRequiresInstalledProofOnlyForApply(t *testing.T) {
 }
 
 func TestRequestTicketInspectionIsReadOnlyAndRefusesUnreceiptedTablesAndDrift(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	db, err := openDatabase("file:" + t.TempDir() + "/tickets.db")
 	require.NoError(t, err)
 	prepareLegacyAuthenticationTables(t, db)

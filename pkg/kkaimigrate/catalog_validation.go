@@ -17,6 +17,7 @@ const (
 	migrationChecksumSchemaBackfill = 3
 	migrationChecksumSchemaGORM     = 4
 
+	migrationOperationRC49Columns            = "rc49_postgres_columns"
 	migrationOperationCreateTable            = "create_table"
 	migrationOperationCreateIndex            = "create_index_on_new_table"
 	migrationOperationAddNullableColumn      = "add_nullable_column"
@@ -247,6 +248,16 @@ func validateExpandSQL(
 		default:
 			return fmt.Errorf("wallet topup index operation is outside the frozen allowlist")
 		}
+	case migrationOperationRC49Columns:
+		if dialect != DialectPostgres {
+			return fmt.Errorf("rc49 columns require PostgreSQL")
+		}
+		for _, allowed := range rc49SchemaStatements[DialectPostgres] {
+			if statement.SQL == allowed.SQL {
+				return nil
+			}
+		}
+		return fmt.Errorf("rc49 column operation is outside the frozen allowlist")
 	case migrationOperationAddNullableColumn:
 		return validateAddNullableColumn(tokens)
 	case migrationOperationAddColumnDefault:

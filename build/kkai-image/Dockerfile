@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.8@sha256:dde28735fbb848299b7a43b7561d828b89c76f84f745c31896a7a7efbf93851a
 
-ARG BUN_IMAGE=oven/bun:1.3.13@sha256:bb35eafd10b2e969809384850ff0474ba36a491239d715864bc87787b4cdf0a4
-ARG GO_IMAGE=golang:1.26.5-alpine@sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2611df853955f3621828cd49e8
+ARG BUN_IMAGE=oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d
+ARG GO_IMAGE=golang:1.26.10-alpine@sha256:95086244f14745c3afe829d2d46d6d34739dc6850ebef3994b2c1fa6a6f6bbb9
 # Multi-platform index; its linux/amd64 child remains pinned by GO_IMAGE.
-ARG GO_BUILD_IMAGE=golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2
+ARG GO_BUILD_IMAGE=golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca
 ARG BUSYBOX_IMAGE=busybox:1.37.0-musl@sha256:6be969a074d06073a62ad8ccfd2ad6ec2790cae25d519d8df255ba24819d96f0
 ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:7a2bd171a18bdd39a4729600d0dca5f16e779d41156a6908b4f8a9a289e76d92
 ARG KKAI_SCHEMA_CONTRACT=feature
@@ -48,6 +48,7 @@ ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ENV CGO_ENABLED=0 \
     GO111MODULE=on \
+    GOWORK=off \
     GOEXPERIMENT=greenteagc \
     GOOS=${TARGETOS} \
     GOARCH=${TARGETARCH}
@@ -55,6 +56,7 @@ ENV CGO_ENABLED=0 \
 WORKDIR /build
 COPY go.mod go.sum ./
 COPY relaykit/go.mod relaykit/go.sum ./relaykit/
+COPY tokenkit/go.mod tokenkit/go.sum ./tokenkit/
 COPY third_party/tokenizer/go.mod third_party/tokenizer/go.sum ./third_party/tokenizer/
 RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
     go mod download && go mod verify
@@ -75,7 +77,7 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
       *) echo "invalid KKAI schema contract: ${KKAI_SCHEMA_CONTRACT}" >&2; exit 1 ;; \
     esac \
     && test "${KKAI_FRONTEND_MODE}" = embedded \
-    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
+    && go build -p "${GO_BUILD_PARALLELISM}" -pgo="$(go list -m -f '{{.Dir}}' github.com/Calcium-Ion/moejs)/default.pgo" -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}' -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
       -o /out/new-api . \
     && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
@@ -99,6 +101,7 @@ ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ENV CGO_ENABLED=0 \
     GO111MODULE=on \
+    GOWORK=off \
     GOEXPERIMENT=greenteagc \
     GOOS=${TARGETOS} \
     GOARCH=${TARGETARCH}
@@ -106,6 +109,7 @@ ENV CGO_ENABLED=0 \
 WORKDIR /build
 COPY go.mod go.sum ./
 COPY relaykit/go.mod relaykit/go.sum ./relaykit/
+COPY tokenkit/go.mod tokenkit/go.sum ./tokenkit/
 COPY third_party/tokenizer/go.mod third_party/tokenizer/go.sum ./third_party/tokenizer/
 RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
     go mod download && go mod verify
@@ -125,7 +129,7 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
       bridge) export GOFLAGS=-tags=kkai_bridge,external_frontend ;; \
       *) echo "invalid KKAI schema contract: ${KKAI_SCHEMA_CONTRACT}" >&2; exit 1 ;; \
     esac \
-    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
+    && go build -p "${GO_BUILD_PARALLELISM}" -pgo="$(go list -m -f '{{.Dir}}' github.com/Calcium-Ion/moejs)/default.pgo" -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}' -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
       -o /out/new-api . \
     && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \

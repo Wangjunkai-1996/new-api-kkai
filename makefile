@@ -100,3 +100,7 @@ test-standby-sync:
 test-manual-deploy:
 	@bash scripts/kkai/build-manual-release_test.sh
 	@bash scripts/kkai/deploy-manual-release_test.sh
+
+# Standalone module verification (requires explicit full-suite approval when run).
+test-tokenkit:
+	cd tokenkit && GOWORK=off go test ./...

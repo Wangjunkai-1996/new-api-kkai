@@ -129,19 +129,21 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	Failure             *TaskFailureSnapshot           `json:"failure,omitempty"`
+	Failure             *TaskFailureSnapshot               `json:"failure,omitempty"`
 	VideoPosters        map[string]TaskVideoPosterSnapshot `json:"video_posters,omitempty"`
-	RequestPolicy       json.RawMessage        `json:"request_policy,omitempty"`
-	Execution           *TaskExecutionSnapshot `json:"execution,omitempty"`
-	Key                 string                 `json:"key,omitempty"`
-	UpstreamTaskID      string                 `json:"upstream_task_id,omitempty"`    // 上游真实 task ID
-	ResultURL           string                 `json:"result_url,omitempty"`          // 任务成功后的结果 URL（视频地址等）
-	ArchiveSource       string                 `json:"archive_source,omitempty"`      // 仅供内部资产归档读取，可能是临时 URL 或 data URI
-	AssetHostedResult   bool                   `json:"asset_hosted_result,omitempty"` // 结果由资产系统托管，禁止通用 Task 出口暴露或代理
-	ResponsesBackground bool                   `json:"responses_background,omitempty"`
-	PluginState         json.RawMessage        `json:"plugin_state,omitempty"`
-	PollFailures        int                    `json:"poll_failures,omitempty"`
-	ResultDiscarded     bool                   `json:"result_discarded,omitempty"`
+	RequestPolicy       json.RawMessage                    `json:"request_policy,omitempty"`
+	Execution           *TaskExecutionSnapshot             `json:"execution,omitempty"`
+	Key                 string                             `json:"key,omitempty"`
+	UpstreamTaskID      string                             `json:"upstream_task_id,omitempty"`    // 上游真实 task ID
+	ResultURL           string                             `json:"result_url,omitempty"`          // 任务成功后的结果 URL（视频地址等）
+	ArchiveSource       string                             `json:"archive_source,omitempty"`      // 仅供内部资产归档读取，可能是临时 URL 或 data URI
+	AssetHostedResult   bool                               `json:"asset_hosted_result,omitempty"` // 结果由资产系统托管，禁止通用 Task 出口暴露或代理
+	ResponsesBackground bool                               `json:"responses_background,omitempty"`
+	PluginState         json.RawMessage                    `json:"plugin_state,omitempty"`
+	PollFailures        int                                `json:"poll_failures,omitempty"`
+	ResultDiscarded     bool                               `json:"result_discarded,omitempty"`
+	// SubmissionInline is frozen from the submit response, never from later polling.
+	SubmissionInline bool `json:"submission_inline,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource              string                   `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId             int                      `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款

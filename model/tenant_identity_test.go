@@ -15,12 +15,17 @@ import (
 func tenantIdentityTestDB(t *testing.T) {
 	t.Helper()
 	previous := DB
+	previousType := common.MainDatabaseType()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:tenant-identity-%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
 	require.NoError(t, err)
 	DB = db
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	initCol()
 	require.NoError(t, db.AutoMigrate(&User{}, &Tenant{}, &TenantMembership{}))
 	t.Cleanup(func() {
 		DB = previous
+		common.SetMainDatabaseType(previousType)
+		initCol()
 		sqlDB, dbErr := db.DB()
 		if dbErr == nil {
 			_ = sqlDB.Close()

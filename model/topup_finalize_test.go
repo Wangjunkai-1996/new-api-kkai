@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -15,10 +16,21 @@ import (
 
 func setupTopUpFinalizeTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	previousDB := DB
-	dsn := fmt.Sprintf("file:%s?_busy_timeout=30000&_journal_mode=WAL", filepath.Join(t.TempDir(), "topup.db"))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	previousDB, previousType := DB, common.MainDatabaseType()
+	var db *gorm.DB
+	var err error
+	cleanup := func() {}
+	databaseType := common.DatabaseTypeSQLite
+	if dsn := os.Getenv("TEST_AUTH_CACHE_POSTGRES_DSN"); dsn != "" {
+		db, cleanup, err = openAuthCacheTestPostgres(dsn)
+		databaseType = common.DatabaseTypePostgreSQL
+	} else {
+		dsn := fmt.Sprintf("file:%s?_busy_timeout=30000&_journal_mode=WAL", filepath.Join(t.TempDir(), "topup.db"))
+		db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	}
 	require.NoError(t, err)
+	common.SetMainDatabaseType(databaseType)
+	initCol()
 	require.NoError(t, db.AutoMigrate(&User{}, &TopUp{}, &KKAIOutboxEvent{}))
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
@@ -26,7 +38,10 @@ func setupTopUpFinalizeTestDB(t *testing.T) *gorm.DB {
 	DB = db
 	t.Cleanup(func() {
 		DB = previousDB
+		common.SetMainDatabaseType(previousType)
+		initCol()
 		require.NoError(t, sqlDB.Close())
+		cleanup()
 	})
 	return db
 }

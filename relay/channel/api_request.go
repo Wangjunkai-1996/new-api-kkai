@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -25,8 +26,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-
 	"github.com/bytedance/gopkg/util/gopool"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -329,10 +330,12 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 	}
 
 	headerOverrideSource := common.GetEffectiveHeaderOverride(info)
+	// Background polling has no client request from which to copy headers.
+	hasClientRequest := !info.IsChannelTest && c != nil && c.Request != nil
 
 	passAll := false
 	var passthroughRegex []*regexp.Regexp
-	if !info.IsChannelTest {
+	if hasClientRequest {
 		for k := range headerOverrideSource {
 			key := strings.TrimSpace(strings.ToLower(k))
 			if key == "" {
@@ -365,9 +368,6 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 	}
 
 	if passAll || len(passthroughRegex) > 0 {
-		if c == nil || c.Request == nil {
-			return nil, types.NewError(fmt.Errorf("missing request context for header passthrough"), types.ErrorCodeChannelHeaderOverrideInvalid)
-		}
 		for name := range c.Request.Header {
 			if shouldSkipPassthroughHeader(name) {
 				continue
@@ -405,7 +405,7 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 		if !ok {
 			return nil, types.NewError(nil, types.ErrorCodeChannelHeaderOverrideInvalid)
 		}
-		if info.IsChannelTest && strings.HasPrefix(strings.TrimSpace(str), clientHeaderPlaceholderPrefix) {
+		if !hasClientRequest && strings.HasPrefix(strings.TrimSpace(str), clientHeaderPlaceholderPrefix) {
 			continue
 		}
 
@@ -424,6 +424,17 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 
 func ResolveHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]string, error) {
 	return processHeaderOverride(info, c)
+}
+
+// ApplyHeaderOverride applies channel overrides after the adaptor's headers.
+// Without a client request, only static values and {api_key} are resolved.
+func ApplyHeaderOverride(info *common.RelayInfo, c *gin.Context, req *http.Request) error {
+	headers, err := processHeaderOverride(info, c)
+	if err != nil {
+		return err
+	}
+	applyHeaderOverrideToRequest(req, headers)
+	return nil
 }
 
 func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]string) {
@@ -462,12 +473,10 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
-	headerOverride, err := processHeaderOverride(info, c)
-	if err != nil {
+	if err = ApplyHeaderOverride(info, c, req); err != nil {
 		cancelRequest()
 		return nil, err
 	}
-	applyHeaderOverrideToRequest(req, headerOverride)
 	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
 		cancelRequest()
 		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
@@ -507,12 +516,10 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	}
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
-	headerOverride, err := processHeaderOverride(info, c)
-	if err != nil {
+	if err = ApplyHeaderOverride(info, c, req); err != nil {
 		cancelRequest()
 		return nil, err
 	}
-	applyHeaderOverrideToRequest(req, headerOverride)
 	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
 		cancelRequest()
 		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
@@ -530,10 +537,9 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
-	if strings.HasPrefix(fullRequestURL, "https://") {
-		fullRequestURL = "wss://" + strings.TrimPrefix(fullRequestURL, "https://")
-	} else if strings.HasPrefix(fullRequestURL, "http://") {
-		fullRequestURL = "ws://" + strings.TrimPrefix(fullRequestURL, "http://")
+	fullRequestURL = toWebSocketURL(fullRequestURL)
+	if targetURL, parseErr := url.Parse(fullRequestURL); parseErr == nil {
+		common2.SetContextKey(c, systemconstant.ContextKeyUpstreamRequestOrigin, targetURL.Scheme+"://"+targetURL.Host)
 	}
 	targetHeader := http.Header{}
 	err = a.SetupRequestHeader(c, &targetHeader, info)
@@ -577,79 +583,17 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	return targetConn, nil
 }
 
-func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.CancelFunc, <-chan struct{}) {
-	pingerCtx, stopPinger := context.WithCancel(context.Background())
-	done := make(chan struct{})
-
-	gopool.Go(func() {
-		defer close(done)
-		defer func() {
-			// 增加panic恢复处理
-			if r := recover(); r != nil {
-				logger.LogDebug(c, "SSE ping goroutine panic recovered: %v", r)
-			}
-			logger.LogDebug(c, "SSE ping goroutine stopped")
-		}()
-
-		if pingInterval <= 0 {
-			pingInterval = helper.DefaultPingInterval
-		}
-
-		ticker := time.NewTicker(pingInterval)
-		// 确保在任何情况下都清理ticker
-		defer func() {
-			ticker.Stop()
-			logger.LogDebug(c, "SSE ping ticker stopped")
-		}()
-
-		var pingMutex sync.Mutex
-		logger.LogDebug(c, "SSE ping goroutine started")
-
-		// 增加超时控制，防止goroutine长时间运行
-		maxPingDuration := 120 * time.Minute // 最大ping持续时间
-		pingTimeout := time.NewTimer(maxPingDuration)
-		defer pingTimeout.Stop()
-
-		for {
-			select {
-			// 发送 ping 数据
-			case <-ticker.C:
-				if err := sendPingData(c, &pingMutex); err != nil {
-					logger.LogDebug(c, "SSE ping error, stopping goroutine: %s", err.Error())
-					return
-				}
-			// 收到退出信号
-			case <-pingerCtx.Done():
-				return
-			// request 结束
-			case <-c.Request.Context().Done():
-				return
-			// 超时保护，防止goroutine无限运行
-			case <-pingTimeout.C:
-				logger.LogDebug(c, "SSE ping goroutine timeout, stopping")
-				return
-			}
-		}
-	})
-
-	return stopPinger, done
-}
-
-func sendPingData(c *gin.Context, mutex *sync.Mutex) error {
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	// Bound the write so a slow client cannot block this goroutine forever;
-	// doRequest's defer waits for the pinger to exit before returning.
-	helper.ExtendWriteDeadline(c)
-	err := helper.PingData(c)
-	if err != nil {
-		logger.LogError(c, "SSE ping error: "+err.Error())
-		return err
+// toWebSocketURL maps an http(s) endpoint to ws(s). Realtime adaptors already
+// return ws(s) URLs, which pass through unchanged.
+func toWebSocketURL(raw string) string {
+	switch {
+	case strings.HasPrefix(raw, "https://"):
+		return "wss://" + strings.TrimPrefix(raw, "https://")
+	case strings.HasPrefix(raw, "http://"):
+		return "ws://" + strings.TrimPrefix(raw, "http://")
+	default:
+		return raw
 	}
-
-	logger.LogDebug(c, "SSE ping data sent")
-	return nil
 }
 
 func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
@@ -761,23 +705,15 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if info.IsStream && (info.ApiType == systemconstant.APITypeOpenAI || info.ApiType == systemconstant.APITypeSub2API) {
 		req.Header.Set("X-Sub2-TTFT", "1")
 	}
-	var stopPinger context.CancelFunc
-	var pingerDone <-chan struct{}
+
 	if info.IsStream {
 		helper.SetEventStreamHeaders(c)
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
 		if generalSettings.PingIntervalEnabled && !info.DisablePing {
 			pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
-			stopPinger, pingerDone = startPingKeepAlive(c, pingInterval)
-			// 使用defer确保在任何情况下都能停止ping goroutine
-			defer func() {
-				if stopPinger != nil {
-					stopPinger()
-					<-pingerDone
-					logger.LogDebug(c, "SSE ping goroutine stopped by defer")
-				}
-			}()
+			stopPinger := helper.StartStreamKeepAlive(c, pingInterval)
+			defer stopPinger()
 		}
 	}
 
@@ -793,6 +729,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	var possiblySent atomic.Bool
 	dispatchCtx = httptrace.WithClientTrace(dispatchCtx, &httptrace.ClientTrace{WroteHeaders: func() { possiblySent.Store(true) }, WroteRequest: func(httptrace.WroteRequestInfo) { possiblySent.Store(true) }})
 	req = req.WithContext(dispatchCtx)
+	common2.SetContextKey(c, systemconstant.ContextKeyUpstreamRequestOrigin, req.URL.Scheme+"://"+req.URL.Host)
 	resp, err := relayClient.Do(req)
 	if info.HasDurableBilling() && err != nil {
 		info.BillingOutcomeUnknown = possiblySent.Load()
@@ -805,7 +742,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 	if err != nil {
 		cancelDispatch()
-		logger.LogError(c, "do request failed: "+err.Error())
+		logger.LogError(c, common2.LogText("do request failed: %s", err.Error()))
 		return nil, imageRequestTransportError(err, info, "upstream error: do request failed")
 	}
 	if resp == nil {
@@ -868,6 +805,10 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		cancelRequest()
 		return nil, NewTaskRequestError(fmt.Errorf("setup request header failed: %w", err), false)
+	}
+	if err = ApplyHeaderOverride(info, c, req); err != nil {
+		cancelRequest()
+		return nil, NewTaskRequestError(err, false)
 	}
 	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
 		cancelRequest()

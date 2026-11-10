@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	KnownCatalogVersion     int64 = MembershipBillingRecoverySchemaVersion
+	KnownCatalogVersion     int64 = RC49SchemaVersion
 	MigrationContractSchema       = 1
 
 	MigrationKindNone     = "none"
@@ -23,9 +23,13 @@ type SchemaContract struct {
 	MigrationKind          string            `json:"migration_kind"`
 	MigrationSetDigest     string            `json:"migration_set_digest"`
 	CompatiblePrefixes     map[string]string `json:"compatible_prefixes"`
+	RequiredExpansions     map[string]string `json:"required_expansions,omitempty"`
 }
 
 func ContractForDialect(dialect string) (SchemaContract, error) {
+	if dialect != DialectPostgres {
+		return SchemaContract{}, ErrUnsupportedDialect
+	}
 	if err := validateMigrationCatalog(migrationSet()); err != nil {
 		return SchemaContract{}, err
 	}
@@ -44,6 +48,7 @@ func ContractForDialect(dialect string) (SchemaContract, error) {
 		MigrationKind:          MigrationKindNone,
 		MigrationSetDigest:     migrationSetDigest(dialect, planItemsForDialect(dialect, target)),
 		CompatiblePrefixes:     prefixes,
+		RequiredExpansions:     map[string]string{RC49OnlineExpansion: RC49OnlineExpansionDigest()},
 	}, nil
 }
 

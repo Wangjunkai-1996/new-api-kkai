@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
@@ -55,7 +56,7 @@ func VideoProxy(c *gin.Context) {
 	userID := c.GetInt("id")
 	task, exists, err := model.GetByTaskId(userID, taskID)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to query task %s: %s", taskID, err.Error()))
+		logger.LogError(c.Request.Context(), common.LogText("Failed to query task %s: %s", taskID, err.Error()))
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to query task")
 		return
 	}
@@ -71,6 +72,55 @@ func VideoProxy(c *gin.Context) {
 	if task.Status != model.TaskStatusSuccess {
 		videoProxyError(c, http.StatusBadRequest, "invalid_request_error",
 			fmt.Sprintf("Task is not completed yet, current status: %s", task.Status))
+		return
+	}
+
+	if taskHasPluginExecution(task) {
+		var descriptor *relaychannel.TaskContentRequest
+		if taskHasPluginExecution(task) {
+			artifacts, projectionErr := projectTaskArtifacts(task)
+			if projectionErr == nil {
+				for _, artifact := range artifacts {
+					if artifact.Type != "video" {
+						continue
+					}
+					adaptor, adaptorErr := initTaskArtifactAdaptor(task)
+					if adaptorErr == nil {
+						if provider, ok := adaptor.(relaychannel.TaskContentRequestProvider); ok {
+							descriptor, adaptorErr = provider.BuildContentRequest(c.Request.Context(), task, artifact.Key, relaychannel.TaskArtifactClientRequest{
+								Method:  c.Request.Method,
+								Headers: taskArtifactClientHeaders(c.Request.Header),
+							})
+						}
+					}
+					if adaptorErr != nil {
+						logger.LogWarn(c.Request.Context(), common.LogText("Failed to resolve plugin video content for task %s: %v", taskID, adaptorErr))
+						descriptor = nil
+					}
+					break
+				}
+			} else {
+				logger.LogWarn(c.Request.Context(), common.LogText("Failed to project plugin video for task %s", taskID))
+			}
+		}
+		if descriptor == nil {
+			resultURL := task.GetResultURL()
+			if isTaskMediaFallbackLoop(resultURL, task.TaskID) {
+				writeTaskMediaProxyError(c, &taskMediaProxyError{
+					status: http.StatusGone, code: "artifact_gone",
+					message: "Artifact content is no longer available",
+				})
+				return
+			}
+			descriptor = &relaychannel.TaskContentRequest{
+				URL:            resultURL,
+				Method:         c.Request.Method,
+				Credentialless: true,
+			}
+		}
+		if err := proxyTaskMedia(c, task, descriptor); err != nil {
+			writeTaskMediaProxyError(c, err)
+		}
 		return
 	}
 

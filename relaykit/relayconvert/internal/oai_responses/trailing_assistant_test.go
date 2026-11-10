@@ -17,7 +17,7 @@ func TestResponsesToClaudeDropsTrailingAssistantText(t *testing.T) {
 	maxTokens := uint(128)
 	ctx, collector := convdiag.WithCollector(context.Background())
 	request := &dto.OpenAIResponsesRequest{
-		Model:          "claude-test",
+		Model:           "claude-test",
 		MaxOutputTokens: &maxTokens,
 		Input: json.RawMessage(`[
 			{"role":"user","content":"question"},

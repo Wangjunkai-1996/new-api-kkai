@@ -45,7 +45,7 @@ func (v *requestPricingFreezer) Visit(node *ast.Node) {
 			return false
 		}
 		switch ident.Value {
-		case "p", "c", "len", "cr", "cc", "cc1h", "img", "img_cr", "img_o", "ai", "ao", "image_count", "u":
+		case "p", "c", "len", "cr", "cc", "cc1h", "cc12h", "img", "img_cr", "img_o", "ai", "ao", "image_count", "u":
 			return true
 		}
 		return false
@@ -118,7 +118,7 @@ func MaximumTokenQuota(snapshot *BillingSnapshot, bounds TokenParams, imageCount
 	if err != nil {
 		return 0, err
 	}
-	upperBounds := map[string]float64{"p": bounds.P, "c": bounds.C, "len": bounds.Len, "cr": bounds.CR, "cc": bounds.CC, "cc1h": bounds.CC1h, "img": bounds.Img, "img_cr": bounds.ImgCR, "img_o": bounds.ImgO, "ai": bounds.AI, "ao": bounds.AO, "image_count": float64(imageCount)}
+	upperBounds := map[string]float64{"p": bounds.P, "c": bounds.C, "len": bounds.Len, "cr": bounds.CR, "cc": bounds.CC, "cc1h": bounds.CC1h, "cc12h": bounds.CC12h, "img": bounds.Img, "img_cr": bounds.ImgCR, "img_o": bounds.ImgO, "ai": bounds.AI, "ao": bounds.AO, "image_count": float64(imageCount)}
 	variables := make(map[string]costInterval, len(upperBounds))
 	for key, value := range upperBounds {
 		if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {

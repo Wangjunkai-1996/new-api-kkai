@@ -51,6 +51,8 @@ func main() {
 
 		membershipBillingRecoveryMigration       string
 		membershipBillingRecoveryControllerProof string
+		rc49Expand                               string
+		rc49ControllerProof                      string
 	)
 	flag.StringVar(&dsn, "dsn", firstNonEmpty(os.Getenv("KKAI_MIGRATION_DSN"), os.Getenv("SQL_DSN")), "database DSN")
 	flag.BoolVar(&dsnFromStdin, "dsn-stdin", false, "read one database DSN from stdin")
@@ -81,7 +83,17 @@ func main() {
 	flag.StringVar(&membershipPaymentControllerProof, "membership-payment-controller-proof", "", "fixed root membership payment controller proof mount for membership payment apply")
 	flag.StringVar(&membershipBillingRecoveryMigration, "membership-billing-recovery-migration", "", "independent v21 billing recovery operation: plan/status are read-only; apply requires the installed billing recovery controller proof")
 	flag.StringVar(&membershipBillingRecoveryControllerProof, "membership-billing-recovery-controller-proof", "", "fixed root billing recovery controller proof mount for billing recovery apply")
+	flag.StringVar(&rc49Expand, "rc49-expand", "", "canonical21-preserving rc49 expansion: plan/status, or root-proof apply/repair-index")
+	flag.StringVar(&rc49ControllerProof, "rc49-controller-proof", "", "fixed root rc49 controller proof mount for apply or repair-index")
 	flag.Parse()
+	if rc49ControllerProof != "" && rc49Expand != "apply" && rc49Expand != "repair-index" {
+		log.Fatal("--rc49-controller-proof is only valid for --rc49-expand apply or repair-index")
+	}
+	if rc49Expand != "" {
+		if err := validateRC49OnlineCommand(rc49Expand, rc49ControllerProof, jsonOutput, tenantRuntime || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || shopMigration != "" || shopControllerProof != "" || membershipPaymentMigration != "" || membershipPaymentControllerProof != "" || membershipBillingRecoveryMigration != "" || membershipBillingRecoveryControllerProof != "" || tenantControllerProof != "" || flag.NArg() != 0); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if membershipBillingRecoveryControllerProof != "" && membershipBillingRecoveryMigration != "apply" {
 		log.Fatal("--membership-billing-recovery-controller-proof is only valid for --membership-billing-recovery-migration apply")
 	}
@@ -176,7 +188,7 @@ func main() {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
 			log.Fatal("--observe requires --current --json and cannot be combined with migration operations")
 		}
-	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" && invoiceMigration == "" && walletPaymentMigration == "" && shopMigration == "" && membershipPaymentMigration == "" && membershipBillingRecoveryMigration == "" || dialect != "" {
+	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" && invoiceMigration == "" && walletPaymentMigration == "" && shopMigration == "" && membershipPaymentMigration == "" && membershipBillingRecoveryMigration == "" && rc49Expand == "" || dialect != "" {
 		log.Fatal("--current and --json require --observe or --describe-contract")
 	}
 
@@ -201,6 +213,12 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if rc49Expand != "" {
+		if err := runRC49Online(ctx, db, rc49Expand, rc49ControllerProof, os.Stdout); err != nil {
+			log.Fatalf("KKAI rc49 expansion operation failed: %v", err)
+		}
+		return
+	}
 	if membershipBillingRecoveryMigration != "" {
 		if err := runMembershipBillingRecoveryMigration(ctx, db, membershipBillingRecoveryMigration, membershipBillingRecoveryControllerProof, os.Stdout); err != nil {
 			log.Fatalf("KKAI membership billing recovery migration operation failed: %v", err)

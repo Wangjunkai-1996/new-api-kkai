@@ -1,6 +1,7 @@
 package model
 
 import (
+	"github.com/QuantumNous/new-api/common"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -112,4 +113,20 @@ func TestLogOtherUnmarshalScopesLegacySensitiveFieldsAsAdmin(t *testing.T) {
 		"request_path":"/v1/chat/completions",
 		"admin_info":{"reject_reason":"blocked","channel_id":7}
 	}`, other.JSONString())
+}
+
+func TestLogOtherStructuredContentSurvivesAccountingOutbox(t *testing.T) {
+	message := common.NewMessage("Operation {{action}}", map[string]any{"action": "render"})
+	for _, value := range []any{message, []*common.Message{message}} {
+		data, err := common.Marshal(RecordConsumeLogParams{Content: value})
+		require.NoError(t, err)
+		var restored RecordConsumeLogParams
+		require.NoError(t, common.Unmarshal(data, &restored))
+		other := NewLogOther()
+		assert.Equal(t, "Operation render", other.setContent(restored.Content))
+		assert.JSONEq(t, `{"content_parts":[{"key":"Operation {{action}}","params":{"action":"render"}}]}`, other.JSONString())
+	}
+	other := NewLogOther()
+	assert.Equal(t, "历史日志", other.setContent("历史日志"))
+	assert.JSONEq(t, `{}`, other.JSONString())
 }

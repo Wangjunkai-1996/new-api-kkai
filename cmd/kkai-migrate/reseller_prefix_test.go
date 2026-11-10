@@ -51,6 +51,7 @@ func resellerPrefixProofFixture(t *testing.T) (*resellerPrefixControllerProof, *
 }
 
 func TestResellerPrefixProofRequiresEveryRuntimeToAcceptExactTarget(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	proof, status, now := resellerPrefixProofFixture(t)
 	require.NoError(t, validateResellerPrefixProof(proof, status, now))
 	for _, test := range []struct {
@@ -98,6 +99,7 @@ func TestResellerPrefixCommandNeverExposesUnguardedMutation(t *testing.T) {
 }
 
 func TestResellerPrefixInspectionAndTenantCheckReadFinalV15(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	db, err := openDatabase("file:" + t.TempDir() + "/prefix.db")
 	require.NoError(t, err)
 	prepareLegacyAuthenticationTables(t, db)

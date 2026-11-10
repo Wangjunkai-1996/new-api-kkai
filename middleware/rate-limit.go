@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/logger"
+	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 var timeFormat = "2006-01-02T15:04:05.000Z"
@@ -27,50 +31,60 @@ var defNext = func(c *gin.Context) {
 	c.Next()
 }
 
-func redisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark string) {
-	ctx := context.Background()
-	rdb := common.RDB
-	key := tenantRateLimitKey(c, "rateLimit:"+mark+c.ClientIP())
-	listLength, err := rdb.LLen(ctx, key).Result()
+// Keep the existing list key and wall-clock timestamp representation so old
+// and new nodes share one sliding window. Admission, trimming and TTL refresh
+// happen together; denied requests do not consume a list entry.
+var redisSlidingWindowScript = redis.NewScript(`
+local length = redis.call('LLEN', KEYS[1])
+local maximum = tonumber(ARGV[1])
+if maximum <= 0 then return redis.error_reply('invalid rate limit') end
+if length >= maximum then
+  local oldest = redis.call('LINDEX', KEYS[1], -1)
+  local y, mo, d, h, mi, sec = string.match(oldest, '^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)%.%d%d%dZ$')
+  if not y then return redis.error_reply('invalid rate limit timestamp') end
+  y, mo, d, h, mi, sec = tonumber(y), tonumber(mo), tonumber(d), tonumber(h), tonumber(mi), tonumber(sec)
+  local days = {31,28,31,30,31,30,31,31,30,31,30,31}
+  if y % 4 == 0 and (y % 100 ~= 0 or y % 400 == 0) then days[2] = 29 end
+  if mo < 1 or mo > 12 or d < 1 or d > days[mo] or h > 23 or mi > 59 or sec > 59 then
+    return redis.error_reply('invalid rate limit timestamp')
+  end
+  if oldest > ARGV[3] then
+    redis.call('EXPIRE', KEYS[1], ARGV[4])
+    return {0, oldest}
+  end
+end
+redis.call('LPUSH', KEYS[1], ARGV[2])
+redis.call('LTRIM', KEYS[1], 0, maximum - 1)
+redis.call('EXPIRE', KEYS[1], ARGV[4])
+return {1, ''}
+`)
+
+func redisSlidingWindowTake(ctx context.Context, key string, maximum int, duration int64, now time.Time) (bool, int64, error) {
+	stamp := now.Format(timeFormat)
+	// Legacy entries encode local wall time with a literal Z suffix.
+	wallTime, err := time.Parse(timeFormat, stamp)
 	if err != nil {
-		fmt.Println(err.Error())
-		c.Status(http.StatusInternalServerError)
-		c.Abort()
-		return
+		return false, 0, err
 	}
-	if listLength < int64(maxRequestNum) {
-		rdb.LPush(ctx, key, time.Now().Format(timeFormat))
-		rdb.Expire(ctx, key, common.RateLimitKeyExpirationDuration)
-	} else {
-		oldTimeStr, _ := rdb.LIndex(ctx, key, -1).Result()
-		oldTime, err := time.Parse(timeFormat, oldTimeStr)
-		if err != nil {
-			fmt.Println(err)
-			c.Status(http.StatusInternalServerError)
-			c.Abort()
-			return
-		}
-		nowTimeStr := time.Now().Format(timeFormat)
-		nowTime, err := time.Parse(timeFormat, nowTimeStr)
-		if err != nil {
-			fmt.Println(err)
-			c.Status(http.StatusInternalServerError)
-			c.Abort()
-			return
-		}
-		// time.Since will return negative number!
-		// See: https://stackoverflow.com/questions/50970900/why-is-time-since-returning-negative-durations-on-windows
-		if int64(nowTime.Sub(oldTime).Seconds()) < duration {
-			rdb.Expire(ctx, key, common.RateLimitKeyExpirationDuration)
-			c.Status(http.StatusTooManyRequests)
-			c.Abort()
-			return
-		} else {
-			rdb.LPush(ctx, key, time.Now().Format(timeFormat))
-			rdb.LTrim(ctx, key, 0, int64(maxRequestNum-1))
-			rdb.Expire(ctx, key, common.RateLimitKeyExpirationDuration)
-		}
+	cutoff := wallTime.Add(-time.Duration(duration) * time.Second).Format(timeFormat)
+	result, err := redisSlidingWindowScript.Run(ctx, common.RDB, []string{key}, maximum, stamp, cutoff, int64(common.RateLimitKeyExpirationDuration/time.Second)).Slice()
+	if err != nil {
+		return false, 0, err
 	}
+	if result[0].(int64) == 1 {
+		return true, 0, nil
+	}
+	oldest, err := time.Parse(timeFormat, result[1].(string))
+	if err != nil {
+		return false, 0, err
+	}
+	remaining := oldest.Add(time.Duration(duration) * time.Second).Sub(wallTime)
+	return false, max(int64(1), int64((remaining+time.Second-1)/time.Second)), nil
+}
+
+func redisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark string) {
+	key := tenantRateLimitKey(c, "rateLimit:"+mark+c.ClientIP())
+	userRedisRateLimiter(c, maxRequestNum, duration, key)
 }
 
 func memoryRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark string) {
@@ -96,11 +110,26 @@ func rateLimitFactory(maxRequestNum int, duration int64, mark string) func(c *gi
 	}
 }
 
-func GlobalWebRateLimit() func(c *gin.Context) {
+// GlobalWebRateLimit limits dashboard pages and other fallback paths per IP.
+// Files that exist in the frontend build count against a separate static
+// limiter instead, so lazy-loaded chunks and icons do not use up the page
+// budget. The static limiter is disabled by default.
+func GlobalWebRateLimit(frontendFS static.ServeFileSystem) func(c *gin.Context) {
+	webLimit := defNext
 	if common.GlobalWebRateLimitEnable {
-		return rateLimitFactory(common.GlobalWebRateLimitNum, common.GlobalWebRateLimitDuration, "GW")
+		webLimit = rateLimitFactory(common.GlobalWebRateLimitNum, common.GlobalWebRateLimitDuration, "GW")
 	}
-	return defNext
+	staticLimit := defNext
+	if common.GlobalStaticRateLimitEnable {
+		staticLimit = rateLimitFactory(common.GlobalStaticRateLimitNum, common.GlobalStaticRateLimitDuration, "GS")
+	}
+	return func(c *gin.Context) {
+		if frontendFS.Exists("/", c.Request.URL.Path) {
+			staticLimit(c)
+			return
+		}
+		webLimit(c)
+	}
 }
 
 func GlobalAPIRateLimit() func(c *gin.Context) {
@@ -173,45 +202,15 @@ func userRateLimitFactory(maxRequestNum int, duration int64, mark string) func(c
 // userRedisRateLimiter is like redisRateLimiter but accepts a pre-built key
 // (to support user-ID-based keys).
 func userRedisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, key string) {
-	ctx := context.Background()
-	rdb := common.RDB
-	listLength, err := rdb.LLen(ctx, key).Result()
+	allowed, retryAfter, err := redisSlidingWindowTake(c.Request.Context(), key, maxRequestNum, duration, time.Now())
 	if err != nil {
-		fmt.Println(err.Error())
-		c.Status(http.StatusInternalServerError)
-		c.Abort()
+		logger.LogError(c.Request.Context(), common.LogText("rate limit check failed (key=%s): %v", key, err))
+		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
-	if listLength < int64(maxRequestNum) {
-		rdb.LPush(ctx, key, time.Now().Format(timeFormat))
-		rdb.Expire(ctx, key, common.RateLimitKeyExpirationDuration)
-	} else {
-		oldTimeStr, _ := rdb.LIndex(ctx, key, -1).Result()
-		oldTime, err := time.Parse(timeFormat, oldTimeStr)
-		if err != nil {
-			fmt.Println(err)
-			c.Status(http.StatusInternalServerError)
-			c.Abort()
-			return
-		}
-		nowTimeStr := time.Now().Format(timeFormat)
-		nowTime, err := time.Parse(timeFormat, nowTimeStr)
-		if err != nil {
-			fmt.Println(err)
-			c.Status(http.StatusInternalServerError)
-			c.Abort()
-			return
-		}
-		if int64(nowTime.Sub(oldTime).Seconds()) < duration {
-			rdb.Expire(ctx, key, common.RateLimitKeyExpirationDuration)
-			c.Status(http.StatusTooManyRequests)
-			c.Abort()
-			return
-		} else {
-			rdb.LPush(ctx, key, time.Now().Format(timeFormat))
-			rdb.LTrim(ctx, key, 0, int64(maxRequestNum-1))
-			rdb.Expire(ctx, key, common.RateLimitKeyExpirationDuration)
-		}
+	if !allowed {
+		c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
+		c.AbortWithStatus(http.StatusTooManyRequests)
 	}
 }
 

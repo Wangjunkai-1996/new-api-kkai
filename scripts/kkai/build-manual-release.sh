@@ -25,6 +25,7 @@ schema_contract=''
 frontend_mode='embedded'
 prepare_maintenance=false
 prepare_online=false
+online_release_purpose=''
 planned_infra_sha=''
 planned_deployment_protocol=''
 builder="${BUILDX_BUILDER:-kkai-mirror-builder}"
@@ -181,10 +182,14 @@ case "${frontend_mode}" in
   *) die "frontend mode must be embedded or external" ;;
 esac
 if [[ "${prepare_online}" == true ]]; then
-  [[ "${prepare_maintenance}" == false && "${schema_contract}" == bridge && "${frontend_mode}" == external ]] ||
-    die "online preparation requires bridge schema, external frontend and no maintenance mode"
-  [[ "${planned_infra_sha}" =~ ^[0-9a-f]{40}$ && "${planned_deployment_protocol}" == tenant-online-v1 ]] ||
-    die "online preparation requires exact planned infrastructure SHA and tenant-online-v1"
+  [[ "${prepare_maintenance}" == false && "${frontend_mode}" == external ]] ||
+    die "online preparation requires external frontend and no maintenance mode"
+  [[ "${planned_infra_sha}" =~ ^[0-9a-f]{40}$ ]] || die "online preparation requires exact planned infrastructure SHA"
+  case "${planned_deployment_protocol}:${schema_contract}" in
+    tenant-online-v1:bridge) online_release_purpose=tenant-online-preparation ;;
+    rc49-expansion-v1:feature) online_release_purpose=rc49-online-preparation ;;
+    *) die "online preparation requires tenant-online-v1 bridge or rc49-expansion-v1 feature" ;;
+  esac
   command -v python3 >/dev/null || die "missing python3"
 elif [[ "${prepare_maintenance}" == true ]]; then
   [[ "${schema_contract}" == feature && "${frontend_mode}" == external ]] ||
@@ -382,6 +387,7 @@ jq --null-input \
   --arg archive_sha256 "${archive_sha256}" \
   --argjson prepare_maintenance "${prepare_maintenance}" \
   --argjson prepare_online "${prepare_online}" \
+  --arg online_release_purpose "${online_release_purpose}" \
   '{
     version: $version,
     source_sha: $source_sha,
@@ -392,7 +398,7 @@ jq --null-input \
     archive: $archive,
     archive_sha256: $archive_sha256,
     platform: "linux/amd64"
-  } + (if $prepare_online then {release_purpose: "tenant-online-preparation"}
+  } + (if $prepare_online then {release_purpose: $online_release_purpose}
        elif $prepare_maintenance then {release_purpose: "maintenance-preparation"} else {} end)' > "${metadata}"
 
 if [[ "${prepare_maintenance}" == true || "${prepare_online}" == true ]]; then

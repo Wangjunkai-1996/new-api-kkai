@@ -64,8 +64,8 @@ func ClaudeErrorWrapper(err error, code string, statusCode int) *relaydto.Claude
 	lowerText := strings.ToLower(text)
 	if !strings.HasPrefix(lowerText, "get file base64 from url") {
 		if strings.Contains(lowerText, "post") || strings.Contains(lowerText, "dial") || strings.Contains(lowerText, "http") {
-			common.SysLog(fmt.Sprintf("error: %s", text))
-			text = "请求上游地址失败"
+			common.SysLog(common.LogText("error: %s", text))
+			text = "request to the upstream address failed"
 		}
 	}
 	claudeError := types.ClaudeError{
@@ -175,7 +175,7 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		if showBodyWhenFail {
 			newApiErr.Err = buildErrWithBody("")
 		} else {
-			logger.LogError(ctx, fmt.Sprintf("bad response status code %d, body: %s", resp.StatusCode, responseBodyPreview))
+			logger.LogError(ctx, common.LogText("bad response status code %d, body: %s", resp.StatusCode, responseBodyPreview))
 			newApiErr.Err = fmt.Errorf("bad response status code %d", resp.StatusCode)
 		}
 		return
@@ -295,13 +295,13 @@ func TaskErrorWrapperLocal(err error, code string, statusCode int) *dto.TaskErro
 	return openaiErr
 }
 
-func TaskErrorWrapper(err error, code string, statusCode int) *dto.TaskError {
+func TaskErrorWrapper(err error, code string, statusCode int, upstreamURLs ...string) *dto.TaskError {
 	text := err.Error()
 	lowerText := strings.ToLower(text)
 	if strings.Contains(lowerText, "post") || strings.Contains(lowerText, "dial") || strings.Contains(lowerText, "http") {
-		common.SysLog(fmt.Sprintf("error: %s", text))
+		common.SysLog(common.LogText("error: %s", text))
 		//text = "请求上游地址失败"
-		text = common.MaskSensitiveInfo(text)
+		text = common.MaskSensitiveInfo(text, upstreamURLs...)
 	}
 	//避免暴露内部错误
 	taskError := &dto.TaskError{

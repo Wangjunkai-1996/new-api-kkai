@@ -23,6 +23,8 @@ var defaultEndpointInfoMap = map[relaytypes.EndpointType]EndpointInfo{
 	relaytypes.EndpointTypeOpenAIResponse:        {Path: "/v1/responses", Method: "POST"},
 	relaytypes.EndpointTypeOpenAIResponseCompact: {Path: "/v1/responses/compact", Method: "POST"},
 	relaytypes.EndpointTypeOpenAIAlphaSearch:     {Path: "/v1/alpha/search", Method: "POST"},
+	relaytypes.EndpointTypeDeepSeekToolsSearch:   {Path: "/v1/tools/search", Method: "POST"},
+	relaytypes.EndpointTypeDeepSeekToolsFetch:    {Path: "/v1/tools/fetch", Method: "POST"},
 	relaytypes.EndpointTypeAnthropic:             {Path: "/v1/messages", Method: "POST"},
 	relaytypes.EndpointTypeGemini:                {Path: "/v1beta/models/{model}:generateContent", Method: "POST"},
 	relaytypes.EndpointTypeJinaRerank:            {Path: "/v1/rerank", Method: "POST"},

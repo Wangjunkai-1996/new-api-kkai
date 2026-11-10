@@ -9,7 +9,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -468,4 +470,30 @@ func TestOpenaiImageStreamHandlerRecordsUpstreamErrorEvent(t *testing.T) {
 	// is still forwarded in the data: payload (stream ID 77).
 	require.Contains(t, recorder.Body.String(), `event: upstream_error`)
 	require.Contains(t, recorder.Body.String(), `stream ID 77`)
+}
+
+// Quantity-based expressions settle the delivered count without changing the
+// frozen request input or applying the legacy n multiplier a second time.
+func TestImageExpressionSettlementUsesDeliveredQuantity(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		for _, body := range []string{
+			`{"data":{"url":"https://example.invalid/image.png"}}`,
+			`{"data":[{}, {"url":"https://example.invalid/image.png"}, {"b64_json":"aW1hZ2U="}]}`,
+		} {
+			c, _, resp, info := newImageTestContext(t, body, "application/json", stream)
+			info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{EstimatedImageCount: common.GetPointer(3)}
+			info.BillingRequestInput = &billingexpr.RequestInput{ImageCount: common.GetPointer(3)}
+			handler := OpenaiImageHandler
+			if stream {
+				handler = openaiImageJSONAsStreamHandler
+			}
+			_, apiErr := handler(c, info, resp)
+			require.Nil(t, apiErr)
+			require.NotNil(t, info.BillingImageCount)
+			require.Equal(t, 1, *info.BillingImageCount)
+			require.Equal(t, 1, info.ImageOutputCount)
+			require.Equal(t, 3, *info.BillingRequestInput.ImageCount)
+			require.NotContains(t, info.PriceData.OtherRatios(), "n")
+		}
+	}
 }

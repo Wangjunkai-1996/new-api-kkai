@@ -104,7 +104,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					sendRealtimeRelayError(clientErrChan, fmt.Errorf("error counting text token: %v", err))
 					return
 				}
-				logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
+				logger.LogInfo(c, common.LogText("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
 				localUsageMu.Lock()
 				localUsage.TotalTokens += textToken + audioToken
 				localUsage.InputTokens += textToken + audioToken
@@ -192,7 +192,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 							sendRealtimeRelayError(targetErrChan, fmt.Errorf("error counting text token: %v", err))
 							return
 						}
-						logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
+						logger.LogInfo(c, common.LogText("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
 						localUsageMu.Lock()
 						localUsage.TotalTokens += textToken + audioToken
 						localUsage.InputTokens += textToken + audioToken
@@ -206,11 +206,11 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 							return
 						}
 					}
-					logger.LogInfo(c, fmt.Sprintf("realtime streaming sumUsage: %v", sumUsage))
+					logger.LogInfo(c, common.LogText("realtime streaming sumUsage: %v", sumUsage))
 					localUsageMu.Lock()
 					localUsageSnapshot := *localUsage
 					localUsageMu.Unlock()
-					logger.LogInfo(c, fmt.Sprintf("realtime streaming localUsage: %v", &localUsageSnapshot))
+					logger.LogInfo(c, common.LogText("realtime streaming localUsage: %v", &localUsageSnapshot))
 
 				} else if realtimeEvent.Type == dto.RealtimeEventTypeSessionUpdated || realtimeEvent.Type == dto.RealtimeEventTypeSessionCreated {
 					realtimeSession := realtimeEvent.Session
@@ -227,7 +227,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 						sendRealtimeRelayError(targetErrChan, fmt.Errorf("error counting text token: %v", err))
 						return
 					}
-					logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
+					logger.LogInfo(c, common.LogText("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
 					localUsageMu.Lock()
 					localUsage.TotalTokens += textToken + audioToken
 					localUsage.OutputTokens += textToken + audioToken

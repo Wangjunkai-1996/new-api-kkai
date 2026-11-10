@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"strconv"
@@ -231,7 +232,7 @@ func getTopUpQuota(amount int64) (int64, error) {
 		quotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 		storedAmount := quota.Div(quotaPerUnit).Truncate(0)
 		if storedAmount.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
-			return 0, errors.New("充值额度超出系统可表示范围")
+			return 0, common.NewMessage("Top-up quota exceeds the range the system can represent")
 		}
 		quota = storedAmount.Mul(quotaPerUnit)
 	} else {
@@ -274,7 +275,7 @@ func validateCreditedQuota(quota decimal.Decimal) (int64, error) {
 		return 0, errors.New("充值额度必须大于 0")
 	}
 	if rounded.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
-		return 0, errors.New("充值额度超出系统可表示范围")
+		return 0, common.NewMessage("Top-up quota exceeds the range the system can represent")
 	}
 	return rounded.IntPart(), nil
 }
@@ -286,9 +287,24 @@ func validateTopUpQuota(amount int64) (int64, error) {
 	}
 	maxAmount := getMaxTopUpAmount()
 	if maxAmount > 0 && amount > maxAmount {
-		return 0, fmt.Errorf("单笔充值数量不能大于 %d", maxAmount)
+		return 0, common.NewMessage("Top-up amount cannot exceed {{max}}", map[string]any{"max": maxAmount})
 	}
-	return 0, errors.New("充值数量无效")
+	return 0, common.NewMessage("Invalid top-up amount")
+}
+
+// paymentError answers payment endpoints in their {"message": "error",
+// "data": text} shape. When err is or wraps a *common.Message, the response
+// also carries message_key and message_params for the web console.
+func paymentError(c *gin.Context, err error) {
+	if errors.Is(err, model.ErrTopUpQuotaLimitExceeded) {
+		err = common.NewMessage("Top-up quota limit exceeded")
+	}
+	body := gin.H{"message": "error", "data": err.Error()}
+	var message *common.Message
+	if errors.As(err, &message) {
+		maps.Copy(body, message.Fields())
+	}
+	c.JSON(http.StatusOK, body)
 }
 
 func rejectInvalidCreditedQuota(c *gin.Context, userId int, quota decimal.Decimal) bool {
@@ -297,7 +313,7 @@ func rejectInvalidCreditedQuota(c *gin.Context, userId int, quota decimal.Decima
 		err = model.ValidateTopUpQuotaCapacity(userId, creditedQuota)
 	}
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": err.Error()})
+		paymentError(c, err)
 		return true
 	}
 	return false
@@ -309,7 +325,7 @@ func rejectInvalidTopUpQuota(c *gin.Context, userId int, amount int64) bool {
 		err = model.ValidateTopUpQuotaCapacity(userId, creditedQuota)
 	}
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": err.Error()})
+		paymentError(c, err)
 		return true
 	}
 	return false
@@ -473,7 +489,7 @@ func EpayNotify(c *gin.Context) {
 		model.RecordTopupLog(result.TopUp.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(result.QuotaDelta), result.TopUp.Money), c.ClientIP(), result.TopUp.PaymentMethod, "epay")
 	}
 	if _, writeErr := c.Writer.Write([]byte("success")); writeErr != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook 响应写入失败 trade_no=%s client_ip=%s error=%q", verifyInfo.ServiceTradeNo, c.ClientIP(), writeErr.Error()))
+		logger.LogError(c.Request.Context(), common.LogText("Epay webhook failed to write response trade_no=%s client_ip=%s error=%q", verifyInfo.ServiceTradeNo, c.ClientIP(), writeErr.Error()))
 	}
 }
 
@@ -481,12 +497,12 @@ func RequestAmount(c *gin.Context) {
 	var req AmountRequest
 	err := c.ShouldBindJSON(&req)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
+		paymentError(c, common.NewMessage("Invalid parameters"))
 		return
 	}
 
 	if req.Amount < getMinTopup() {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getMinTopup())})
+		paymentError(c, common.NewMessage("Top-up amount cannot be less than {{min}}", map[string]any{"min": getMinTopup()}))
 		return
 	}
 	id := c.GetInt("id")
@@ -495,13 +511,13 @@ func RequestAmount(c *gin.Context) {
 	}
 	group, err := model.GetUserGroup(id, true)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
+		paymentError(c, common.NewMessage("Failed to get the user group"))
 		return
 	}
 	tenant, _ := middleware.GetTenantContext(c)
 	payMoney := getPayMoneyDecimal(req.Amount, group, tenant.TenantID > 0).InexactFloat64()
 	if payMoney <= 0.01 {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
+		paymentError(c, common.NewMessage("Payment amount is too low"))
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64)})

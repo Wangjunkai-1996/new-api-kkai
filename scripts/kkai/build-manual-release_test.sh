@@ -516,6 +516,8 @@ expect_maintenance_preparation() {
   local profile=feature flag=--prepare-maintenance purpose=maintenance-preparation
   if [[ ${protocol} == tenant-online-v1 ]]; then
     profile=bridge flag=--prepare-online purpose=tenant-online-preparation
+  elif [[ ${protocol} == rc49-expansion-v1 ]]; then
+    profile=feature flag=--prepare-online purpose=rc49-online-preparation
   fi
 
   : >"${call_log}"
@@ -598,15 +600,16 @@ expect_maintenance_preparation rc41-maintenance-v1
 expect_maintenance_preparation tenant-maintenance-v1
 expect_maintenance_preparation tenant-maintenance-v2
 expect_maintenance_preparation tenant-online-v1
+expect_maintenance_preparation rc49-expansion-v1
 expect_bridge_build
 expect_maintenance_rejected 'requires planned infrastructure SHA' --prepare-maintenance
 expect_maintenance_rejected 'requires planned deployment protocol' --prepare-maintenance \
   --planned-infra-sha 3333333333333333333333333333333333333333
 expect_maintenance_rejected 'requires feature schema and external frontend' --prepare-maintenance --schema-contract bridge
 expect_maintenance_rejected 'requires feature schema and external frontend' --prepare-maintenance --frontend-mode embedded
-expect_maintenance_rejected 'online preparation requires bridge schema' --prepare-online
+expect_maintenance_rejected 'online preparation requires exact planned infrastructure SHA' --prepare-online
 expect_maintenance_rejected 'online preparation requires exact planned infrastructure SHA' --prepare-online --schema-contract bridge
-expect_maintenance_rejected 'online preparation requires bridge schema' --prepare-online --prepare-maintenance --schema-contract bridge
+expect_maintenance_rejected 'online preparation requires external frontend and no maintenance mode' --prepare-online --prepare-maintenance --schema-contract bridge
 expect_maintenance_rejected 'require --prepare-maintenance' --planned-infra-sha 3333333333333333333333333333333333333333
 expect_maintenance_rejected 'resource profile must be conservative or balanced' --resource-profile unbounded
 KKAI_TEST_DIRTY=true expect_maintenance_rejected 'production builds require a clean worktree' \

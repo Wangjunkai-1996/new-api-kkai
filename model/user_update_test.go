@@ -58,7 +58,7 @@ func TestUserUpdateDoesNotOverwriteConcurrentAccountingOrTokenChanges(t *testing
 		AffQuota:        800,
 		AffHistoryQuota: 1200,
 	}
-	user.SetAccessToken("old-token")
+	user.SetAccessToken("0123456789abcdef0123456789abcdef")
 	require.NoError(t, DB.Create(&user).Error)
 
 	staleUser, err := GetUserById(user.Id, true)
@@ -71,7 +71,7 @@ func TestUserUpdateDoesNotOverwriteConcurrentAccountingOrTokenChanges(t *testing
 		"aff_count":     gorm.Expr("aff_count + ?", 1),
 		"aff_quota":     gorm.Expr("aff_quota - ?", 500),
 		"aff_history":   gorm.Expr("aff_history + ?", 500),
-		"access_token":  "rotated-token",
+		"access_token":  "fedcba9876543210fedcba9876543210",
 	}).Error)
 
 	staleUser.DisplayName = "after"
@@ -86,7 +86,7 @@ func TestUserUpdateDoesNotOverwriteConcurrentAccountingOrTokenChanges(t *testing
 	assert.Equal(t, 3, got.AffCount)
 	assert.Equal(t, 300, got.AffQuota)
 	assert.Equal(t, 1700, got.AffHistoryQuota)
-	assert.Equal(t, "rotated-token", got.GetAccessToken())
+	assert.Equal(t, "fedcba9876543210fedcba9876543210", got.GetAccessToken())
 }
 
 func TestUsageAccountingSupportsSignedDirectAndBatchDeltas(t *testing.T) {

@@ -305,7 +305,9 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                   presetDiscount < 1 &&
                   props.selectedPaymentMethod?.type !== PAYMENT_TYPES.STRIPE
                 ) {
-                  discountLabel = `${t('Discount')} ${Math.round((1 - presetDiscount) * 100)}%`
+                  discountLabel = t('{{percent}}% OFF', {
+                    percent: Math.round((1 - presetDiscount) * 100),
+                  })
                 }
                 return (
                   <button

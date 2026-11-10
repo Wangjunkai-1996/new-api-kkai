@@ -37,7 +37,7 @@ func TestInvoiceExpandPreservesCanonicalHistoryAndRequiresReceipt(t *testing.T) 
 	require.NoError(t, CheckRequestTicketSchema(ctx, db))
 	require.NoError(t, CheckResellerApplicationSchema(ctx, db))
 	require.NoError(t, CheckTenantOnlineSchema(ctx, db))
-	if RuntimeMaxVersion >= InvoiceSchemaVersion {
+	if RuntimeMinVersion <= InvoiceSchemaVersion && RuntimeMaxVersion >= InvoiceSchemaVersion {
 		require.NoError(t, CheckRequired(ctx, db))
 	}
 	var after []AppliedMigration

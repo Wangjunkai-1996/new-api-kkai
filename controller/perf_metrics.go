@@ -23,6 +23,11 @@ func GetPerfMetricsSummary(c *gin.Context) {
 		}
 	}
 
+	recentModels := c.QueryArray("recent_model")
+	if len(recentModels) > perfmetrics.MaxRecentModels {
+		common.ApiErrorT(c, "Too many recent models")
+		return
+	}
 	var result perfmetrics.SummaryAllResult
 	var err error
 	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > model.PlatformTenantID {
@@ -35,10 +40,10 @@ func GetPerfMetricsSummary(c *gin.Context) {
 		for _, price := range prices {
 			modelGroups[price.ModelName] = price.EnableGroup
 		}
-		result, err = perfmetrics.QuerySummaryForModels(hours, modelGroups)
+		result, err = perfmetrics.QuerySummaryForModels(hours, modelGroups, recentModels...)
 	} else {
 		activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), setting.GetAutoGroupNames()...)
-		result, err = perfmetrics.QuerySummaryAll(hours, activeGroups)
+		result, err = perfmetrics.QuerySummaryAll(hours, activeGroups, recentModels...)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{

@@ -42,3 +42,13 @@ func TestImageGenerationModelFamilies(t *testing.T) {
 		})
 	}
 }
+
+// /v1/models reports the DeepSeek Search and Fetch routing names with their
+// own endpoint on the channels that relay them; chat models keep their list.
+func TestDeepSeekToolRoutingNamesReportTheirEndpoint(t *testing.T) {
+	for _, channelType := range []int{constant.ChannelTypeDeepSeek, constant.ChannelTypeNewAPI} {
+		assert.Equal(t, []types.EndpointType{types.EndpointTypeDeepSeekToolsSearch}, GetEndpointTypesByChannelType(channelType, constant.DeepSeekSearchModel))
+		assert.Equal(t, []types.EndpointType{types.EndpointTypeDeepSeekToolsFetch}, GetEndpointTypesByChannelType(channelType, constant.DeepSeekFetchModel))
+	}
+	assert.Equal(t, []types.EndpointType{types.EndpointTypeOpenAI}, GetEndpointTypesByChannelType(constant.ChannelTypeDeepSeek, "deepseek-flash"))
+}

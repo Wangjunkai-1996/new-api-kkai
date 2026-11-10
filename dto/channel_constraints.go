@@ -41,6 +41,7 @@ const (
 	FilterResponsesWebSocket  ChannelFilterKind = "responses_websocket"
 	FilterAllowedChannelTypes ChannelFilterKind = "allowed_channel_types"
 	FilterExcludedChannels    ChannelFilterKind = "excluded_channels"
+	FilterTaskPluginEndpoint  ChannelFilterKind = "task_plugin_endpoint"
 )
 
 type ChannelFilter struct {
@@ -51,6 +52,9 @@ type ChannelFilter struct {
 	TaskPluginChannelTypes []int
 	AllowedChannelTypes    []int
 	ExcludedChannelIDs     []int
+	// TaskPluginRelayOnly excludes endpoint candidates after an ordinary relay
+	// channel wins selection, so retries keep using the same protocol handler.
+	TaskPluginRelayOnly bool
 }
 
 type ChannelConstraints struct {

@@ -55,6 +55,7 @@ func membershipBillingRecoveryProofFixture(t *testing.T) (*membershipBillingReco
 }
 
 func TestMembershipBillingRecoveryProofRejectsDriftAndIncompatibleRuntimes(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	proof, status, now := membershipBillingRecoveryProofFixture(t)
 	// These values are frozen into the independently installed root controller.
 	assert.Equal(t, "sha256:aec42c828819055a9f678820802cc16e3ef47eee28ffb9308322a02063911a45", status.SourceDigest)
@@ -166,6 +167,7 @@ func TestMembershipBillingRecoveryCommandRequiresItsOwnFixedProof(t *testing.T) 
 }
 
 func TestMembershipBillingRecoveryInspectionIsReadonlyAndRejectsUnreceiptedObjects(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	db := newMembershipBillingRecoveryCommandFixture(t)
 	ctx := context.Background()
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)

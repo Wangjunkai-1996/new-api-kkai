@@ -123,10 +123,12 @@ sha256_file() {
   shasum -a 256 "$1" | awk '{print $1}'
 }
 
-[[ $# -ge 2 && ( $1 == --stage || $1 == --stage-online ) ]] ||
-  die "usage: deploy-manual-release.sh --stage METADATA.json | --stage-online METADATA.json [--tenant-routing-enabled true|false] [--membership-billing-recovery-mode off|observe|apply|paused]"
+[[ $# -ge 2 && ( $1 == --stage || $1 == --stage-online || $1 == --stage-rc49 ) ]] ||
+  die "usage: deploy-manual-release.sh --stage METADATA.json | --stage-online METADATA.json | --stage-rc49 METADATA.json [--tenant-routing-enabled true|false] [--membership-billing-recovery-mode off|observe|apply|paused]"
 stage_online=false
+stage_rc49=false
 [[ $1 != --stage-online ]] || stage_online=true
+[[ $1 != --stage-rc49 ]] || stage_rc49=true
 METADATA="$(cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2")"
 readonly METADATA
 shift 2
@@ -160,6 +162,9 @@ done
 if [[ ${stage_online} == true ]]; then
   jq --exit-status '.release_purpose == "tenant-online-preparation" and .schema_contract == "bridge" and .frontend_mode == "external"' "${METADATA}" >/dev/null ||
     die "online stage requires the exact prepared external tenant bridge"
+elif [[ ${stage_rc49} == true ]]; then
+  jq --exit-status '.release_purpose == "rc49-online-preparation" and .schema_contract == "feature" and .frontend_mode == "external"' "${METADATA}" >/dev/null ||
+    die "rc49 stage requires the exact prepared external rc49 feature"
 else
   jq --exit-status '(.release_purpose // "application") == "application"' "${METADATA}" >/dev/null ||
     die "prepared artifacts require their explicit transition entry; ordinary stage is forbidden"
@@ -240,11 +245,13 @@ kkai_record_identity compression "${ssh_compression}"
 kkai_record_identity ssh_multiplex "${ssh_multiplex}"
 kkai_record_phase artifact-validation
 [[ "$(sha256_file "${archive}")" == "${archive_sha256}" ]] || die "archive checksum mismatch"
-if [[ ${stage_online} == true ]]; then
+if [[ ${stage_online} == true || ${stage_rc49} == true ]]; then
   command -v python3 >/dev/null 2>&1 || die "missing python3"
+  preparation_protocol=tenant-online-v1
+  [[ ${stage_rc49} != true ]] || preparation_protocol=rc49-expansion-v1
   python3 "${ROOT}/scripts/kkai/prepare-maintenance-release.py" verify \
     --metadata "${METADATA}" --planned-infra-sha "${KKAI_INFRA_SHA}" \
-    --planned-deployment-protocol tenant-online-v1 ||
+    --planned-deployment-protocol "${preparation_protocol}" ||
     die "online release plan no longer matches the exact installed controller and artifact"
 fi
 if jq --exit-status 'has("console_contract")' "${METADATA}" >/dev/null; then

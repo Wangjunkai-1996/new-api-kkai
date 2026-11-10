@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -37,9 +38,10 @@ func TestWalletPaymentRateLimitIsolatesBudgetsAndIdentities(t *testing.T) {
 				t.Cleanup(func() { require.NoError(t, client.Close()) })
 			}
 			for index, budget := range []struct {
-				scope string
-				limit int
-			}{{"quote", 60}, {"checkout", 30}, {"state", 20}, {"check", 20}} {
+				scope  string
+				limit  int
+				window int
+			}{{"quote", 60, 60}, {"checkout", 30, 600}, {"state", 20, 60}, {"check", 20, 1200}} {
 				t.Run(budget.scope, func(t *testing.T) {
 					engine := gin.New()
 					userID, tenantID := 871200+index, int64(0)
@@ -64,7 +66,14 @@ func TestWalletPaymentRateLimitIsolatesBudgetsAndIdentities(t *testing.T) {
 					limited := request("/"+budget.scope, "192.0.2.191:1234")
 					assert.Equal(t, http.StatusTooManyRequests, limited.Code)
 					assert.JSONEq(t, `{"success":false,"code":"WALLET_RATE_LIMITED","message":"WALLET_RATE_LIMITED"}`, limited.Body.String())
-					assert.Empty(t, limited.Header().Get("Retry-After"), "the shared limiter does not provide a precise retry time")
+					if useRedis {
+						retryAfter, err := strconv.Atoi(limited.Header().Get("Retry-After"))
+						require.NoError(t, err)
+						assert.Greater(t, retryAfter, 0)
+						assert.LessOrEqual(t, retryAfter, budget.window)
+					} else {
+						assert.Empty(t, limited.Header().Get("Retry-After"))
+					}
 					assert.Equal(t, "no-store", limited.Header().Get("Cache-Control"))
 					assert.Equal(t, http.StatusTooManyRequests, request("/"+budget.scope, "192.0.2.192:1234").Code, "changing IP cannot bypass a user's wallet budget")
 					for _, other := range []string{"quote", "checkout", "state", "check", "auth"} {

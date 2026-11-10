@@ -4,16 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ConsoleCompatibilityBoundary } from './console-compatibility-boundary'
 
+vi.mock('@/hooks/use-console-contract', () => ({
+  useConsoleContract: () => state,
+}))
+
 const state = vi.hoisted(() => ({
   required: true,
   compatible: true,
   loading: false,
   retry: vi.fn(),
 }))
-vi.mock('@/hooks/use-console-contract', () => ({
-  useConsoleContract: () => state,
-}))
-
 function Editor() {
   const [draft, setDraft] = useState('')
   return (

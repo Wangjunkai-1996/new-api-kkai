@@ -12,7 +12,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
@@ -122,7 +121,10 @@ func disableMultiKeyChannelIfUnavailable(channel *model.Channel) bool {
 }
 
 func restoreMultiKeyChannelIfAvailable(channel *model.Channel) {
-	if channel.Status != common.ChannelStatusManuallyDisabled || !hasEnabledMultiKey(channel) {
+	// Manual key disables and request-driven key failures both record the
+	// all-keys reason; any later manual channel disable replaces it.
+	disabled := channel.Status == common.ChannelStatusManuallyDisabled || channel.Status == common.ChannelStatusAutoDisabled
+	if !disabled || !hasEnabledMultiKey(channel) {
 		return
 	}
 	info := channel.GetOtherInfo()
@@ -202,14 +204,14 @@ func GetAllChannels(c *gin.Context) {
 	if enableTagMode {
 		tags, err := model.GetPaginatedChannelTags(buildChannelListQuery(groupFilter, statusFilter, typeFilter), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 		if err != nil {
-			common.SysError("failed to get paginated tags: " + err.Error())
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取标签失败，请稍后重试"})
+			common.SysError(common.LogText("failed to get paginated tags: %s", err.Error()))
+			common.ApiErrorT(c, "Failed to fetch tags. Please try again later")
 			return
 		}
 		total, err = model.CountChannelTags(buildChannelListQuery(groupFilter, statusFilter, typeFilter))
 		if err != nil {
-			common.SysError("failed to count tags: " + err.Error())
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取标签数量失败，请稍后重试"})
+			common.SysError(common.LogText("failed to count tags: %s", err.Error()))
+			common.ApiErrorT(c, "Failed to count tags. Please try again later")
 			return
 		}
 		for _, tag := range tags {
@@ -221,16 +223,16 @@ func GetAllChannels(c *gin.Context) {
 				Omit("key").
 				Find(&tagChannels).Error
 			if err != nil {
-				common.SysError("failed to get channels by tag: " + err.Error())
-				c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取标签渠道失败，请稍后重试"})
+				common.SysError(common.LogText("failed to get channels by tag: %s", err.Error()))
+				common.ApiErrorT(c, "Failed to fetch channels with this tag. Please try again later")
 				return
 			}
 			channelData = append(channelData, tagChannels...)
 		}
 	} else {
 		if err := buildChannelListQuery(groupFilter, statusFilter, typeFilter).Count(&total).Error; err != nil {
-			common.SysError("failed to count channels: " + err.Error())
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取渠道数量失败，请稍后重试"})
+			common.SysError(common.LogText("failed to count channels: %s", err.Error()))
+			common.ApiErrorT(c, "Failed to count channels. Please try again later")
 			return
 		}
 
@@ -240,8 +242,8 @@ func GetAllChannels(c *gin.Context) {
 			Omit("key").
 			Find(&channelData).Error
 		if err != nil {
-			common.SysError("failed to get channels: " + err.Error())
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取渠道列表失败，请稍后重试"})
+			common.SysError(common.LogText("failed to get channels: %s", err.Error()))
+			common.ApiErrorT(c, "Failed to fetch channels. Please try again later")
 			return
 		}
 	}
@@ -256,8 +258,8 @@ func GetAllChannels(c *gin.Context) {
 		Count int64
 	}
 	if err := countQuery.Select("type, count(*) as count").Group("type").Find(&results).Error; err != nil {
-		common.SysError("failed to count channel types: " + err.Error())
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取渠道类型统计失败，请稍后重试"})
+		common.SysError(common.LogText("failed to count channel types: %s", err.Error()))
+		common.ApiErrorT(c, "Failed to count channel types. Please try again later")
 		return
 	}
 	typeCounts := make(map[int64]int64)
@@ -322,10 +324,7 @@ func FetchUpstreamModels(c *gin.Context) {
 
 	ids, err := fetchChannelUpstreamModelIDs(channel)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": fmt.Sprintf("获取模型列表失败: %s", err.Error()),
-		})
+		common.ApiErrorT(c, "Failed to fetch models: {{error}}", map[string]any{"error": err.Error()})
 		return
 	}
 
@@ -365,10 +364,7 @@ func SearchChannels(c *gin.Context) {
 	if enableTagMode {
 		tags, err := model.SearchTags(keyword, group, modelKeyword, idSort)
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
+			common.ApiError(c, err)
 			return
 		}
 		for _, tag := range tags {
@@ -378,10 +374,7 @@ func SearchChannels(c *gin.Context) {
 					Omit("key").
 					Find(&tagChannels).Error
 				if err != nil {
-					c.JSON(http.StatusOK, gin.H{
-						"success": false,
-						"message": err.Error(),
-					})
+					common.ApiError(c, err)
 					return
 				}
 				channelData = append(channelData, tagChannels...)
@@ -390,10 +383,7 @@ func SearchChannels(c *gin.Context) {
 	} else {
 		channels, err := model.SearchChannels(keyword, group, modelKeyword, idSort, sortOptions)
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
+			common.ApiError(c, err)
 			return
 		}
 		channelData = channels
@@ -500,8 +490,8 @@ func GetChannel(c *gin.Context) {
 // 此函数依赖 SecureVerificationRequired 中间件，确保用户已通过安全验证
 func GetChannelKey(c *gin.Context) {
 	channelId, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		common.ApiError(c, fmt.Errorf("渠道ID格式错误: %v", err))
+	if err != nil || channelId <= 0 {
+		common.ApiErrorT(c, "Invalid channel ID")
 		return
 	}
 
@@ -562,7 +552,7 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
-		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())
+		return common.NewMessage("Invalid channel settings format: {{error}}", map[string]any{"error": err.Error()})
 	}
 	if channel.Type == constant.ChannelTypeTaskPlugin {
 		pluginKey := strings.TrimSpace(channel.GetSetting().TaskPluginKey)
@@ -643,7 +633,7 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		// 检查模型名称长度是否超过 255
 		for _, m := range channel.GetModels() {
 			if len(m) > 255 {
-				return fmt.Errorf("模型名称过长: %s", m)
+				return common.NewMessage("Model name is too long: {{model}}", map[string]any{"model": m})
 			}
 		}
 	}
@@ -651,16 +641,22 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	// VertexAI 特殊校验
 	if channel.Type == constant.ChannelTypeVertexAi {
 		if channel.Other == "" {
-			return fmt.Errorf("部署地区不能为空")
+			return common.NewMessage("Deployment region cannot be empty")
 		}
 
 		regionMap, err := common.StrToMap(channel.Other)
 		if err != nil {
-			return fmt.Errorf("部署地区必须是标准的Json格式，例如{\"default\": \"us-central1\", \"region2\": \"us-east1\"}")
+			return common.NewMessage("Deployment region must be valid JSON, for example {{example}}", map[string]any{"example": `{"default": "us-central1", "region2": "us-east1"}`})
 		}
 
 		if regionMap["default"] == nil {
-			return fmt.Errorf("部署地区必须包含default字段")
+			return common.NewMessage("Deployment region must include a default field")
+		}
+
+		switch channel.GetOtherSettings().VertexAPIVersion {
+		case "", "v1", "v1beta1":
+		default:
+			return common.NewMessage("Vertex AI API version must be v1 or v1beta1")
 		}
 	}
 
@@ -699,8 +695,8 @@ func RefreshCodexChannelCredential(c *gin.Context) {
 
 	oauthKey, ch, err := service.RefreshCodexChannelCredential(ctx, channelId, service.CodexCredentialRefreshOptions{ResetCaches: true})
 	if err != nil {
-		common.SysError("failed to refresh codex channel credential: " + err.Error())
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "刷新凭证失败，请稍后重试"})
+		common.SysError(common.LogText("failed to refresh codex channel credential: %s", err.Error()))
+		common.ApiErrorT(c, "Failed to refresh credentials. Please try again later")
 		return
 	}
 
@@ -726,36 +722,38 @@ type AddChannelRequest struct {
 	Channel                   *model.Channel        `json:"channel"`
 }
 
-func getVertexArrayKeys(keys string) ([]string, error) {
+func getVertexArrayKeys(keys string) ([]string, []int, error) {
 	if keys == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var keyArray []interface{}
 	err := common.Unmarshal([]byte(keys), &keyArray)
 	if err != nil {
-		return nil, fmt.Errorf("批量添加 Vertex AI 必须使用标准的JsonArray格式，例如[{key1}, {key2}...]，请检查输入: %w", err)
+		return nil, nil, common.NewMessage("Batch-adding Vertex AI keys requires a JSON array, for example {{example}}. Check the input: {{error}}", map[string]any{"example": "[{key1}, {key2}...]", "error": err.Error()})
 	}
 	cleanKeys := make([]string, 0, len(keyArray))
-	for _, key := range keyArray {
+	inputIndices := make([]int, 0, len(keyArray))
+	for i, key := range keyArray {
 		var keyStr string
 		switch v := key.(type) {
 		case string:
 			keyStr = strings.TrimSpace(v)
 		default:
-			bytes, err := json.Marshal(v)
+			bytes, err := common.Marshal(v)
 			if err != nil {
-				return nil, fmt.Errorf("Vertex AI key JSON 编码失败: %w", err)
+				return nil, nil, common.NewMessage("Failed to encode Vertex AI key JSON: {{error}}", map[string]any{"error": err.Error()})
 			}
 			keyStr = string(bytes)
 		}
 		if keyStr != "" {
 			cleanKeys = append(cleanKeys, keyStr)
+			inputIndices = append(inputIndices, i)
 		}
 	}
 	if len(cleanKeys) == 0 {
-		return nil, fmt.Errorf("批量添加 Vertex AI 的 keys 不能为空")
+		return nil, nil, common.NewMessage("Vertex AI keys for batch adding cannot be empty")
 	}
-	return cleanKeys, nil
+	return cleanKeys, inputIndices, nil
 }
 
 func AddChannel(c *gin.Context) {
@@ -783,38 +781,35 @@ func AddChannel(c *gin.Context) {
 		(addChannelRequest.Channel.BaseURL == nil || strings.TrimSpace(*addChannelRequest.Channel.BaseURL) == "")
 	// 使用统一的校验函数
 	if err := validateChannel(addChannelRequest.Channel, true); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.ApiError(c, err)
 		return
 	}
 
 	addChannelRequest.Channel.CreatedTime = common.GetTimestamp()
 	keys := make([]string, 0)
+	inputIndices := make([]int, 0)
 	switch addChannelRequest.Mode {
 	case "multi_to_single":
 		addChannelRequest.Channel.ChannelInfo.IsMultiKey = true
 		addChannelRequest.Channel.ChannelInfo.MultiKeyMode = addChannelRequest.MultiKeyMode
 		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
-			array, err := getVertexArrayKeys(addChannelRequest.Channel.Key)
+			array, indices, err := getVertexArrayKeys(addChannelRequest.Channel.Key)
 			if err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
+				common.ApiError(c, err)
 				return
 			}
 			addChannelRequest.Channel.ChannelInfo.MultiKeySize = len(array)
 			addChannelRequest.Channel.Key = strings.Join(array, "\n")
+			inputIndices = indices
 		} else {
 			cleanKeys := make([]string, 0)
-			for _, key := range strings.Split(addChannelRequest.Channel.Key, "\n") {
+			for i, key := range strings.Split(addChannelRequest.Channel.Key, "\n") {
 				if key == "" {
 					continue
 				}
 				key = strings.TrimSpace(key)
 				cleanKeys = append(cleanKeys, key)
+				inputIndices = append(inputIndices, i)
 			}
 			addChannelRequest.Channel.ChannelInfo.MultiKeySize = len(cleanKeys)
 			addChannelRequest.Channel.Key = strings.Join(cleanKeys, "\n")
@@ -823,29 +818,28 @@ func AddChannel(c *gin.Context) {
 	case "batch":
 		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
 			// multi json
-			keys, err = getVertexArrayKeys(addChannelRequest.Channel.Key)
+			keys, inputIndices, err = getVertexArrayKeys(addChannelRequest.Channel.Key)
 			if err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
+				common.ApiError(c, err)
 				return
 			}
 		} else {
 			keys = strings.Split(addChannelRequest.Channel.Key, "\n")
+			for i := range keys {
+				inputIndices = append(inputIndices, i)
+			}
 		}
 	case "single":
 		keys = []string{addChannelRequest.Channel.Key}
+		inputIndices = []int{0}
 	default:
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "不支持的添加模式",
-		})
+		common.ApiErrorT(c, "Unsupported add mode")
 		return
 	}
 
 	channels := make([]model.Channel, 0, len(keys))
-	for _, key := range keys {
+	channelInputIndices := make([][]int, 0, len(keys))
+	for i, key := range keys {
 		if key == "" {
 			continue
 		}
@@ -859,6 +853,11 @@ func AddChannel(c *gin.Context) {
 			localChannel.Name = fmt.Sprintf("%s %s", localChannel.Name, keyPrefix)
 		}
 		channels = append(channels, *localChannel)
+		if addChannelRequest.Mode == "multi_to_single" {
+			channelInputIndices = append(channelInputIndices, inputIndices)
+		} else {
+			channelInputIndices = append(channelInputIndices, []int{inputIndices[i]})
+		}
 	}
 	err = model.BatchInsertChannels(channels)
 	if err != nil {
@@ -875,9 +874,22 @@ func AddChannel(c *gin.Context) {
 		createAudit["base_url_source"] = "plugin_default"
 	}
 	recordManageAudit(c, "channel.create", createAudit)
+	ids := make([]int, len(channels))
+	results := make([]gin.H, 0, len(inputIndices))
+	for i, channel := range channels {
+		ids[i] = channel.Id
+		for _, inputIndex := range channelInputIndices[i] {
+			results = append(results, gin.H{"input_index": inputIndex, "channel_id": channel.Id})
+		}
+	}
+	data := gin.H{"ids": ids, "results": results}
+	if len(ids) == 1 {
+		data["id"] = ids[0]
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
+		"data":    data,
 	})
 	return
 }
@@ -947,10 +959,7 @@ func DisableTagChannels(c *gin.Context) {
 	channelTag := ChannelTag{}
 	err := c.ShouldBindJSON(&channelTag)
 	if err != nil || channelTag.Tag == "" {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "参数错误",
-		})
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	channels, err := model.GetChannelsByTag(channelTag.Tag, false, false)
@@ -980,10 +989,7 @@ func EnableTagChannels(c *gin.Context) {
 	channelTag := ChannelTag{}
 	err := c.ShouldBindJSON(&channelTag)
 	if err != nil || channelTag.Tag == "" {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "参数错误",
-		})
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	err = model.EnableChannelByTag(channelTag.Tag)
@@ -1006,31 +1012,22 @@ func EditTagChannels(c *gin.Context) {
 	channelTag := ChannelTag{}
 	err := c.ShouldBindJSON(&channelTag)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "参数错误",
-		})
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	if channelTag.Tag == "" {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "tag不能为空",
-		})
+		common.ApiErrorT(c, "Tag cannot be empty")
 		return
 	}
 	if (channelTag.ParamOverride != nil || channelTag.HeaderOverride != nil) &&
 		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.ChannelSensitiveWrite) {
-		common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
+		common.ApiErrorT(c, "Unauthorized, insufficient privileges")
 		return
 	}
 	if channelTag.ParamOverride != nil {
 		trimmed := strings.TrimSpace(*channelTag.ParamOverride)
 		if trimmed != "" && !json.Valid([]byte(trimmed)) {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "参数覆盖必须是合法的 JSON 格式",
-			})
+			common.ApiErrorT(c, "Parameter override must be valid JSON format")
 			return
 		}
 		channelTag.ParamOverride = common.GetPointer[string](trimmed)
@@ -1038,10 +1035,7 @@ func EditTagChannels(c *gin.Context) {
 	if channelTag.HeaderOverride != nil {
 		trimmed := strings.TrimSpace(*channelTag.HeaderOverride)
 		if trimmed != "" && !json.Valid([]byte(trimmed)) {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "请求头覆盖必须是合法的 JSON 格式",
-			})
+			common.ApiErrorT(c, "Header override must be valid JSON format")
 			return
 		}
 		channelTag.HeaderOverride = common.GetPointer[string](trimmed)
@@ -1071,10 +1065,7 @@ func DeleteChannelBatch(c *gin.Context) {
 	channelBatch := ChannelBatch{}
 	err := c.ShouldBindJSON(&channelBatch)
 	if err != nil || len(channelBatch.Ids) == 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "参数错误",
-		})
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	deletedCount, err := model.BatchDeleteChannels(channelBatch.Ids)
@@ -1127,7 +1118,7 @@ func UpdateChannel(c *gin.Context) {
 		return
 	}
 	if _, ok := requestData["status"]; ok {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	clearChannelReadOnlyFields(&channel, requestData)
@@ -1145,19 +1136,13 @@ func UpdateChannel(c *gin.Context) {
 		(channel.BaseURL == nil || strings.TrimSpace(*channel.BaseURL) == "")
 	// 使用统一的校验函数
 	if err := validateChannel(&channel.Channel, false); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.ApiError(c, err)
 		return
 	}
 	// Preserve existing ChannelInfo to ensure multi-key channels keep correct state even if the client does not send ChannelInfo in the request.
 	originChannel, err := model.GetChannelById(channel.Id, true)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.ApiError(c, err)
 		return
 	}
 
@@ -1180,7 +1165,7 @@ func UpdateChannel(c *gin.Context) {
 
 	if channelHasSensitiveChanges(&channel, originChannel, requestData) &&
 		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.ChannelSensitiveWrite) {
-		common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
+		common.ApiErrorT(c, "Unauthorized, insufficient privileges")
 		return
 	}
 
@@ -1202,7 +1187,7 @@ func UpdateChannel(c *gin.Context) {
 				if strings.HasPrefix(strings.TrimSpace(originChannel.Key), "[") {
 					// JSON数组格式
 					var arr []json.RawMessage
-					if err := json.Unmarshal([]byte(strings.TrimSpace(originChannel.Key)), &arr); err == nil {
+					if err := common.Unmarshal([]byte(strings.TrimSpace(originChannel.Key)), &arr); err == nil {
 						existingKeys = make([]string, len(arr))
 						for i, v := range arr {
 							existingKeys[i] = string(v)
@@ -1217,12 +1202,9 @@ func UpdateChannel(c *gin.Context) {
 				if channel.Type == constant.ChannelTypeVertexAi && channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
 					// 尝试解析新密钥为JSON数组
 					if strings.HasPrefix(strings.TrimSpace(channel.Key), "[") {
-						array, err := getVertexArrayKeys(channel.Key)
+						array, _, err := getVertexArrayKeys(channel.Key)
 						if err != nil {
-							c.JSON(http.StatusOK, gin.H{
-								"success": false,
-								"message": "追加密钥解析失败: " + err.Error(),
-							})
+							common.ApiErrorT(c, "Failed to parse appended keys: {{error}}", map[string]any{"error": err.Error()})
 							return
 						}
 						newKeys = array
@@ -1315,12 +1297,12 @@ func UpdateChannel(c *gin.Context) {
 func UpdateChannelStatus(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	req := ChannelStatusRequest{}
 	if err := c.ShouldBindJSON(&req); err != nil || !isManageableChannelStatus(req.Status) {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	changed := model.UpdateChannelStatus(id, "", req.Status, "manual operation")
@@ -1346,7 +1328,7 @@ func UpdateChannelStatus(c *gin.Context) {
 func BatchUpdateChannelStatus(c *gin.Context) {
 	req := ChannelStatusBatchRequest{}
 	if err := c.ShouldBindJSON(&req); err != nil || len(req.Ids) == 0 || !isManageableChannelStatus(req.Status) {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	changedCount := 0
@@ -1500,10 +1482,7 @@ func FetchModels(c *gin.Context) {
 
 	models, err := fetchChannelUpstreamModelIDs(channel)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": fmt.Sprintf("获取模型列表失败: %s", err.Error()),
-		})
+		common.ApiErrorT(c, "Failed to fetch models: {{error}}", map[string]any{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -1517,10 +1496,7 @@ func BatchSetChannelTag(c *gin.Context) {
 	channelBatch := ChannelBatch{}
 	err := c.ShouldBindJSON(&channelBatch)
 	if err != nil || len(channelBatch.Ids) == 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "参数错误",
-		})
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	err = model.BatchSetChannelTag(channelBatch.Ids, channelBatch.Tag)
@@ -1543,10 +1519,7 @@ func BatchSetChannelTag(c *gin.Context) {
 func GetTagModels(c *gin.Context) {
 	tag := c.Query("tag")
 	if tag == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "tag不能为空",
-		})
+		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Tag cannot be empty"))
 		return
 	}
 
@@ -1585,7 +1558,7 @@ func GetTagModels(c *gin.Context) {
 // POST /api/channel/copy/:id
 // Optional query params:
 //
-//	suffix         - string appended to the original name (default "_复制")
+//	suffix         - string appended to the original name (default "_copy")
 //	reset_balance  - bool, when true will reset balance & used_quota to 0 (default true)
 func CopyChannel(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
@@ -1594,7 +1567,7 @@ func CopyChannel(c *gin.Context) {
 		return
 	}
 
-	suffix := c.DefaultQuery("suffix", "_复制")
+	suffix := c.DefaultQuery("suffix", "_copy")
 	resetBalance := true
 	if rbStr := c.DefaultQuery("reset_balance", "true"); rbStr != "" {
 		if v, err := strconv.ParseBool(rbStr); err == nil {
@@ -1605,8 +1578,8 @@ func CopyChannel(c *gin.Context) {
 	// fetch original channel with key
 	origin, err := model.GetChannelById(id, true)
 	if err != nil {
-		common.SysError("failed to get channel by id: " + err.Error())
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取渠道信息失败，请稍后重试"})
+		common.SysError(common.LogText("failed to get channel by id: %s", err.Error()))
+		common.ApiErrorT(c, "Failed to fetch channel. Please try again later")
 		return
 	}
 
@@ -1628,10 +1601,14 @@ func CopyChannel(c *gin.Context) {
 		clone.UsedQuota = 0
 	}
 
+	if err := clone.ValidateSettings(); err != nil {
+		common.ApiErrorT(c, "Failed to copy channel: invalid channel settings")
+		return
+	}
 	// insert
 	if err := clone.Insert(); err != nil {
-		common.SysError("failed to clone channel: " + err.Error())
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "复制渠道失败，请稍后重试"})
+		common.SysError(common.LogText("failed to clone channel: %s", err.Error()))
+		common.ApiErrorT(c, "Failed to copy channel. Please try again later")
 		return
 	}
 	model.InitChannelCache()
@@ -1686,23 +1663,17 @@ func ManageMultiKeys(c *gin.Context) {
 
 	channel, err := model.GetChannelById(request.ChannelId, true)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "渠道不存在",
-		})
+		common.ApiErrorT(c, "Channel does not exist")
 		return
 	}
 
 	if !channel.ChannelInfo.IsMultiKey {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "该渠道不是多密钥模式",
-		})
+		common.ApiErrorT(c, "This channel is not in multi-key mode")
 		return
 	}
 	if multiKeyActionRequiresSensitiveWrite(request.Action) &&
 		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.ChannelSensitiveWrite) {
-		common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
+		common.ApiErrorT(c, "Unauthorized, insufficient privileges")
 		return
 	}
 
@@ -1837,19 +1808,13 @@ func ManageMultiKeys(c *gin.Context) {
 
 	case "disable_key":
 		if request.KeyIndex == nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "未指定要禁用的密钥索引",
-			})
+			common.ApiErrorT(c, "No key index specified to disable")
 			return
 		}
 
 		keyIndex := *request.KeyIndex
 		if keyIndex < 0 || keyIndex >= channel.ChannelInfo.MultiKeySize {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "密钥索引超出范围",
-			})
+			common.ApiErrorT(c, "Key index out of range")
 			return
 		}
 
@@ -1876,27 +1841,18 @@ func ManageMultiKeys(c *gin.Context) {
 		if shouldCloseWebSocket {
 			closeActiveChannelWebSockets([]int{channel.Id})
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "密钥已禁用",
-		})
+		common.ApiSuccessT(c, "Key disabled", nil)
 		return
 
 	case "enable_key":
 		if request.KeyIndex == nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "未指定要启用的密钥索引",
-			})
+			common.ApiErrorT(c, "No key index specified to enable")
 			return
 		}
 
 		keyIndex := *request.KeyIndex
 		if keyIndex < 0 || keyIndex >= channel.ChannelInfo.MultiKeySize {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "密钥索引超出范围",
-			})
+			common.ApiErrorT(c, "Key index out of range")
 			return
 		}
 
@@ -1919,10 +1875,7 @@ func ManageMultiKeys(c *gin.Context) {
 		}
 
 		model.InitChannelCache()
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "密钥已启用",
-		})
+		common.ApiSuccessT(c, "Key enabled", nil)
 		return
 
 	case "enable_all_keys":
@@ -1944,10 +1897,7 @@ func ManageMultiKeys(c *gin.Context) {
 		}
 
 		model.InitChannelCache()
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": fmt.Sprintf("已启用 %d 个密钥", enabledCount),
-		})
+		common.ApiSuccessT(c, "Enabled {{count}} keys", nil, map[string]any{"count": enabledCount})
 		return
 
 	case "disable_all_keys":
@@ -1977,10 +1927,7 @@ func ManageMultiKeys(c *gin.Context) {
 		}
 
 		if disabledCount == 0 {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "没有可禁用的密钥",
-			})
+			common.ApiErrorT(c, "No keys to disable")
 			return
 		}
 
@@ -1995,27 +1942,18 @@ func ManageMultiKeys(c *gin.Context) {
 		if shouldCloseWebSocket {
 			closeActiveChannelWebSockets([]int{channel.Id})
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": fmt.Sprintf("已禁用 %d 个密钥", disabledCount),
-		})
+		common.ApiSuccessT(c, "Disabled {{count}} keys", nil, map[string]any{"count": disabledCount})
 		return
 
 	case "delete_key":
 		if request.KeyIndex == nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "未指定要删除的密钥索引",
-			})
+			common.ApiErrorT(c, "No key index specified to delete")
 			return
 		}
 
 		keyIndex := *request.KeyIndex
 		if keyIndex < 0 || keyIndex >= channel.ChannelInfo.MultiKeySize {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "密钥索引超出范围",
-			})
+			common.ApiErrorT(c, "Key index out of range")
 			return
 		}
 
@@ -2054,10 +1992,7 @@ func ManageMultiKeys(c *gin.Context) {
 		}
 
 		if len(remainingKeys) == 0 {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "不能删除最后一个密钥",
-			})
+			common.ApiErrorT(c, "Cannot delete the last key")
 			return
 		}
 
@@ -2079,10 +2014,7 @@ func ManageMultiKeys(c *gin.Context) {
 		if shouldCloseWebSocket {
 			closeActiveChannelWebSockets([]int{channel.Id})
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "密钥已删除",
-		})
+		common.ApiSuccessT(c, "Key deleted", nil)
 		return
 
 	case "delete_disabled_keys":
@@ -2126,10 +2058,7 @@ func ManageMultiKeys(c *gin.Context) {
 		}
 
 		if deletedCount == 0 {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "没有需要删除的自动禁用密钥",
-			})
+			common.ApiErrorT(c, "No auto-disabled keys to delete")
 			return
 		}
 
@@ -2151,18 +2080,11 @@ func ManageMultiKeys(c *gin.Context) {
 		if shouldCloseWebSocket {
 			closeActiveChannelWebSockets([]int{channel.Id})
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": fmt.Sprintf("已删除 %d 个自动禁用的密钥", deletedCount),
-			"data":    deletedCount,
-		})
+		common.ApiSuccessT(c, "Deleted {{count}} auto-disabled keys", deletedCount, map[string]any{"count": deletedCount})
 		return
 
 	default:
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "不支持的操作",
-		})
+		common.ApiErrorT(c, "Unsupported operation")
 		return
 	}
 }
@@ -2291,7 +2213,7 @@ func OllamaPullModelStream(c *gin.Context) {
 
 	// 创建进度回调函数
 	progressCallback := func(progress ollama.OllamaPullResponse) {
-		data, _ := json.Marshal(progress)
+		data, _ := common.Marshal(progress)
 		fmt.Fprintf(c.Writer, "data: %s\n\n", string(data))
 		c.Writer.Flush()
 	}
@@ -2300,12 +2222,12 @@ func OllamaPullModelStream(c *gin.Context) {
 	err = ollama.PullOllamaModelStream(baseURL, key, req.ModelName, progressCallback)
 
 	if err != nil {
-		errorData, _ := json.Marshal(gin.H{
+		errorData, _ := common.Marshal(gin.H{
 			"error": err.Error(),
 		})
 		fmt.Fprintf(c.Writer, "data: %s\n\n", string(errorData))
 	} else {
-		successData, _ := json.Marshal(gin.H{
+		successData, _ := common.Marshal(gin.H{
 			"message": fmt.Sprintf("Model %s pulled successfully", req.ModelName),
 		})
 		fmt.Fprintf(c.Writer, "data: %s\n\n", string(successData))
@@ -2415,10 +2337,7 @@ func OllamaVersion(c *gin.Context) {
 	key := strings.Split(channel.Key, "\n")[0]
 	version, err := ollama.FetchOllamaVersion(baseURL, key)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": fmt.Sprintf("获取Ollama版本失败: %s", err.Error()),
-		})
+		common.ApiErrorT(c, "Failed to fetch Ollama version: {{error}}", map[string]any{"error": err.Error()})
 		return
 	}
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -53,7 +54,7 @@ func ValidateAccountEmail(email string) (string, error) {
 	return email, nil
 }
 
-func StartEmailBinding(identity AuthIdentity, authorization *model.AuthFlowAuthorization, email, siteName string) (*EmailBindingData, error) {
+func StartEmailBinding(identity AuthIdentity, authorization *model.AuthFlowAuthorization, email, siteName, lang string) (*EmailBindingData, error) {
 	email, err := ValidateAccountEmail(email)
 	if err != nil {
 		return nil, err
@@ -80,19 +81,19 @@ func StartEmailBinding(identity AuthIdentity, authorization *model.AuthFlowAutho
 	if err != nil {
 		return nil, err
 	}
-	if err := sendEmailBindingCodes(state, codes, siteName); err != nil {
+	if err := sendEmailBindingCodes(state, codes, siteName, lang); err != nil {
 		// A partially delivered pair must not leave a usable change request.
 		_, _ = model.ConsumeAuthFlow(token, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeEmailBinding, UserId: identity.UserID, SessionId: identity.SessionID})
 		return nil, ErrEmailBindingDelivery
 	}
 	data := emailBindingData(token, flow, &state)
 	if state.CurrentEmail != "" && !requireOld {
-		data.NotificationWarning = NotifyAccountSecurityChangeForSite(state.CurrentEmail, "A change of your email address was requested", siteName) != nil
+		data.NotificationWarning = NotifyAccountSecurityChangeForSite(lang, state.CurrentEmail, i18n.MsgSecurityEventEmailChangeRequested, siteName) != nil
 	}
 	return data, nil
 }
 
-func ResendAccountEmailBinding(identity AuthIdentity, token, siteName string) (*EmailBindingData, error) {
+func ResendAccountEmailBinding(identity AuthIdentity, token, siteName, lang string) (*EmailBindingData, error) {
 	_, state, err := model.GetEmailBinding(identity, token)
 	if err != nil {
 		return nil, err
@@ -118,7 +119,7 @@ func ResendAccountEmailBinding(identity AuthIdentity, token, siteName string) (*
 	if err != nil {
 		return nil, err
 	}
-	if err := sendEmailBindingCodes(*state, codes, siteName); err != nil {
+	if err := sendEmailBindingCodes(*state, codes, siteName, lang); err != nil {
 		_, _ = model.ConsumeAuthFlow(token, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeEmailBinding, UserId: identity.UserID, SessionId: identity.SessionID})
 		return nil, ErrEmailBindingDelivery
 	}
@@ -177,14 +178,21 @@ func generateEmailBindingCodes(requireOld bool) (emailBindingCodes, error) {
 	return codes, nil
 }
 
-func sendEmailBindingCodes(state model.EmailBindingState, codes emailBindingCodes, siteName string) error {
-	subject := siteName + " — Confirm your email address"
-	content := fmt.Sprintf("<p>Confirm linking this email address to your account.</p><p>Verification code: <strong>%s</strong></p><p>This code expires in 10 minutes. If you did not request this change, do not share this code.</p>", html.EscapeString(codes.New))
+func sendEmailBindingCodes(state model.EmailBindingState, codes emailBindingCodes, siteName, lang string) error {
+	subject := i18n.Translate(lang, i18n.MsgEmailBindingSubject, map[string]any{"SystemName": siteName})
+	minutes := map[string]any{"Minutes": int(model.EmailBindingTTL / time.Minute)}
+	content := fmt.Sprintf("<p>%s</p><p>%s</p><p>%s</p>",
+		i18n.Translate(lang, i18n.MsgEmailBindingNewIntro),
+		i18n.Translate(lang, i18n.MsgEmailBindingCode, map[string]any{"Code": html.EscapeString(codes.New)}),
+		i18n.Translate(lang, i18n.MsgEmailBindingNewValidity, minutes))
 	if err := common.SendEmailWithSenderName(subject, state.Email, content, siteName); err != nil {
 		return err
 	}
 	if codes.Old != "" {
-		content = fmt.Sprintf("<p>A change to your account email address was requested. Confirm replacing your current address.</p><p>Verification code: <strong>%s</strong></p><p>This code expires in 10 minutes. If you did not request this change, do not share this code and contact your administrator.</p>", html.EscapeString(codes.Old))
+		content = fmt.Sprintf("<p>%s</p><p>%s</p><p>%s</p>",
+			i18n.Translate(lang, i18n.MsgEmailBindingOldIntro),
+			i18n.Translate(lang, i18n.MsgEmailBindingCode, map[string]any{"Code": html.EscapeString(codes.Old)}),
+			i18n.Translate(lang, i18n.MsgEmailBindingOldValidity, minutes))
 		return common.SendEmailWithSenderName(subject, state.CurrentEmail, content, siteName)
 	}
 	return nil

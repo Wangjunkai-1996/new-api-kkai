@@ -1,0 +1,1009 @@
+{
+  "scope": "Historical commands and initial decisions preserved verbatim; embedded domain notes are not the final schema or deployment plan.",
+  "environment": {
+    "go": ".local-releases/rc49-integration/toolchain/go/bin/go (Go1.26.10 darwin/arm64)",
+    "bun": ".local-releases/rc49-integration/toolchain/bun-npm/package/bin/bun (1.4.4)",
+    "GOTOOLCHAIN": "local",
+    "GOWORK": "off",
+    "database": "new local PostgreSQL18.4, database kkai_test_rc49, loopback port50081, random per-test schemas",
+    "redis": "new local Redis8.6.3 standalone DB0, loopback port50084",
+    "deadlines": "Go commands bounded by package timeouts and 120-240s outer process limits; no long/full gate run"
+  },
+  "commands": [
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 . -run '^$' -count=1 -timeout=30s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api\t0.082s [no tests to run]"
+      ],
+      "source_log": "main-compile-complete.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./model -run '^Test(TokenCacheIntegrity|UserCache|UserSession(Cache|RefreshCache)|AuthCacheRedis86MetadataRepair|UserSessionRefreshConcurrentCurrentSecretHasSingleWinner)' -count=1 -timeout=120s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/model\t5.718s"
+      ],
+      "source_log": "redis-after-integration.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./service -run '^Test(RefreshLoginSessionPreservesTemporaryLookupErrors|RelayHTTP2HealthCheck|HTTPTransportPolicy|HTTPClientCache|ShardedRoundTripper|.*ProxyClientCache|ImagePricingRetry|ImageStudioMaximumPreconsume|ImageStudioBillingGuard|ApplyImageOutputBillingCount)' -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/service\t8.292s"
+      ],
+      "source_log": "shared-boundaries-final.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay ./relay/channel/openai -run 'Test(.*ResponsesWS|.*ResponsesWSError|MembershipRealtime|RealtimePolicy|OpenaiRealtime|StopRealtime)' -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/relay\t0.298s",
+        "ok  \tgithub.com/QuantumNous/new-api/relay/channel/openai\t0.119s"
+      ],
+      "source_log": "ws-after-integration.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay ./relay/channel/openai -run 'Test(ImageRequestReserves|.*ImageMultipart|.*ImagePricing|.*PricedImage)' -count=1 -timeout=75s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/relay\t0.171s",
+        "ok  \tgithub.com/QuantumNous/new-api/relay/channel/openai\t0.037s [no tests to run]"
+      ],
+      "source_log": "image-reservation-final.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay/channel/openai -run '^Test(ImageExpression|OpenaiImage|OpenAIImageStudio|ConvertImageEdit)' -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/relay/channel/openai\t0.041s"
+      ],
+      "source_log": "image-final-behavior.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./middleware ./service ./relay ./setting/billing_setting -run '^Test(PinnedTaskPluginChannel|SharedType61|SharedNativeRoute|ChannelMatchesExpected|SharedEndpointRebinds|TokenModelLimit|GetModelRequestAssignsDeepSeek|DistributeHides|NoAvailableChannelMessage|BuildPricedImagePassthrough|.*Builtin)' -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/middleware\t0.087s",
+        "ok  \tgithub.com/QuantumNous/new-api/service\t0.198s",
+        "ok  \tgithub.com/QuantumNous/new-api/relay\t0.092s",
+        "ok  \tgithub.com/QuantumNous/new-api/setting/billing_setting\t0.083s"
+      ],
+      "source_log": "routing-rc49-final.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay/channel/ali -run '^Test(.*WebSearch|.*Embedding)' -count=1 -timeout=60s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/relay/channel/ali\t0.038s"
+      ],
+      "source_log": "ali-adaptor-rerun.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay/channel/advancedcustom -run '^TestAdaptorMasksDialedHostsInDialFailure$' -count=1 -timeout=30s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/relay/channel/advancedcustom\t0.038s"
+      ],
+      "source_log": "custom-dial-final.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay/channel/moonshot ./common/limiter -run '^Test(ConvertOpenAIRequest.*Moonshot|ConvertOpenAIRequestKimi|ResponsesRequestPassesThrough|AllowFallsBackToEval)' -count=1 -timeout=45s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/relay/channel/moonshot\t0.048s",
+        "ok  \tgithub.com/QuantumNous/new-api/common/limiter\t0.025s"
+      ],
+      "source_log": "small-provider-gaps.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay/channel/openai -run '^Test(MembershipResponsesFailureReturnsProviderUsage|TenantResponsesFailureReturnsProviderUsage|TenantChatUsageDistinguishesMissingFromExplicitZero)$' -count=1 -timeout=45s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/relay/channel/openai\t0.055s"
+      ],
+      "source_log": "responses-durable-preservation.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./common ./common/limiter -run '^Test(Container|SystemOverload|CheckSystemOverload|.*Limiter|.*MaskSensitive|.*LogText|.*Message|.*JSONCodec)' -count=1 -timeout=60s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/common\t0.072s",
+        "ok  \tgithub.com/QuantumNous/new-api/common/limiter\t0.018s [no tests to run]"
+      ],
+      "source_log": "common-runtime-rc49.log",
+      "note": "[no tests to run] means compilation only for that package."
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay/channel/ali ./relay/channel/deepseek ./relay/channel/advancedcustom ./relay/channel/moonshot ./relay/channel/vertex -run '^Test(.*WebSearch|.*Embedding|ThinkingSuffix|ModelModifiers|ResponsesReasoningReplay|ServerSideSearch|AdaptorMasks|AdaptorUsesExact|Adaptor.*(RequestHeader|QueryAuth)|.*Vertex|.*ServiceAccount|.*APIKey|.*ModelRouting)' -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": [
+        "FAIL\tgithub.com/QuantumNous/new-api/relay/channel/ali [build failed]",
+        "ok  \tgithub.com/QuantumNous/new-api/relay/channel/deepseek\t0.049s",
+        "FAIL",
+        "FAIL\tgithub.com/QuantumNous/new-api/relay/channel/advancedcustom\t0.053s",
+        "ok  \tgithub.com/QuantumNous/new-api/relay/channel/moonshot\t0.030s [no tests to run]",
+        "ok  \tgithub.com/QuantumNous/new-api/relay/channel/vertex\t0.030s",
+        "FAIL"
+      ],
+      "source_log": "provider-rc49-boundaries.log",
+      "status": "historical_failure_resolved",
+      "resolution": [
+        "ali-adaptor-rerun.log",
+        "custom-dial-final.log",
+        "small-provider-gaps.log"
+      ]
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay/common ./relay/helper ./relay/constant ./setting/billing_setting ./setting/operation_setting -run '^Test(.*Override|.*Tool|.*BillingExpr|.*Modifier|.*ReasoningSuffix|FixedPrice|.*Image.*Request|Get.*Request|.*Mode|.*BuiltIn|.*Builtin)' -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/relay/common\t0.054s",
+        "ok  \tgithub.com/QuantumNous/new-api/relay/helper\t0.059s",
+        "ok  \tgithub.com/QuantumNous/new-api/relay/constant\t0.013s",
+        "FAIL\tgithub.com/QuantumNous/new-api/setting/billing_setting [build failed]",
+        "ok  \tgithub.com/QuantumNous/new-api/setting/operation_setting\t0.016s",
+        "FAIL"
+      ],
+      "source_log": "host-protocol-scoped.log",
+      "status": "historical_failure_resolved",
+      "resolution": [
+        "routing-rc49-final.log"
+      ]
+    },
+    {
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay/channel/openai ./relay -run '^Test(ConvertImageEditRequestMultipart|BuildPricedImagePassthrough)' -count=1 -timeout=60s",
+      "cwd": ".",
+      "result": [
+        "ok  \tgithub.com/QuantumNous/new-api/relay/channel/openai\t0.044s",
+        "FAIL\tgithub.com/QuantumNous/new-api/relay [build failed]",
+        "FAIL"
+      ],
+      "source_log": "multipart-quantity-final.log",
+      "status": "historical_failure_resolved",
+      "resolution": [
+        "routing-rc49-final.log"
+      ]
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off ../.local-releases/rc49-integration/toolchain/go/bin/go test -mod=mod -p 2 . -run 'Test(ModelFamily|EstimateUsesFamilyWeights|Count|TokenCount|Image)' -count=1 -timeout=90s",
+      "cwd": "tokenkit",
+      "result": "PASS0.327s"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off ../.local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 . -run '^TestCountMatchesUpstreamBPE$' -count=1 -timeout=90s",
+      "cwd": "tokenkit",
+      "result": "PASS0.130s"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off ../.local-releases/rc49-integration/toolchain/go/bin/go test -mod=mod -p 2 ./dto ./relayconvert ./relayconvert/internal/oai_chat ./relayconvert/internal/oai_responses ./relayconvert/internal/toolconv ./relayconvert/kitutil ./relayconvert/reasoning -run 'Test(TokenCountMeta|EmbeddingTokenCountMeta|.*Zero.*|Chat.*|.*Tool.*|.*Reasoning.*|.*Gemini.*|.*Claude.*|.*Usage.*|.*Trailing.*|.*Mask.*|.*Registry.*)' -count=1 -timeout=90s",
+      "cwd": "relaykit",
+      "result": "dto, oai_responses, kitutil, reasoning PASS; oai_chat/registry/toolconv initially failed duplicate usageText; fixed and affected scopes rerun below"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off ../.local-releases/rc49-integration/toolchain/go/bin/go test -mod=mod -p 2 ./relayconvert ./relayconvert/internal/oai_chat ./relayconvert/internal/toolconv -run 'Test(Chat.*|.*Tool.*|.*Reasoning.*|.*Gemini.*|.*Claude.*|.*Usage.*|.*Mask.*|.*Registry.*|ConvertResponseDirect.*)' -count=1 -timeout=90s",
+      "cwd": "relaykit",
+      "result": "PASS all3packages"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "bash build/kkai-image/test-policy.sh",
+      "cwd": ".",
+      "result": "PASS FFmpeg static/source policy, manual build endpoint regression, manual image policy"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "bash -n scripts/kkai/check-fork-quality.sh",
+      "cwd": ".",
+      "result": "PASS"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go list -m -mod=readonly github.com/redis/go-redis/v9 github.com/QuantumNous/new-api/tokenkit github.com/tiktoken-go/tokenizer github.com/Calcium-Ion/moejs github.com/MoeForge/moego",
+      "cwd": ".",
+      "result": "PASS local tokenkit/tokenizer replaces, redis/v9 v9.17.1 preserved"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off ../.local-releases/rc49-integration/toolchain/go/bin/go list -m -mod=readonly github.com/tiktoken-go/tokenizer",
+      "cwd": "tokenkit",
+      "result": "PASS tokenizer v0.8.1 => ../third_party/tokenizer"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off ../.local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./dto -run 'Test(SGLangRequestExtensionsRoundTrip|ImageRequestPreserveGPTImage26Fields|AdvancedCustomValidateRoutePassThroughBody|ChannelSettingsHTTPTransportJSONRoundTrip|ChannelSettingsValidateHTTPTransport)$' -count=1 -timeout=90s",
+      "cwd": "relaykit",
+      "result": "PASS0.012s"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./common/limiter -run Test -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": "PASS 0.019s; existing redis/v9 limiter contract"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go run .local-releases/rc49-integration/run-perf-postgres.go",
+      "environment": "TEST_AUTH_CACHE_POSTGRES_DSN set to isolated loopback kkai_test_rc49 database",
+      "cwd": ".",
+      "result": "PASS 0.122s; wrapper creates unique schema and runs go test -mod=readonly -p 2 ./pkg/perf_metrics -run ^TestPerformanceAggregationAndFlush$/^postgres$ -count=1 -timeout=90s then drops its own schema",
+      "log": "perf-postgres-tests.log"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./service -run 'Test(CalculateTextToolCallSurchargeDoesNotDoubleChargeLegacyClaudeCount|TaskAccountingPreservesPerCallBillingUnits|LogTaskConsumption)' -count=1 -timeout=90s",
+      "environment": "TEST_AUTH_CACHE_POSTGRES_DSN set to isolated loopback kkai_test_rc49 database",
+      "cwd": ".",
+      "result": "PASS 0.448s; corrected legacy Claude double counting expectation, real exactly-once task log integration and per-second/per-request structured content",
+      "log": "service-task-accounting-tests.log"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./middleware -run 'Test(Redis|GlobalWebRateLimit|Model.*RateLimit|TenantRateLimits|DisabledPricingRequiresRootAuthentication|HeaderNavModule)' -count=1 -timeout=90s",
+      "environment": "TEST_AUTH_CACHE_POSTGRES_DSN set to isolated loopback kkai_test_rc49 database",
+      "cwd": ".",
+      "result": "All selected rate-limit/static/model/tenant tests passed; PostgreSQL pricing-root cases and logged-in SQLite header-nav case failed because commonGroupCol was uninitialized. Corrected GORM Select quoting and reran only failures.",
+      "log": "middleware-rate-auth-tests.log"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./middleware -run 'Test(DisabledPricingRequiresRootAuthentication|HeaderNavModulePublicOrUserAuthAllowsLoggedInWhenDisabled)$' -count=1 -timeout=90s",
+      "environment": "TEST_AUTH_CACHE_POSTGRES_DSN set to isolated loopback kkai_test_rc49 database",
+      "cwd": ".",
+      "result": "PASS 0.722s; all 10 root-pricing/invalid credential cases plus existing SQLite logged-in case",
+      "log": "middleware-auth-rerun.log"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "git diff --check -- <135 module-decisions.json local paths>",
+      "cwd": ".",
+      "result": "PASS"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./common ./relay -run 'Test(DeepCopy|RequestDeepCopy)' -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": "relay PASS 0.082s, all protocol clone and mutation regressions. common initially failed fixture composite-literal compilation; fixed and rerun only common below.",
+      "log": "request-copy-boundary-tests.log"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./common -run 'TestDeepCopy' -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": "PASS 0.018s",
+      "log": "common-copy-boundary-rerun.log"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay -run 'TestPrepareResponsesRequestDeepSeekEffectiveReasoning$' -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": "PASS 0.081s; all effective override, official hostname, third-party endpoint and passthrough cases",
+      "log": "deepseek-finalizer-rerun.log"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay -run 'Test(TenantAdaptorDispatchRejectsUnverifiedTransports|PrepareSub2ResponsesToolFilteringKeepsRetryInput)$' -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": "PASS; tenant transport rejects before underlying dispatch, non-finalizer adaptor preserves input/tools and retry behavior",
+      "log": "adaptor-wrapper-regression-tests.log"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./relay/helper -run '^TestRequestKeepAliveBoundsPingWrites$' -count=1 -timeout=90s",
+      "cwd": ".",
+      "result": "PASS 0.030s; existing StreamWriteBudget wrapper bounds first keepalive ping before upstream data",
+      "log": "keepalive-deadline-observation.log"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off ../.local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 . -run 'TestCount(UsesSameCodecForProviderAliases|UsesTiktokenForOpenAIModels|PreservesExactLongRuns)$' -count=1 -timeout=90s",
+      "cwd": "tokenkit",
+      "result": "PASS 0.066s; exact BPE counts preserved across provider namespaces and fine-tuned model names",
+      "log": "tokenkit-provider-prefix-tests.log"
+    },
+    {
+      "domain": "modules",
+      "status": "as_recorded_in_domain_validation",
+      "command": "GOTOOLCHAIN=local GOWORK=off .local-releases/rc49-integration/toolchain/go/bin/go test -mod=readonly -p 2 ./service -run '^Test(ShouldRetryRelayErrorHonorsChannelPinOnChannelError|ProcessChannelErrorMasksDisableReasonAndNotification|UpstreamAddressesMaskOnlyConfiguredAddresses|DecideRelayRetryReasons|RequestPolicyEventsReachLogAdminInfo)$' -count=1 -timeout=90s",
+      "environment": "TEST_AUTH_CACHE_POSTGRES_DSN set to isolated loopback kkai_test_rc49 database",
+      "cwd": ".",
+      "result": "PASS; five explicit groups from adapted service/relay_error_test.go, including PostgreSQL notification masking",
+      "log": "service-relay-error-scoped-tests.log"
+    },
+    {
+      "log": "tests-pricing-core.log",
+      "command": "$ vitest run src/features/model-pricing/__tests__/pricing.test.ts src/features/pricing/lib/__tests__/billing-expression.test.ts src/features/pricing/__tests__/dynamic-price.test.ts src/features/pricing/__tests__/task-matrix-display.test.ts src/features/keys/lib/api-key-form.test.ts src/features/keys/lib/__tests__/auto-group-form.test.ts src/features/system-settings/models/model-pricing-snapshots.test.ts src/features/dashboard/lib/__tests__/charts.test.ts src/features/dashboard/lib/flow.test.ts src/features/channels/lib/__tests__/priority-preview.test.ts",
+      "files": [
+        "src/features/model-pricing/__tests__/pricing.test.ts",
+        "src/features/pricing/lib/__tests__/billing-expression.test.ts",
+        "src/features/pricing/__tests__/dynamic-price.test.ts",
+        "src/features/pricing/__tests__/task-matrix-display.test.ts",
+        "src/features/keys/lib/api-key-form.test.ts",
+        "src/features/keys/lib/__tests__/auto-group-form.test.ts",
+        "src/features/system-settings/models/model-pricing-snapshots.test.ts",
+        "src/features/dashboard/lib/__tests__/charts.test.ts",
+        "src/features/dashboard/lib/flow.test.ts",
+        "src/features/channels/lib/__tests__/priority-preview.test.ts"
+      ],
+      "name_filter": null,
+      "failures": [
+        "src/features/keys/lib/__tests__/auto-group-form.test.ts > API key Auto group form mapping > treats legacy token responses without auto_groups as inheritance",
+        "src/features/keys/lib/__tests__/auto-group-form.test.ts > API key Auto group form mapping > filters a stored snapshot before applying a lowered limit",
+        "src/features/keys/lib/__tests__/auto-group-form.test.ts > API key Auto group form mapping > keeps a fully filtered snapshot custom and rejects it until resolved"
+      ],
+      "summary": [
+        "Test Files  1 failed | 9 passed (10)",
+        "Tests  3 failed | 214 passed (217)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-domain-ui.log",
+      "command": "$ vitest run src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx src/features/system-settings/models/__tests__/price-changes.test.tsx src/features/system-settings/__tests__/pricing-sync.test.tsx src/features/keys/lib/__tests__/auto-group-form.test.ts src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx src/features/usage-logs/components/__tests__/export-dialog.test.tsx src/features/profile/__tests__/settings.test.tsx src/features/channels/components/__tests__/priority-order.test.tsx src/components/__tests__/datetime-picker-time.test.tsx src/features/usage-logs/components/__tests__/detail-preview.test.tsx src/features/usage-logs/components/__tests__/usage-facts.test.tsx",
+      "files": [
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx",
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx",
+        "src/features/keys/lib/__tests__/auto-group-form.test.ts",
+        "src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx",
+        "src/features/usage-logs/components/__tests__/export-dialog.test.tsx",
+        "src/features/profile/__tests__/settings.test.tsx",
+        "src/features/channels/components/__tests__/priority-order.test.tsx",
+        "src/components/__tests__/datetime-picker-time.test.tsx",
+        "src/features/usage-logs/components/__tests__/detail-preview.test.tsx",
+        "src/features/usage-logs/components/__tests__/usage-facts.test.tsx"
+      ],
+      "name_filter": null,
+      "failures": [
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx > pricing synchronization > previews the expression, rejects a stale save and reloads before applying without residual ratio differences",
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx > applies bulk changes only to existing selections, allows row overrides and saves the frozen preview",
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx > does not compound repeated bulk conversion and resets adjustments when switching sources or clearing selection",
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx > allows matching prices to be selected and adjusted in the mobile list",
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx > blocks unsupported expressions until restored and disables conversion for invalid site rates",
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx > uses the custom currency rate and blocks an invalid rate after a conversion is selected",
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx > adjusts a price from its source cell without expanding the model column or requiring prior selection",
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx > applies multiply and divide shortcuts to selected models across filters without affecting later selections",
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx > disables both batch shortcuts when the configured exchange rate becomes invalid",
+        "src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx > API keys mutate drawer Auto group integration > inherits the root Auto order and sends an empty override for every batch-created key",
+        "src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx > API keys mutate drawer Auto group integration > preserves an unsaved custom order and mode after Auto to ordinary to Auto changes",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > keeps the drag-selected model name highlighted when the row click opens the editor",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > keeps other rows mounted when a different model is opened for editing",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > excludes stored historical prices that are absent from configured channels",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > allows a global save while a pristine legacy pricing panel is open",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > marks issue-shared with its pricing issue and explains the required change when opened",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > marks kling-v3 with its pricing issue and explains the required change when opened",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > marks vidu1.5 with its pricing issue and explains the required change when opened",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > keeps the configured badges on models without pricing issues",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > shows the sidebar issue count by model and filters to affected models as soon as issues load",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > reviews the first affected model after clearing an unrelated search and mode filter",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > preserves the choice to show all models when issues refresh",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > returns to all models when the last pricing issue is resolved",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > keeps unpriced candidate models visible on the unset-prices tab",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > reviews the first affected model from page one when started from a later page",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > opens the mobile pricing drawer with the same instructions through the keyboard review action",
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx > filters the table down to the models whose price needs attention",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > keeps a deleted saved price listed as pending deletion with an undo action",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > restores the saved price into the draft when a pending deletion is undone",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > offers only the edit action for a model without a saved price",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > shows each changed price of a modified model as a complete old → new line",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > counts unsaved models on the save button and in the page status",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > lists every change in the confirmation and saves only after confirming",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > enables save for an edit still open in the editor and confirms it",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > resets the draft to the saved prices when changes are discarded",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > shows the saved and draft prices above the editor and undoes them from there",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > keeps save in the phone top bar and moves the other actions into a menu",
+        "src/features/usage-logs/components/__tests__/detail-preview.test.tsx > task expression music shows its recorded unit price",
+        "src/features/usage-logs/components/__tests__/detail-preview.test.tsx > task expression pro shows its recorded unit price",
+        "src/features/usage-logs/components/__tests__/detail-preview.test.tsx > task expression tokens shows its recorded unit price",
+        "src/features/usage-logs/components/__tests__/detail-preview.test.tsx > task expression free shows its recorded unit price",
+        "src/features/usage-logs/components/__tests__/detail-preview.test.tsx > task expression mixed shows its recorded unit price",
+        "src/features/usage-logs/components/__tests__/detail-preview.test.tsx > task log prices use localized unit labels from pricing metadata",
+        "src/features/usage-logs/components/__tests__/detail-preview.test.tsx > task log prices select the executing provider’s schema"
+      ],
+      "summary": [
+        "Test Files  5 failed | 6 passed (11)",
+        "Tests  44 failed | 120 passed (164)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-domain-ui-retry.log",
+      "command": "$ vitest run src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx src/features/system-settings/models/__tests__/price-changes.test.tsx src/features/system-settings/__tests__/pricing-sync.test.tsx src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx src/features/usage-logs/components/__tests__/detail-preview.test.tsx",
+      "files": [
+        "src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx",
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx",
+        "src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx",
+        "src/features/usage-logs/components/__tests__/detail-preview.test.tsx"
+      ],
+      "name_filter": null,
+      "failures": [
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx > pricing synchronization > previews the expression, rejects a stale save and reloads before applying without residual ratio differences",
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx > applies bulk changes only to existing selections, allows row overrides and saves the frozen preview",
+        "src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx > API keys mutate drawer Auto group integration > inherits the root Auto order and sends an empty override for every batch-created key",
+        "src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx > API keys mutate drawer Auto group integration > preserves an unsaved custom order and mode after Auto to ordinary to Auto changes",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > enables save for an edit still open in the editor and confirms it"
+      ],
+      "summary": [
+        "Test Files  3 failed | 2 passed (5)",
+        "Tests  5 failed | 81 passed (86)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-ui-final-retry.log",
+      "command": "$ vitest run src/features/system-settings/models/__tests__/pricing-sync.test.tsx src/features/system-settings/models/__tests__/price-changes.test.tsx src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx",
+      "files": [
+        "src/features/system-settings/models/__tests__/pricing-sync.test.tsx",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx",
+        "src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx"
+      ],
+      "name_filter": null,
+      "failures": [
+        "src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx > API keys mutate drawer Auto group integration > preserves an unsaved custom order and mode after Auto to ordinary to Auto changes",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > enables save for an edit still open in the editor and confirms it"
+      ],
+      "summary": [
+        "Test Files  2 failed (2)",
+        "Tests  2 failed | 15 passed (17)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-editor-debug.log",
+      "command": "$ vitest run src/features/system-settings/models/__tests__/price-changes.test.tsx -t \"enables save for an edit\" \"--testTimeout=15000\"",
+      "files": [
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx"
+      ],
+      "name_filter": "enables save for an edit",
+      "failures": [
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > enables save for an edit still open in the editor and confirms it"
+      ],
+      "summary": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 9 skipped (10)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-new-contracts.log",
+      "command": "$ vitest run src/features/system-settings/__tests__/pricing-sync.test.tsx src/features/system-settings/models/__tests__/price-changes.test.tsx src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx src/features/usage-logs/lib/__tests__/export.test.ts src/features/usage-logs/components/__tests__/export-dialog.test.tsx",
+      "files": [
+        "src/features/system-settings/__tests__/pricing-sync.test.tsx",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx",
+        "src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx",
+        "src/features/usage-logs/lib/__tests__/export.test.ts",
+        "src/features/usage-logs/components/__tests__/export-dialog.test.tsx"
+      ],
+      "name_filter": null,
+      "failures": [
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > confirms display-only pricing changes and saves the exact display expression"
+      ],
+      "summary": [
+        "Test Files  1 failed | 4 passed (5)",
+        "Tests  1 failed | 54 passed (55)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-security-admin.log",
+      "command": "COMMAND /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/bun-npm/package/bin/bun run test src/features/models/__tests__/metadata-editing.test.tsx src/features/models/__tests__/vendor-management.test.tsx src/features/redemption-codes/components/__tests__/redemptions-mutate-drawer.test.tsx src/features/security/__tests__/account-security.test.tsx src/features/security/components/__tests__/access-token-create-dialog.test.tsx src/features/security/components/__tests__/access-tokens-card.test.tsx src/features/security/components/__tests__/login-session-item.test.tsx src/features/system-info/__tests__/system-tasks-panel.test.tsx src/features/system-settings/auth/__tests__/bot-protection-settings.test.tsx src/features/system-settings/integrations/__tests__/email-notifications.test.tsx src/features/system-settings/integrations/__tests__/email-settings-section.test.tsx src/features/system-settings/maintenance/__tests__/log-settings.test.tsx src/features/system-settings/request-policies/__tests__/routing.test.tsx src/features/task-plugins/__tests__/marketplace-install-dialog.test.tsx src/features/task-plugins/__tests__/plugin-detail-sheet.test.tsx src/features/task-plugins/__tests__/plugins-table.test.tsx src/features/task-plugins/__tests__/upload-dialog.test.tsx src/features/users/components/__tests__/group-filter.test.tsx src/features/users/components/__tests__/quota-display.test.tsx src/features/users/components/dialogs/__tests__/user-binding-dialog.test.tsx src/features/wallet/__tests__/copy.test.tsx src/features/wallet/lib/__tests__/payment-icons.test.tsx",
+      "files": [
+        "src/features/models/__tests__/metadata-editing.test.tsx",
+        "src/features/models/__tests__/vendor-management.test.tsx",
+        "src/features/redemption-codes/components/__tests__/redemptions-mutate-drawer.test.tsx",
+        "src/features/security/__tests__/account-security.test.tsx",
+        "src/features/security/components/__tests__/access-token-create-dialog.test.tsx",
+        "src/features/security/components/__tests__/access-tokens-card.test.tsx",
+        "src/features/security/components/__tests__/login-session-item.test.tsx",
+        "src/features/system-info/__tests__/system-tasks-panel.test.tsx",
+        "src/features/system-settings/auth/__tests__/bot-protection-settings.test.tsx",
+        "src/features/system-settings/integrations/__tests__/email-notifications.test.tsx",
+        "src/features/system-settings/integrations/__tests__/email-settings-section.test.tsx",
+        "src/features/system-settings/maintenance/__tests__/log-settings.test.tsx",
+        "src/features/system-settings/request-policies/__tests__/routing.test.tsx",
+        "src/features/task-plugins/__tests__/marketplace-install-dialog.test.tsx",
+        "src/features/task-plugins/__tests__/plugin-detail-sheet.test.tsx",
+        "src/features/task-plugins/__tests__/plugins-table.test.tsx",
+        "src/features/task-plugins/__tests__/upload-dialog.test.tsx",
+        "src/features/users/components/__tests__/group-filter.test.tsx",
+        "src/features/users/components/__tests__/quota-display.test.tsx",
+        "src/features/users/components/dialogs/__tests__/user-binding-dialog.test.tsx",
+        "src/features/wallet/__tests__/copy.test.tsx",
+        "src/features/wallet/lib/__tests__/payment-icons.test.tsx"
+      ],
+      "name_filter": null,
+      "failures": [
+        "src/features/models/__tests__/metadata-editing.test.tsx > model pricing entry > saves pricing and opens connections for a channel model without creating metadata",
+        "src/features/models/__tests__/metadata-editing.test.tsx > model pricing entry > opens pricing directly, keeps it selected after metadata loads, and reopens Edit on metadata",
+        "src/features/models/__tests__/metadata-editing.test.tsx > model pricing entry > requires a concrete model for matching rules and protects an unsaved price on close",
+        "src/features/models/__tests__/metadata-editing.test.tsx > metadata editing > keeps metadata drafts while saving pricing independently and preserves the price draft across tabs",
+        "src/features/task-plugins/__tests__/marketplace-install-dialog.test.tsx > an install that needs activation reports what the activated version cannot charge",
+        "src/features/wallet/__tests__/copy.test.tsx > translates billing history statuses and updates them when the language changes",
+        "src/features/wallet/__tests__/copy.test.tsx > translates recharge presets and minimum amount without changing precision at price ratio 7.3",
+        "src/features/wallet/__tests__/copy.test.tsx > translates recharge presets and minimum amount without changing precision at price ratio 0.000123",
+        "src/features/redemption-codes/components/__tests__/redemptions-mutate-drawer.test.tsx > redemption drawer > submits a non-expiring code when its date is cleared with Clear",
+        "src/features/users/components/__tests__/group-filter.test.tsx > searches only the selected user group and lists all users again after the filter is cleared",
+        "src/features/users/components/__tests__/group-filter.test.tsx > restores the user group filter from the page URL on load"
+      ],
+      "summary": [
+        "Test Files  5 failed | 17 passed (22)",
+        "Tests  11 failed | 235 passed (246)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-display-debug.log",
+      "command": "$ vitest run src/features/system-settings/models/__tests__/price-changes.test.tsx -t \"confirms display-only\" \"--testTimeout=12000\"",
+      "files": [
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx"
+      ],
+      "name_filter": "confirms display-only",
+      "failures": [
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > confirms display-only pricing changes and saves the exact display expression"
+      ],
+      "summary": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 11 skipped (12)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-metadata-debug.log",
+      "command": "$ vitest run src/features/models/__tests__/metadata-editing.test.tsx -t \"saves pricing and opens connections\" \"--testTimeout=12000\"",
+      "files": [
+        "src/features/models/__tests__/metadata-editing.test.tsx"
+      ],
+      "name_filter": "saves pricing and opens connections",
+      "failures": [
+        "src/features/models/__tests__/metadata-editing.test.tsx > model pricing entry > saves pricing and opens connections for a channel model without creating metadata"
+      ],
+      "summary": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 9 skipped (10)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-admin-retry.log",
+      "command": "$ vitest run src/features/system-settings/models/__tests__/price-changes.test.tsx src/features/models/__tests__/metadata-editing.test.tsx src/features/redemption-codes/components/__tests__/redemptions-mutate-drawer.test.tsx src/features/task-plugins/__tests__/marketplace-install-dialog.test.tsx src/features/wallet/__tests__/copy.test.tsx src/features/users/components/__tests__/group-filter.test.tsx",
+      "files": [
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx",
+        "src/features/models/__tests__/metadata-editing.test.tsx",
+        "src/features/redemption-codes/components/__tests__/redemptions-mutate-drawer.test.tsx",
+        "src/features/task-plugins/__tests__/marketplace-install-dialog.test.tsx",
+        "src/features/wallet/__tests__/copy.test.tsx",
+        "src/features/users/components/__tests__/group-filter.test.tsx"
+      ],
+      "name_filter": null,
+      "failures": [
+        "src/features/task-plugins/__tests__/marketplace-install-dialog.test.tsx > an install that needs activation reports what the activated version cannot charge",
+        "src/features/wallet/__tests__/copy.test.tsx > translates the preset discount while retaining the USD credit amount",
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx > confirms display-only pricing changes and saves the exact display expression"
+      ],
+      "summary": [
+        "Test Files  3 failed | 3 passed (6)",
+        "Tests  3 failed | 61 passed (64)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-shared-channels.log",
+      "command": "COMMAND /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/bun-npm/package/bin/bun run test src/components/__tests__/command-menu.test.tsx src/components/__tests__/date-picker-locale.test.tsx src/components/model-group-selector/__tests__/group-detail.test.ts src/components/ui/__tests__/markdown.test.tsx src/context/__tests__/theme-boot-script.test.ts src/context/__tests__/theme-preferences.test.tsx src/features/channels/components/__tests__/channel-configuration.test.tsx src/features/channels/components/__tests__/channel-quick-options.test.tsx src/features/channels/components/__tests__/channels-columns-status-tooltip-content.test.tsx src/features/channels/components/__tests__/model-mapping-editor.test.tsx src/features/channels/components/__tests__/param-override-editor.test.tsx src/features/channels/components/__tests__/priority-guide.test.tsx src/features/channels/components/__tests__/responses-websocket-setting.test.tsx src/features/channels/components/__tests__/table-refresh.test.tsx src/features/channels/lib/__tests__/advanced-custom.test.ts src/features/channels/lib/__tests__/aws-channel.test.ts src/features/channels/lib/__tests__/new-api-channel.test.ts src/features/channels/lib/__tests__/vertex-channel.test.ts src/features/errors/__tests__/general-error.test.tsx src/features/playground/lib/message/__tests__/message-streaming.test.ts src/features/playground/lib/storage/__tests__/storage.test.ts src/hooks/__tests__/sidebar-config.test.tsx src/i18n/languages.test.ts src/lib/__tests__/model-provider.test.ts src/lib/__tests__/theme-color.test.tsx src/lib/server-error-message.test.ts",
+      "files": [
+        "src/components/__tests__/command-menu.test.tsx",
+        "src/components/__tests__/date-picker-locale.test.tsx",
+        "src/components/model-group-selector/__tests__/group-detail.test.ts",
+        "src/components/ui/__tests__/markdown.test.tsx",
+        "src/context/__tests__/theme-boot-script.test.ts",
+        "src/context/__tests__/theme-preferences.test.tsx",
+        "src/features/channels/components/__tests__/channel-configuration.test.tsx",
+        "src/features/channels/components/__tests__/channel-quick-options.test.tsx",
+        "src/features/channels/components/__tests__/channels-columns-status-tooltip-content.test.tsx",
+        "src/features/channels/components/__tests__/model-mapping-editor.test.tsx",
+        "src/features/channels/components/__tests__/param-override-editor.test.tsx",
+        "src/features/channels/components/__tests__/priority-guide.test.tsx",
+        "src/features/channels/components/__tests__/responses-websocket-setting.test.tsx",
+        "src/features/channels/components/__tests__/table-refresh.test.tsx",
+        "src/features/channels/lib/__tests__/advanced-custom.test.ts",
+        "src/features/channels/lib/__tests__/aws-channel.test.ts",
+        "src/features/channels/lib/__tests__/new-api-channel.test.ts",
+        "src/features/channels/lib/__tests__/vertex-channel.test.ts",
+        "src/features/errors/__tests__/general-error.test.tsx",
+        "src/features/playground/lib/message/__tests__/message-streaming.test.ts",
+        "src/features/playground/lib/storage/__tests__/storage.test.ts",
+        "src/hooks/__tests__/sidebar-config.test.tsx",
+        "src/i18n/languages.test.ts",
+        "src/lib/__tests__/model-provider.test.ts",
+        "src/lib/__tests__/theme-color.test.tsx",
+        "src/lib/server-error-message.test.ts"
+      ],
+      "name_filter": null,
+      "failures": [
+        "src/hooks/__tests__/sidebar-config.test.tsx > profile sidebar visibility > tenant customers see only the supported console paths even when all sidebar modules default to enabled",
+        "src/features/channels/components/__tests__/channel-configuration.test.tsx > a saved upstream TLS verification skip marks Other Settings and turning it off saves the setting without it"
+      ],
+      "summary": [
+        "Test Files  2 failed | 24 passed (26)",
+        "Tests  2 failed | 289 passed (291)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-failed-contracts-retry.log",
+      "command": "$ vitest run src/features/system-settings/models/__tests__/price-changes.test.tsx src/features/system-settings/models/__tests__/group-settings.test.tsx src/features/wallet/__tests__/copy.test.tsx src/features/task-plugins/__tests__/marketplace-install-dialog.test.tsx src/hooks/__tests__/sidebar-config.test.tsx src/features/channels/components/__tests__/channel-configuration.test.tsx -t \"display-only|deleted display|group settings|preset discount|an install that needs|tenant customers see only|saved upstream TLS\"",
+      "files": [
+        "src/features/system-settings/models/__tests__/price-changes.test.tsx",
+        "src/features/system-settings/models/__tests__/group-settings.test.tsx",
+        "src/features/wallet/__tests__/copy.test.tsx",
+        "src/features/task-plugins/__tests__/marketplace-install-dialog.test.tsx",
+        "src/hooks/__tests__/sidebar-config.test.tsx",
+        "src/features/channels/components/__tests__/channel-configuration.test.tsx"
+      ],
+      "name_filter": "display-only|deleted display|group settings|preset discount|an install that needs|tenant customers see only|saved upstream TLS",
+      "failures": [
+        "src/features/system-settings/models/__tests__/group-settings.test.tsx > group settings workspace > filters by description and clears search without discarding edits",
+        "src/features/system-settings/models/__tests__/group-settings.test.tsx > group settings workspace > prepends consecutive new groups and saves them without changing existing settings",
+        "src/features/system-settings/models/__tests__/group-settings.test.tsx > group settings workspace > keeps unfinished visibility rules while switching sections and supports keyboard tabs",
+        "src/features/system-settings/models/__tests__/group-settings.test.tsx > group settings workspace > reorders and removes auto groups with named controls and saves across sections",
+        "src/features/system-settings/models/__tests__/group-settings.test.tsx > group settings workspace > reorders from the drag handle with arrow keys, preserves unknown groups and saves the new order",
+        "src/features/system-settings/models/__tests__/group-settings.test.tsx > group settings workspace > keeps a single auto group unchanged when using its drag handle keyboard controls",
+        "src/features/system-settings/models/__tests__/group-settings.test.tsx > group settings workspace > opens the auto section and focuses its invalid limit when saving from another section",
+        "src/features/system-settings/models/__tests__/group-settings.test.tsx > group settings workspace > shows empty state guidance and disables save during a pending request",
+        "src/features/system-settings/models/__tests__/group-settings.test.tsx > group settings workspace > preserves pricing edits when switching between visual and JSON editors"
+      ],
+      "summary": [
+        "Test Files  1 failed | 5 passed (6)",
+        "Tests  9 failed | 6 passed | 149 skipped (164)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-pricing-identity.log",
+      "command": "COMMAND /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/bun-npm/package/bin/bun run test src/features/model-pricing/__tests__/editor-currency.test.tsx src/features/model-pricing/__tests__/editor-layout.test.tsx src/features/pricing/__tests__/model-cards.test.tsx src/features/pricing/__tests__/pricing-controls.test.tsx src/features/pricing/__tests__/sorting.test.ts src/features/system-settings/models/__tests__/tool-price-validation.test.tsx src/features/system-settings/models/__tests__/visual-billing-editor.test.tsx src/lib/auth-query-cache.test.ts src/lib/http-client-credit-epoch.test.ts src/lib/http-client-auth-redirect.test.ts src/routes/__tests__/-root-tenant-bootstrap.test.ts src/features/wallet/components/recharge-form-card.test.tsx src/features/wallet/lib/format.test.ts",
+      "files": [
+        "src/features/model-pricing/__tests__/editor-currency.test.tsx",
+        "src/features/model-pricing/__tests__/editor-layout.test.tsx",
+        "src/features/pricing/__tests__/model-cards.test.tsx",
+        "src/features/pricing/__tests__/pricing-controls.test.tsx",
+        "src/features/pricing/__tests__/sorting.test.ts",
+        "src/features/system-settings/models/__tests__/tool-price-validation.test.tsx",
+        "src/features/system-settings/models/__tests__/visual-billing-editor.test.tsx",
+        "src/lib/auth-query-cache.test.ts",
+        "src/lib/http-client-credit-epoch.test.ts",
+        "src/lib/http-client-auth-redirect.test.ts",
+        "src/routes/__tests__/-root-tenant-bootstrap.test.ts",
+        "src/features/wallet/components/recharge-form-card.test.tsx",
+        "src/features/wallet/lib/format.test.ts"
+      ],
+      "name_filter": null,
+      "failures": [
+        "src/features/model-pricing/__tests__/editor-layout.test.tsx > keeps the default pricing workspace shrinkable and saves from its fixed action bar",
+        "src/features/model-pricing/__tests__/editor-layout.test.tsx > keeps the unset pricing workspace shrinkable and saves from its fixed action bar",
+        "src/features/pricing/__tests__/model-cards.test.tsx > model cards > keeps an unrecognized expression out of the card",
+        "src/features/wallet/components/recharge-form-card.test.tsx > wallet recharge design interactions > keeps channel minimums and never advertises configured amount discounts for Stripe"
+      ],
+      "summary": [
+        "Test Files  3 failed | 10 passed (13)",
+        "Tests  4 failed | 171 passed (175)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-pricing-local-equivalence.log",
+      "command": "$ vitest run src/features/model-pricing/__tests__/editor-layout.test.tsx src/features/pricing/__tests__/model-cards.test.tsx src/features/wallet/components/recharge-form-card.test.tsx src/features/wallet/__tests__/copy.test.tsx src/features/system-settings/models/group-ratio-form.test.tsx src/features/system-settings/models/group-ratio-visual-editor.test.ts src/features/system-settings/models/auto-group-profiles-editor.test.tsx",
+      "files": [
+        "src/features/model-pricing/__tests__/editor-layout.test.tsx",
+        "src/features/pricing/__tests__/model-cards.test.tsx",
+        "src/features/wallet/components/recharge-form-card.test.tsx",
+        "src/features/wallet/__tests__/copy.test.tsx",
+        "src/features/system-settings/models/group-ratio-form.test.tsx",
+        "src/features/system-settings/models/group-ratio-visual-editor.test.ts",
+        "src/features/system-settings/models/auto-group-profiles-editor.test.tsx"
+      ],
+      "name_filter": null,
+      "failures": [],
+      "summary": [
+        "Test Files  7 passed (7)",
+        "Tests  60 passed (60)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-remaining-domain.log",
+      "command": "COMMAND /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/bun-npm/package/bin/bun run test src/features/dashboard/lib/__tests__/flow-tooltip.test.ts src/features/system-settings/models/__tests__/plugin-pricing.test.tsx src/features/usage-logs/audit/__tests__/details.test.tsx src/features/usage-logs/components/__tests__/cost-display.test.tsx src/features/usage-logs/components/__tests__/mobile-filter.test.tsx src/features/usage-logs/components/__tests__/model-badge.test.tsx src/features/usage-logs/lib/__tests__/token-name.test.ts src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx src/features/channels/components/__tests__/priority-order.test.tsx",
+      "files": [
+        "src/features/dashboard/lib/__tests__/flow-tooltip.test.ts",
+        "src/features/system-settings/models/__tests__/plugin-pricing.test.tsx",
+        "src/features/usage-logs/audit/__tests__/details.test.tsx",
+        "src/features/usage-logs/components/__tests__/cost-display.test.tsx",
+        "src/features/usage-logs/components/__tests__/mobile-filter.test.tsx",
+        "src/features/usage-logs/components/__tests__/model-badge.test.tsx",
+        "src/features/usage-logs/lib/__tests__/token-name.test.ts",
+        "src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx",
+        "src/features/channels/components/__tests__/priority-order.test.tsx"
+      ],
+      "name_filter": null,
+      "failures": [
+        "src/features/system-settings/models/__tests__/plugin-pricing.test.tsx > shows and removes a single provider override while retaining the per-call default",
+        "src/features/system-settings/models/__tests__/plugin-pricing.test.tsx > starts ordinary image pricing per returned image and keeps the plugin image price",
+        "src/features/usage-logs/components/__tests__/mobile-filter.test.tsx > keeps all quick actions visible without opening a menu",
+        "src/features/usage-logs/components/__tests__/mobile-filter.test.tsx > collapses only date and statistics while keeping the right-hand quick actions visible"
+      ],
+      "summary": [
+        "Test Files  2 failed | 7 passed (9)",
+        "Tests  4 failed | 318 passed (322)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "log": "tests-last-three.log",
+      "command": "$ vitest run src/features/model-pricing/__tests__/editor-layout.test.tsx src/features/system-settings/models/__tests__/plugin-pricing.test.tsx src/features/usage-logs/components/__tests__/mobile-filter.test.tsx",
+      "files": [
+        "src/features/model-pricing/__tests__/editor-layout.test.tsx",
+        "src/features/system-settings/models/__tests__/plugin-pricing.test.tsx",
+        "src/features/usage-logs/components/__tests__/mobile-filter.test.tsx"
+      ],
+      "name_filter": null,
+      "failures": [],
+      "summary": [
+        "Test Files  3 passed (3)",
+        "Tests  31 passed (31)"
+      ],
+      "cwd": "web/default",
+      "status": "historical_command; failures resolved by later scoped retries in frontend-validation.md"
+    },
+    {
+      "domain": "frontend",
+      "cwd": "web/default",
+      "command": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/bun-npm/package/bin/bun check --no-pretty src/assets/brand-icons/icon-alipay.tsx src/components/__tests__/command-menu.test.tsx src/components/__tests__/date-picker-locale.test.tsx src/components/__tests__/datetime-picker-time.test.tsx src/components/model-group-selector/__tests__/group-detail.test.ts src/components/model-group-selector/group-detail.ts src/components/ui/__tests__/markdown.test.tsx src/context/__tests__/theme-boot-script.test.ts src/features/channels/components/__tests__/channels-columns-status-tooltip-content.test.tsx src/features/channels/components/__tests__/param-override-editor.test.tsx src/features/channels/components/__tests__/priority-guide.test.tsx src/features/channels/components/__tests__/priority-order.test.tsx src/features/channels/components/channel-priority-context.ts src/features/channels/components/channel-priority-controls.tsx src/features/channels/components/channel-priority-demo.tsx src/features/channels/components/channel-priority-drop-hint.tsx src/features/channels/components/channel-priority-guide.tsx src/features/channels/hooks/use-channel-priority-drag.ts src/features/channels/hooks/use-channel-priority-order.ts src/features/channels/lib/__tests__/advanced-custom.test.ts src/features/channels/lib/__tests__/aws-channel.test.ts src/features/channels/lib/__tests__/priority-preview.test.ts src/features/channels/lib/__tests__/vertex-channel.test.ts src/features/channels/lib/channel-priority-order.ts src/features/dashboard/lib/__tests__/charts.test.ts src/features/dashboard/lib/__tests__/flow-tooltip.test.ts src/features/errors/__tests__/general-error.test.tsx src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx src/features/keys/lib/__tests__/auto-group-form.test.ts src/features/playground/lib/message/__tests__/message-streaming.test.ts src/features/playground/lib/storage/__tests__/storage.test.ts src/features/pricing/__tests__/sorting.test.ts src/features/security/components/__tests__/login-session-item.test.tsx src/features/system-settings/auth/__tests__/bot-protection-settings.test.tsx src/features/system-settings/integrations/__tests__/email-notifications.test.tsx src/features/system-settings/integrations/__tests__/email-settings-section.test.tsx src/features/system-settings/integrations/email-settings-schema.ts src/features/system-settings/maintenance/__tests__/log-settings.test.tsx src/features/system-settings/maintenance/history-log-cleanup.tsx src/features/system-settings/maintenance/server-log-files.tsx src/features/system-settings/models/__tests__/price-changes.test.tsx src/features/system-settings/models/model-pricing-issue-alerts.tsx src/features/system-settings/models/price-adjustment-select.tsx src/features/system-settings/models/price-change-diff.tsx src/features/system-settings/models/pricing-issues.ts src/features/system-settings/models/upstream-price-adjustment.ts src/features/task-plugins/components/pricing-issue-list.tsx src/features/task-plugins/lib/plugin-change-toast.tsx src/features/usage-logs/components/__tests__/cost-display.test.tsx src/features/usage-logs/components/__tests__/export-dialog.test.tsx src/features/usage-logs/components/dialogs/export-logs-dialog.tsx src/features/usage-logs/lib/__tests__/export.test.ts src/features/usage-logs/lib/__tests__/token-name.test.ts src/features/usage-logs/lib/export.ts src/features/users/components/__tests__/group-filter.test.tsx src/features/wallet/__tests__/copy.test.tsx src/features/wallet/lib/__tests__/payment-icons.test.tsx src/i18n/languages.test.ts src/lib/__tests__/model-provider.test.ts src/lib/__tests__/theme-color.test.tsx src/lib/theme-color.ts src/assets/brand-icons/index.ts src/components/command-menu.tsx src/components/config-drawer.tsx src/components/console-compatibility-boundary.test.tsx src/components/data-table/core/data-table-row.tsx src/components/data-table/core/row-action-menu.tsx src/components/data-table/layout/card-grid.tsx src/components/data-table/static/static-row-actions.tsx src/components/date-picker.tsx src/components/datetime-picker.tsx src/components/layout/components/authenticated-layout.tsx src/components/layout/components/section-page-layout.tsx src/components/layout/config/system-settings.config.ts src/components/layout/index.ts src/components/layout/lib/sidebar-view-registry.ts src/components/layout/types.ts src/components/model-group-selector.tsx src/context/__tests__/theme-preferences.test.tsx src/context/search-provider.tsx src/context/theme-customization-provider.tsx src/features/auth/api.ts src/features/auth/components/oauth-callback-screen.tsx src/features/auth/passkey/hooks/use-passkey-management.ts src/features/auth/sign-in/components/user-auth-form.tsx src/features/auth/types.ts src/features/channels/api.ts src/features/channels/components/__tests__/channel-configuration.test.tsx src/features/channels/components/__tests__/channel-quick-options.test.tsx src/features/channels/components/__tests__/model-mapping-editor.test.tsx src/features/channels/components/__tests__/responses-websocket-setting.test.tsx src/features/channels/components/__tests__/table-refresh.test.tsx src/features/channels/components/channel-card.tsx src/features/channels/components/channels-columns.tsx src/features/channels/components/channels-primary-buttons.tsx src/features/channels/components/channels-provider.tsx src/features/channels/components/channels-table.tsx src/features/channels/components/dialogs/codex-usage-dialog.tsx src/features/channels/components/dialogs/multi-key-manage-dialog.tsx src/features/channels/components/dialogs/ollama-models-dialog.tsx src/features/channels/components/dialogs/param-override-editor-dialog.tsx src/features/channels/components/dialogs/passthrough-warning-dialog.tsx src/features/channels/components/drawers/channel-mutate-drawer.tsx src/features/channels/components/numeric-spinner-input.tsx src/features/channels/constants.ts src/features/channels/lib/__tests__/new-api-channel.test.ts src/features/channels/lib/advanced-custom.ts src/features/channels/lib/channel-actions.ts src/features/channels/lib/channel-configuration.ts src/features/channels/lib/channel-form-errors.ts src/features/channels/lib/channel-form.ts src/features/channels/lib/responses-websocket.ts src/features/channels/types.ts src/features/dashboard/components/flow/flow-charts.tsx src/features/dashboard/components/models/log-stat-cards.tsx src/features/dashboard/hooks/use-dashboard-config.tsx src/features/dashboard/index.tsx src/features/dashboard/lib/charts.ts src/features/dashboard/lib/flow.test.ts src/features/dashboard/lib/flow.ts src/features/dashboard/lib/stats.ts src/features/dashboard/types.ts src/features/errors/general-error.tsx src/features/keys/components/api-key-group-cell.test.tsx src/features/keys/components/api-keys-mutate-drawer.tsx src/features/keys/lib/api-key-form.ts src/features/keys/types.ts src/features/model-pricing/__tests__/editor-currency.test.tsx src/features/model-pricing/__tests__/editor-layout.test.tsx src/features/model-pricing/__tests__/pricing.test.ts src/features/model-pricing/model-pricing-panel.tsx src/features/model-pricing/pricing.ts src/features/models/__tests__/metadata-editing.test.tsx src/features/models/__tests__/vendor-management.test.tsx src/features/models/components/dialogs/model-delete-dialog.tsx src/features/models/components/drawers/model-mutate-drawer.tsx src/features/models/components/models-table.tsx src/features/models/lib/model-form.ts src/features/performance-metrics/api.ts src/features/performance-metrics/types.ts src/features/playground/lib/message/message-streaming-utils.ts src/features/playground/lib/storage/storage.ts src/features/playground/lib/streaming/stream-utils.ts src/features/playground/types.ts src/features/pricing/__tests__/dynamic-price.test.ts src/features/pricing/__tests__/model-cards.test.tsx src/features/pricing/__tests__/pricing-controls.test.tsx src/features/pricing/__tests__/task-matrix-display.test.ts src/features/pricing/components/model-card-grid.tsx src/features/pricing/components/model-card.tsx src/features/pricing/components/model-details.tsx src/features/pricing/components/model-perf-badge.tsx src/features/pricing/components/pricing-sidebar.tsx src/features/pricing/constants.ts src/features/pricing/lib/__tests__/billing-expression.test.ts src/features/pricing/lib/billing-expr.ts src/features/pricing/lib/billing-expression/types.ts src/features/pricing/lib/billing-expression/visual.ts src/features/pricing/lib/dynamic-price.ts src/features/pricing/lib/filters.ts src/features/pricing/lib/price.ts src/features/pricing/lib/task-matrix-display.ts src/features/pricing/lib/tier-expr.ts src/features/profile/__tests__/settings.test.tsx src/features/profile/components/profile-settings-card.tsx src/features/profile/components/sidebar-modules-card.tsx src/features/profile/components/tabs/notification-tab.tsx src/features/profile/constants.ts src/features/profile/index.tsx src/features/profile/lib/user-settings.ts src/features/profile/types.ts src/features/redemption-codes/components/__tests__/redemptions-mutate-drawer.test.tsx src/features/redemption-codes/components/redemptions-mutate-drawer.tsx src/features/redemption-codes/components/redemptions-primary-buttons.tsx src/features/redemption-codes/lib/redemption-form.ts src/features/security/__tests__/account-security.test.tsx src/features/security/components/__tests__/access-token-create-dialog.test.tsx src/features/security/components/__tests__/access-tokens-card.test.tsx src/features/security/components/account-bindings.tsx src/features/security/components/dialogs/delete-account-dialog.tsx src/features/security/components/dialogs/two-fa-setup-dialog.tsx src/features/security/components/login-session-item.tsx src/features/security/components/passkey-card.tsx src/features/subscriptions/components/dialogs/user-subscriptions-dialog.tsx src/features/subscriptions/components/subscriptions-columns.tsx src/features/subscriptions/components/subscriptions-mutate-drawer.tsx src/features/system-info/__tests__/system-tasks-panel.test.tsx src/features/system-settings/__tests__/pricing-sync.test.tsx src/features/system-settings/auth/bot-protection-section.tsx src/features/system-settings/auth/passkey-section.tsx src/features/system-settings/content/announcements-section.tsx src/features/system-settings/general/channel-affinity/index.tsx src/features/system-settings/general/channel-affinity/session-rules-table.tsx src/features/system-settings/hooks/use-update-option.ts src/features/system-settings/integrations/email-settings-section.tsx src/features/system-settings/integrations/monitoring-settings-section.tsx src/features/system-settings/integrations/payment-settings-section.tsx src/features/system-settings/integrations/waffo-pancake-settings-section.tsx src/features/system-settings/maintenance/log-settings-section.tsx src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx src/features/system-settings/models/__tests__/plugin-pricing.test.tsx src/features/system-settings/models/__tests__/tool-price-validation.test.tsx src/features/system-settings/models/__tests__/visual-billing-editor.test.tsx src/features/system-settings/models/claude-settings-card.tsx src/features/system-settings/models/conflict-confirm-dialog.tsx src/features/system-settings/models/gemini-settings-card.tsx src/features/system-settings/models/group-ratio-visual-editor.tsx src/features/system-settings/models/model-pricing-core.ts src/features/system-settings/models/model-pricing-sheet.tsx src/features/system-settings/models/model-pricing-snapshots.ts src/features/system-settings/models/model-ratio-form.tsx src/features/system-settings/models/model-ratio-table-columns.tsx src/features/system-settings/models/model-ratio-visual-editor.tsx src/features/system-settings/models/ratio-settings-card.tsx src/features/system-settings/models/task-plugin-pricing-editor.tsx src/features/system-settings/models/tier-price-fields.tsx src/features/system-settings/models/tiered-pricing-editor.tsx src/features/system-settings/models/tool-price-settings.tsx src/features/system-settings/models/upstream-price-cells.tsx src/features/system-settings/models/upstream-ratio-sync-helpers.ts src/features/system-settings/models/upstream-ratio-sync-table.tsx src/features/system-settings/models/upstream-ratio-sync.tsx src/features/system-settings/models/visual-billing-document-editor.tsx src/features/system-settings/operations/index.tsx src/features/system-settings/operations/section-registry.tsx src/features/system-settings/request-policies/__tests__/routing.test.tsx src/features/system-settings/request-policies/use-save-policy.ts src/features/system-settings/types.ts src/features/system-settings/utils/section-registry.ts src/features/task-plugins/__tests__/marketplace-install-dialog.test.tsx src/features/task-plugins/__tests__/plugin-detail-sheet.test.tsx src/features/task-plugins/__tests__/plugins-table.test.tsx src/features/task-plugins/__tests__/upload-dialog.test.tsx src/features/task-plugins/api.ts src/features/task-plugins/components/marketplace-capabilities.tsx src/features/task-plugins/components/marketplace-install-dialog.tsx src/features/task-plugins/components/plugin-detail-sheet.tsx src/features/task-plugins/components/plugin-endpoints.tsx src/features/task-plugins/components/plugin-metadata-card.tsx src/features/task-plugins/components/plugins-table.tsx src/features/task-plugins/components/upload-dialog.tsx src/features/task-plugins/lib/plugin-meta-preview.ts src/features/task-plugins/types.ts src/features/usage-guide/components/quick-setup-dialog.test.tsx src/features/usage-logs/api.ts src/features/usage-logs/audit/__tests__/details.test.tsx src/features/usage-logs/audit/lib/audit-details.ts src/features/usage-logs/components/__tests__/detail-preview.test.tsx src/features/usage-logs/components/__tests__/mobile-filter.test.tsx src/features/usage-logs/components/__tests__/model-badge.test.tsx src/features/usage-logs/components/__tests__/usage-facts.test.tsx src/features/usage-logs/components/columns/column-helpers.tsx src/features/usage-logs/components/columns/common-logs-columns.tsx src/features/usage-logs/components/columns/task-logs-columns.tsx src/features/usage-logs/components/common-log-mobile-card.tsx src/features/usage-logs/components/common-logs-filter-bar.tsx src/features/usage-logs/components/compact-date-time-range-picker.tsx src/features/usage-logs/components/dialogs/details-dialog.tsx src/features/usage-logs/components/dialogs/task-details-dialog.tsx src/features/usage-logs/components/log-cost-display.tsx src/features/usage-logs/components/logs-filter-toolbar.tsx src/features/usage-logs/components/model-badge.tsx src/features/usage-logs/data/schema.ts src/features/usage-logs/lib/format.ts src/features/usage-logs/types.ts src/features/users/components/__tests__/quota-display.test.tsx src/features/users/components/dialogs/__tests__/user-binding-dialog.test.tsx src/features/users/components/dialogs/user-binding-dialog.tsx src/features/users/components/users-columns.tsx src/features/users/components/users-table.tsx src/features/wallet/components/recharge-form-card.tsx src/features/wallet/hooks/use-affiliate.ts src/features/wallet/hooks/use-waffo-pancake-payment.ts src/features/wallet/hooks/use-waffo-payment.ts src/features/wallet/lib/format.ts src/features/wallet/lib/payment.ts src/features/wallet/lib/ui.tsx src/hooks/__tests__/sidebar-config.test.tsx src/hooks/use-sidebar-data.ts src/hooks/use-sidebar-view.ts src/i18n/languages.ts src/i18n/static-keys.ts src/lib/model-provider.ts src/lib/motion.ts src/lib/secure-verification.ts src/lib/server-error-message.test.ts src/lib/server-error-message.ts src/lib/theme-customization.ts src/routes/_authenticated/users/index.tsx",
+      "result": "PASS; 977 reachable files",
+      "source_log": "typecheck-changed-accepted.log"
+    },
+    {
+      "domain": "frontend",
+      "cwd": "web/default",
+      "command": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/bun-npm/package/bin/bun run --bun oxlint -c .oxlintrc.json src/assets/brand-icons/icon-alipay.tsx src/components/__tests__/command-menu.test.tsx src/components/__tests__/date-picker-locale.test.tsx src/components/__tests__/datetime-picker-time.test.tsx src/components/model-group-selector/__tests__/group-detail.test.ts src/components/model-group-selector/group-detail.ts src/components/ui/__tests__/markdown.test.tsx src/context/__tests__/theme-boot-script.test.ts src/features/channels/components/__tests__/channels-columns-status-tooltip-content.test.tsx src/features/channels/components/__tests__/param-override-editor.test.tsx src/features/channels/components/__tests__/priority-guide.test.tsx src/features/channels/components/__tests__/priority-order.test.tsx src/features/channels/components/channel-priority-context.ts src/features/channels/components/channel-priority-controls.tsx src/features/channels/components/channel-priority-demo.tsx src/features/channels/components/channel-priority-drop-hint.tsx src/features/channels/components/channel-priority-guide.tsx src/features/channels/hooks/use-channel-priority-drag.ts src/features/channels/hooks/use-channel-priority-order.ts src/features/channels/lib/__tests__/advanced-custom.test.ts src/features/channels/lib/__tests__/aws-channel.test.ts src/features/channels/lib/__tests__/priority-preview.test.ts src/features/channels/lib/__tests__/vertex-channel.test.ts src/features/channels/lib/channel-priority-order.ts src/features/dashboard/lib/__tests__/charts.test.ts src/features/dashboard/lib/__tests__/flow-tooltip.test.ts src/features/errors/__tests__/general-error.test.tsx src/features/keys/components/__tests__/api-keys-mutate-drawer.test.tsx src/features/keys/lib/__tests__/auto-group-form.test.ts src/features/playground/lib/message/__tests__/message-streaming.test.ts src/features/playground/lib/storage/__tests__/storage.test.ts src/features/pricing/__tests__/sorting.test.ts src/features/security/components/__tests__/login-session-item.test.tsx src/features/system-settings/auth/__tests__/bot-protection-settings.test.tsx src/features/system-settings/integrations/__tests__/email-notifications.test.tsx src/features/system-settings/integrations/__tests__/email-settings-section.test.tsx src/features/system-settings/integrations/email-settings-schema.ts src/features/system-settings/maintenance/__tests__/log-settings.test.tsx src/features/system-settings/maintenance/history-log-cleanup.tsx src/features/system-settings/maintenance/server-log-files.tsx src/features/system-settings/models/__tests__/price-changes.test.tsx src/features/system-settings/models/model-pricing-issue-alerts.tsx src/features/system-settings/models/price-adjustment-select.tsx src/features/system-settings/models/price-change-diff.tsx src/features/system-settings/models/pricing-issues.ts src/features/system-settings/models/upstream-price-adjustment.ts src/features/task-plugins/components/pricing-issue-list.tsx src/features/task-plugins/lib/plugin-change-toast.tsx src/features/usage-logs/components/__tests__/cost-display.test.tsx src/features/usage-logs/components/__tests__/export-dialog.test.tsx src/features/usage-logs/components/dialogs/export-logs-dialog.tsx src/features/usage-logs/lib/__tests__/export.test.ts src/features/usage-logs/lib/__tests__/token-name.test.ts src/features/usage-logs/lib/export.ts src/features/users/components/__tests__/group-filter.test.tsx src/features/wallet/__tests__/copy.test.tsx src/features/wallet/lib/__tests__/payment-icons.test.tsx src/i18n/languages.test.ts src/lib/__tests__/model-provider.test.ts src/lib/__tests__/theme-color.test.tsx src/lib/theme-color.ts src/assets/brand-icons/index.ts src/components/command-menu.tsx src/components/config-drawer.tsx src/components/console-compatibility-boundary.test.tsx src/components/data-table/core/data-table-row.tsx src/components/data-table/core/row-action-menu.tsx src/components/data-table/layout/card-grid.tsx src/components/data-table/static/static-row-actions.tsx src/components/date-picker.tsx src/components/datetime-picker.tsx src/components/layout/components/authenticated-layout.tsx src/components/layout/components/section-page-layout.tsx src/components/layout/config/system-settings.config.ts src/components/layout/index.ts src/components/layout/lib/sidebar-view-registry.ts src/components/layout/types.ts src/components/model-group-selector.tsx src/context/__tests__/theme-preferences.test.tsx src/context/search-provider.tsx src/context/theme-customization-provider.tsx src/features/auth/api.ts src/features/auth/components/oauth-callback-screen.tsx src/features/auth/passkey/hooks/use-passkey-management.ts src/features/auth/sign-in/components/user-auth-form.tsx src/features/auth/types.ts src/features/channels/api.ts src/features/channels/components/__tests__/channel-configuration.test.tsx src/features/channels/components/__tests__/channel-quick-options.test.tsx src/features/channels/components/__tests__/model-mapping-editor.test.tsx src/features/channels/components/__tests__/responses-websocket-setting.test.tsx src/features/channels/components/__tests__/table-refresh.test.tsx src/features/channels/components/channel-card.tsx src/features/channels/components/channels-columns.tsx src/features/channels/components/channels-primary-buttons.tsx src/features/channels/components/channels-provider.tsx src/features/channels/components/channels-table.tsx src/features/channels/components/dialogs/codex-usage-dialog.tsx src/features/channels/components/dialogs/multi-key-manage-dialog.tsx src/features/channels/components/dialogs/ollama-models-dialog.tsx src/features/channels/components/dialogs/param-override-editor-dialog.tsx src/features/channels/components/dialogs/passthrough-warning-dialog.tsx src/features/channels/components/drawers/channel-mutate-drawer.tsx src/features/channels/components/numeric-spinner-input.tsx src/features/channels/constants.ts src/features/channels/lib/__tests__/new-api-channel.test.ts src/features/channels/lib/advanced-custom.ts src/features/channels/lib/channel-actions.ts src/features/channels/lib/channel-configuration.ts src/features/channels/lib/channel-form-errors.ts src/features/channels/lib/channel-form.ts src/features/channels/lib/responses-websocket.ts src/features/channels/types.ts src/features/dashboard/components/flow/flow-charts.tsx src/features/dashboard/components/models/log-stat-cards.tsx src/features/dashboard/hooks/use-dashboard-config.tsx src/features/dashboard/index.tsx src/features/dashboard/lib/charts.ts src/features/dashboard/lib/flow.test.ts src/features/dashboard/lib/flow.ts src/features/dashboard/lib/stats.ts src/features/dashboard/types.ts src/features/errors/general-error.tsx src/features/keys/components/api-key-group-cell.test.tsx src/features/keys/components/api-keys-mutate-drawer.tsx src/features/keys/lib/api-key-form.ts src/features/keys/types.ts src/features/model-pricing/__tests__/editor-currency.test.tsx src/features/model-pricing/__tests__/editor-layout.test.tsx src/features/model-pricing/__tests__/pricing.test.ts src/features/model-pricing/model-pricing-panel.tsx src/features/model-pricing/pricing.ts src/features/models/__tests__/metadata-editing.test.tsx src/features/models/__tests__/vendor-management.test.tsx src/features/models/components/dialogs/model-delete-dialog.tsx src/features/models/components/drawers/model-mutate-drawer.tsx src/features/models/components/models-table.tsx src/features/models/lib/model-form.ts src/features/performance-metrics/api.ts src/features/performance-metrics/types.ts src/features/playground/lib/message/message-streaming-utils.ts src/features/playground/lib/storage/storage.ts src/features/playground/lib/streaming/stream-utils.ts src/features/playground/types.ts src/features/pricing/__tests__/dynamic-price.test.ts src/features/pricing/__tests__/model-cards.test.tsx src/features/pricing/__tests__/pricing-controls.test.tsx src/features/pricing/__tests__/task-matrix-display.test.ts src/features/pricing/components/model-card-grid.tsx src/features/pricing/components/model-card.tsx src/features/pricing/components/model-details.tsx src/features/pricing/components/model-perf-badge.tsx src/features/pricing/components/pricing-sidebar.tsx src/features/pricing/constants.ts src/features/pricing/lib/__tests__/billing-expression.test.ts src/features/pricing/lib/billing-expr.ts src/features/pricing/lib/billing-expression/types.ts src/features/pricing/lib/billing-expression/visual.ts src/features/pricing/lib/dynamic-price.ts src/features/pricing/lib/filters.ts src/features/pricing/lib/price.ts src/features/pricing/lib/task-matrix-display.ts src/features/pricing/lib/tier-expr.ts src/features/profile/__tests__/settings.test.tsx src/features/profile/components/profile-settings-card.tsx src/features/profile/components/sidebar-modules-card.tsx src/features/profile/components/tabs/notification-tab.tsx src/features/profile/constants.ts src/features/profile/index.tsx src/features/profile/lib/user-settings.ts src/features/profile/types.ts src/features/redemption-codes/components/__tests__/redemptions-mutate-drawer.test.tsx src/features/redemption-codes/components/redemptions-mutate-drawer.tsx src/features/redemption-codes/components/redemptions-primary-buttons.tsx src/features/redemption-codes/lib/redemption-form.ts src/features/security/__tests__/account-security.test.tsx src/features/security/components/__tests__/access-token-create-dialog.test.tsx src/features/security/components/__tests__/access-tokens-card.test.tsx src/features/security/components/account-bindings.tsx src/features/security/components/dialogs/delete-account-dialog.tsx src/features/security/components/dialogs/two-fa-setup-dialog.tsx src/features/security/components/login-session-item.tsx src/features/security/components/passkey-card.tsx src/features/subscriptions/components/dialogs/user-subscriptions-dialog.tsx src/features/subscriptions/components/subscriptions-columns.tsx src/features/subscriptions/components/subscriptions-mutate-drawer.tsx src/features/system-info/__tests__/system-tasks-panel.test.tsx src/features/system-settings/__tests__/pricing-sync.test.tsx src/features/system-settings/auth/bot-protection-section.tsx src/features/system-settings/auth/passkey-section.tsx src/features/system-settings/content/announcements-section.tsx src/features/system-settings/general/channel-affinity/index.tsx src/features/system-settings/general/channel-affinity/session-rules-table.tsx src/features/system-settings/hooks/use-update-option.ts src/features/system-settings/integrations/email-settings-section.tsx src/features/system-settings/integrations/monitoring-settings-section.tsx src/features/system-settings/integrations/payment-settings-section.tsx src/features/system-settings/integrations/waffo-pancake-settings-section.tsx src/features/system-settings/maintenance/log-settings-section.tsx src/features/system-settings/models/__tests__/model-ratio-table-selection.test.tsx src/features/system-settings/models/__tests__/plugin-pricing.test.tsx src/features/system-settings/models/__tests__/tool-price-validation.test.tsx src/features/system-settings/models/__tests__/visual-billing-editor.test.tsx src/features/system-settings/models/claude-settings-card.tsx src/features/system-settings/models/conflict-confirm-dialog.tsx src/features/system-settings/models/gemini-settings-card.tsx src/features/system-settings/models/group-ratio-visual-editor.tsx src/features/system-settings/models/model-pricing-core.ts src/features/system-settings/models/model-pricing-sheet.tsx src/features/system-settings/models/model-pricing-snapshots.ts src/features/system-settings/models/model-ratio-form.tsx src/features/system-settings/models/model-ratio-table-columns.tsx src/features/system-settings/models/model-ratio-visual-editor.tsx src/features/system-settings/models/ratio-settings-card.tsx src/features/system-settings/models/task-plugin-pricing-editor.tsx src/features/system-settings/models/tier-price-fields.tsx src/features/system-settings/models/tiered-pricing-editor.tsx src/features/system-settings/models/tool-price-settings.tsx src/features/system-settings/models/upstream-price-cells.tsx src/features/system-settings/models/upstream-ratio-sync-helpers.ts src/features/system-settings/models/upstream-ratio-sync-table.tsx src/features/system-settings/models/upstream-ratio-sync.tsx src/features/system-settings/models/visual-billing-document-editor.tsx src/features/system-settings/operations/index.tsx src/features/system-settings/operations/section-registry.tsx src/features/system-settings/request-policies/__tests__/routing.test.tsx src/features/system-settings/request-policies/use-save-policy.ts src/features/system-settings/types.ts src/features/system-settings/utils/section-registry.ts src/features/task-plugins/__tests__/marketplace-install-dialog.test.tsx src/features/task-plugins/__tests__/plugin-detail-sheet.test.tsx src/features/task-plugins/__tests__/plugins-table.test.tsx src/features/task-plugins/__tests__/upload-dialog.test.tsx src/features/task-plugins/api.ts src/features/task-plugins/components/marketplace-capabilities.tsx src/features/task-plugins/components/marketplace-install-dialog.tsx src/features/task-plugins/components/plugin-detail-sheet.tsx src/features/task-plugins/components/plugin-endpoints.tsx src/features/task-plugins/components/plugin-metadata-card.tsx src/features/task-plugins/components/plugins-table.tsx src/features/task-plugins/components/upload-dialog.tsx src/features/task-plugins/lib/plugin-meta-preview.ts src/features/task-plugins/types.ts src/features/usage-guide/components/quick-setup-dialog.test.tsx src/features/usage-logs/api.ts src/features/usage-logs/audit/__tests__/details.test.tsx src/features/usage-logs/audit/lib/audit-details.ts src/features/usage-logs/components/__tests__/detail-preview.test.tsx src/features/usage-logs/components/__tests__/mobile-filter.test.tsx src/features/usage-logs/components/__tests__/model-badge.test.tsx src/features/usage-logs/components/__tests__/usage-facts.test.tsx src/features/usage-logs/components/columns/column-helpers.tsx src/features/usage-logs/components/columns/common-logs-columns.tsx src/features/usage-logs/components/columns/task-logs-columns.tsx src/features/usage-logs/components/common-log-mobile-card.tsx src/features/usage-logs/components/common-logs-filter-bar.tsx src/features/usage-logs/components/compact-date-time-range-picker.tsx src/features/usage-logs/components/dialogs/details-dialog.tsx src/features/usage-logs/components/dialogs/task-details-dialog.tsx src/features/usage-logs/components/log-cost-display.tsx src/features/usage-logs/components/logs-filter-toolbar.tsx src/features/usage-logs/components/model-badge.tsx src/features/usage-logs/data/schema.ts src/features/usage-logs/lib/format.ts src/features/usage-logs/types.ts src/features/users/components/__tests__/quota-display.test.tsx src/features/users/components/dialogs/__tests__/user-binding-dialog.test.tsx src/features/users/components/dialogs/user-binding-dialog.tsx src/features/users/components/users-columns.tsx src/features/users/components/users-table.tsx src/features/wallet/components/recharge-form-card.tsx src/features/wallet/hooks/use-affiliate.ts src/features/wallet/hooks/use-waffo-pancake-payment.ts src/features/wallet/hooks/use-waffo-payment.ts src/features/wallet/lib/format.ts src/features/wallet/lib/payment.ts src/features/wallet/lib/ui.tsx src/hooks/__tests__/sidebar-config.test.tsx src/hooks/use-sidebar-data.ts src/hooks/use-sidebar-view.ts src/i18n/languages.ts src/i18n/static-keys.ts src/lib/model-provider.ts src/lib/motion.ts src/lib/secure-verification.ts src/lib/server-error-message.test.ts src/lib/server-error-message.ts src/lib/theme-customization.ts src/routes/_authenticated/users/index.tsx",
+      "result": "PASS; 0 errors, 4 warnings",
+      "source_log": "lint-changed-accepted.log"
+    },
+    {
+      "domain": "plugins",
+      "cwd": ".",
+      "command": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/go/bin/go test ./plugins -run '^Test(BuiltInVendorPluginsDeclareNativeRoutesAndLegacyChannelTypes|BuiltInTaskPluginResponsesAndUsageContracts|BuiltInResponsesDecodersEchoChannelMappedAlias|BuiltInPluginsAddressNewAPIUpstreamOnNativeRoutes|Alibaba(Wan3|ResponsesProtocol|NativeRequestsGoAsSent|InterleavedStreamOutcomes)|Doubao(ResponsesProtocol|NativeOfficialBodies)|Google(ResponsesProtocol|ThroughNewAPIGateway)|Jimeng(ResponsesProtocol|BearerAPIDecoders|NativeBodiesAndReplies)|Kling(ResponsesProtocol|4)|Vidu(ResponsesProtocol|NativeBodies|MetadataCannotChangeWhatIsBilled|ThroughNewAPIGateway)|Hailuo(ResponsesProtocol|ThroughNewAPIGateway|NativeFileIDIsTheTaskAndRetrieveReturnsTheGatewayDownload|H3CompletionUsageFacts)|VertexAI(ResponsesProtocol|ThroughNewAPIGateway|OmniUsageAndVideoDecoder))$' -count=1 -timeout=90s -json",
+      "result": "Native/Responses selection: all other 27 top-level scopes passed; sole Doubao duration failure fixed and rerun",
+      "source_log": "plugins-native-responses-targeted.jsonl"
+    },
+    {
+      "domain": "plugins",
+      "cwd": ".",
+      "command": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/rc49-integration/toolchain/go/bin/go test ./plugins -run '^TestDoubao(NativeOfficialBodies|SeedanceUsageFacts)$' -count=1 -timeout=90s -json",
+      "result": "PASS; 42 tests/subtests",
+      "source_log": "plugins-doubao-duration-targeted.jsonl"
+    },
+    {
+      "domain": "backend",
+      "cwd": ".",
+      "command": "go test ./model -run '^Test(IncreaseTaskBillingReservation|LogExportPreserves|TokenCacheIntegrityRepairs)' -count=1 -timeout=120s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "rc49-backend-integration.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "backend",
+      "cwd": ".",
+      "command": "go test ./pkg/kkaimigrate -run '^TestRC49(PostgresColumns|Expansion)' -count=1 -timeout=90s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "rc49-backend-integration.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "backend",
+      "cwd": ".",
+      "command": "go test ./model -run '^Test(ConsumeLogPersistsDashboardCacheTokens|TaskSubmissionInlineFact|LogOtherStructuredContent)' -count=1 -timeout=60s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "rc49-backend-integration.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "backend",
+      "cwd": ".",
+      "command": "go test ./controller ./router -run '^Test(TokenQuotaPermissionDefaultsAndPrivacyPostgres|NativeTaskStartedResponse|NativePluginDispatchPreservesTrustedTenant|LogExportPostgres|LogExportRules)' -count=1 -timeout=90s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "rc49-backend-integration.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "backend",
+      "cwd": ".",
+      "command": "go test ./controller ./router -run '^Test(TokenQuotaPermissionDefaultsAndPrivacyPostgres|NativePluginDispatchPreservesTrustedTenant|ChannelPriorityRoutesRequireScopedPermissions)' -count=1 -timeout=90s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "rc49-backend-integration.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "backend",
+      "cwd": ".",
+      "command": "go test ./controller -run '^TestModelPricingConversion(AcceptsDeclaredEndpointArray|DatabaseMatrix/postgres)$' -count=1 -timeout=60s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "rc49-backend-integration.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "backend",
+      "cwd": ".",
+      "command": "go test ./model -run '^TestChannelPriorityDatabaseMatrix$/postgres$' -count=1 -timeout=60s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "rc49-backend-integration.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "backend",
+      "cwd": ".",
+      "command": "go test -tags=kkai_bridge ./pkg/kkaimigrate -run '^Test(ContractForDialectRequiresRC49Schema|RuntimePlansUseReviewedTenantCompatibilityPath)$' -count=1 -timeout=60s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "rc49-backend-integration.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "backend",
+      "cwd": ".",
+      "command": "go test ./common -run '^TestWalletQuotaValidation' -count=1 -timeout=30s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "rc49-backend-integration.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "backend",
+      "cwd": ".",
+      "command": "go test ./controller -run '^TestTaskMediaContentPathPreserves' -count=1 -timeout=30s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "rc49-backend-integration.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "review-fixes",
+      "cwd": ".",
+      "command": "go test ./pkg/billingexpr -run '^Test(MaximumTokenQuotaBounds12hCacheWrites|RequestPricingPreserves12hUsagePredicates|MembershipMaximumBoundsAllTierBranches|MembershipMaximumRejectsUnboundedDenominator)$' -count=1 -timeout=90s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "billing-safety-audit.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "review-fixes",
+      "cwd": ".",
+      "command": "go test ./service -run '^Test(RequestBudgetCoversLongTTLCacheSettlement|RequestBudgetBounds12hRatioWithoutAddingAnotherWriteCategory|MembershipResponsesAccountingDistinguishesReportedZeroFromEstimates|BuildTieredTokenParams_UnpricedLongTTLCacheWrites|PostTextConsumeQuotaBillsOpenAI12hCacheWrites)$' -count=1 -timeout=120s",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "billing-safety-audit.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "review-fixes",
+      "cwd": ".",
+      "command": "git diff --check -- service/responses_usage.go service/tiered_settle.go service/billing_session.go service/text_quota.go service/membership_budget.go service/rc49_billing_budget_test.go pkg/billingexpr/maximum.go pkg/billingexpr/maximum_test.go",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "billing-safety-audit.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "review-fixes",
+      "cwd": ".",
+      "command": ".local-releases/rc49-integration/toolchain/go/bin/go test ./relay/channel/task/jsplugin -run 'Test(DurableTaskSubmitStreamRequiresConfirmedUsage|TaskSubmitStreamContract|TaskSubmitStreamRelaysToNativeClients|TaskSubmitDeltaStreamContract|TaskSubmitHooksReceiveIndependentRequestSnapshots)$' -count=1",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "plugin-review-validation.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "review-fixes",
+      "cwd": ".",
+      "command": ".local-releases/rc49-integration/toolchain/go/bin/go test ./relay/channel/task/jsplugin -run 'Test(DurableTaskPollingRequiresTrustworthyCompletionUsage|TaskAdaptorUsageProfilesFollowExecutionModel|TaskAdaptorBoundsNativeUsageBeforeQuotaCalculation|TaskUsageValidationLeavesReturnedHostRequestUnchanged)$' -count=1",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "plugin-review-validation.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    },
+    {
+      "domain": "review-fixes",
+      "cwd": ".",
+      "command": ".local-releases/rc49-integration/toolchain/go/bin/go test ./relay/channel/task/jsplugin -run '^TestDurableTaskPollingRequiresTrustworthyCompletionUsage$' -count=1",
+      "result": "PASS for final selected scopes; refer to domain note for prior failures and coverage limits",
+      "provenance": "plugin-review-validation.md",
+      "note": "go resolves to the pinned Go1.26.10 binary; database variables point only to the isolated loopback fixtures. Commands are the domain-recorded invocations, not a claim of a full-suite run."
+    }
+  ],
+  "domain_notes": {
+    "rc49-backend-integration.md": "# rc49 后端本地集成说明\n\n本次以 rc41 `2035a82aeb5414253a728bd937d4b8f97aa99b9b` 为共同基线，将官方 rc49 `48a6c87f9e7757fdc58e5be9bcb4f8281ad0dfd0` 的后端差异适配到 KKAI。逐文件决策和原始三方快照位于 `.local-releases/rc49-integration/backend-decisions.json` 和 `backend-three-way/`。没有创建分支、工作树、提交或部署。\n\n## 行为边界\n\n- 令牌的 `allow_user_quota_query`：存量默认为关闭，新建 API 默认为开启，编辑省略时保留原值。关闭后，旧版 `user_total_*` 和新版 `user_quota` 均不返回余额。权限位纳入 Redis MAC 和保留实时额度的元数据修复。\n- 日志导出采用 NDJSON，结尾提供成功/计数记录供前端生成 CSV。分批读取关闭游标后再投影账本，保留真实行号进行信用纪元换算，再改为用户可见序号。计费来源、租户结算及管理员/根管理员字段隐私沿用本地规则。\n- 看板新增 BIGINT 缓存读写 Token 计数；消费日志使用结算后的缓存创建总数，不重复相加 5m/1h 分类。异步任务没有统一的缓存 Token 事实，不从价格、视频时长等维度推算。\n- 原生插件内部 Gin 分发先继承外层可信 Host 租户上下文，再执行令牌鉴权。已发送流式响应后禁止重试、退款和再次输出 JSON。\n- `SubmissionInline` 在提交接受时冻结于既有任务私有 JSON，经恢复回执和异步账务传递。后续轮询成功不会把异步提交改成同步交付。\n- 重试需要更多预扣额时，使用原钱包/订阅和原令牌在同一事务补足，余额或令牌不足整体回滚。保留会员定价快照、int64 钱包、outbox、CAS、任务租约及 Studio 媒体权限。\n- 插件媒体内容支持有界 JSON operation 路径、标准与 URL-safe Base64、HEAD；继续执行本地 SSRF、可信来源及下载头策略。\n- 渠道重排采用独立读/写权限；模型定价转换支持端点数组及映射，并加入 12h 缓存创建计价。映射键是协议类型，映射值仍可为自定义路径对象。\n\n## Schema 与部署限制\n\n两个构建 profile 的当前源代码都需要 **PostgreSQL schema 22**，不宣称兼容 schema 21。显式迁移添加 `tokens.allow_user_quota_query` 和 `quota_data.cache_read_tokens/cache_creation_tokens`，并保留先前 canonical 迁移回执。应用启动不会执行扩展。\n\n实际日志数据库单独需要 `(created_at,event_id)` 索引和 `kkai_rc49_log_schema` 回执。主库回执不能代替日志库证据。\n\n旧版最高支持 schema 21 的二进制无法在 schema 22 ledger 上充当回滚版本。未来发布必须先独立授权并规划 schema 扩展及兼容回滚版本，再按维护中的生产 runbook 操作。本次没有连接生产、执行生产迁移或证明生产具备上述能力。\n\n## 定向验证\n\n使用父任务新建的本机 PostgreSQL 18.4 隔离 schema 和本地 Go 1.26.10 工具链。以下是已验证用例范围的复现命令（实际执行分组及失败后的缩小重跑见原始日志）。`go` 指 `.local-releases/rc49-integration/toolchain/go/bin/go`，数据库变量只指向临时本机测试数据库。\n\n```sh\ngo test ./model -run '^Test(IncreaseTaskBillingReservation|LogExportPreserves|TokenCacheIntegrityRepairs)' -count=1 -timeout=120s\ngo test ./pkg/kkaimigrate -run '^TestRC49(PostgresColumns|Expansion)' -count=1 -timeout=90s\ngo test ./model -run '^Test(ConsumeLogPersistsDashboardCacheTokens|TaskSubmissionInlineFact|LogOtherStructuredContent)' -count=1 -timeout=60s\ngo test ./controller ./router -run '^Test(TokenQuotaPermissionDefaultsAndPrivacyPostgres|NativeTaskStartedResponse|NativePluginDispatchPreservesTrustedTenant|LogExportPostgres|LogExportRules)' -count=1 -timeout=90s\ngo test ./controller ./router -run '^Test(TokenQuotaPermissionDefaultsAndPrivacyPostgres|NativePluginDispatchPreservesTrustedTenant|ChannelPriorityRoutesRequireScopedPermissions)' -count=1 -timeout=90s\ngo test ./controller -run '^TestModelPricingConversion(AcceptsDeclaredEndpointArray|DatabaseMatrix/postgres)$' -count=1 -timeout=60s\ngo test ./model -run '^TestChannelPriorityDatabaseMatrix$/postgres$' -count=1 -timeout=60s\ngo test -tags=kkai_bridge ./pkg/kkaimigrate -run '^Test(ContractForDialectRequiresRC49Schema|RuntimePlansUseReviewedTenantCompatibilityPath)$' -count=1 -timeout=60s\ngo test ./common -run '^TestWalletQuotaValidation' -count=1 -timeout=30s\ngo test ./controller -run '^TestTaskMediaContentPathPreserves' -count=1 -timeout=30s\n```\n\n相关用例均已通过；最初暴露的合并编译错误、PG fixture 初始化以及枚举类型断言已修复，并仅重跑失败范围。模型定价命令验证端点形状用例，未完整执行旧数据库矩阵。原始输出保存在同目录的 `*-targeted.log` 等日志中。\n\n完整仓库测试、完整构建、生产验收及旧版上游大型数据库测试布局未运行。台账明确记录未恢复的历史上游测试路径，不能将定向验证解释为所有上游用例等价覆盖。\n",
+    "billing-safety-audit.md": "# rc49 billing compatibility audit\n\nCompared local pre-integration commit `5eb8a92581df793be4ca108aaa27391bdef68442`\nand official rc49 `48a6c87f9e7757fdc58e5be9bcb4f8281ad0dfd0` against the integrated\n`service/responses_usage.go`, `service/tiered_settle.go`,\n`service/billing_session.go` and `service/text_quota.go`.\n\n## Fixed integration findings\n\n1. The local frozen request-budget evaluator did not recognize the upstream\n   `cc12h` variable. `MaximumTokenQuota` rejected new 12-hour expressions as\n   unbounded, and `prepareRequestBudget` did not supply their input bound.\n   Both now carry the real 12-hour subset bound.\n2. rc49 folds unpriced long-lived writes into `cc` or `p` at the lifetime\n   multiplier (OpenAI 2, Claude 1.6). The local budget previously bounded those\n   destinations by the unweighted input count. It now expands only the chosen\n   destination, so these final charges fit the authorization. Explicitly\n   priced long writes, including an explicit zero price, do not also expand\n   their fallback destination. `len` remains the unweighted input bound.\n3. The frozen-expression request visitor also lacked `cc12h` in its dynamic\n   usage variables. Mixed request-string/token predicates could therefore be\n   evaluated with a zero token count while freezing. The visitor now preserves\n   that dynamic variable and rejects a predicate whose request string cannot\n   safely be removed, matching the existing handling of `p` and other tokens.\n4. Ratio budgets recognize the 12-hour ratio without adding a second copy of\n   all writes: retain the existing conservative write bound, raising it only\n   when the new 12-hour ratio is larger.\n\nChanged files for these fixes: `pkg/billingexpr/maximum.go`,\n`pkg/billingexpr/maximum_test.go`, `service/membership_budget.go`, and\n`service/rc49_billing_budget_test.go`. The four initially assigned service files\nneeded no further edits during this audit.\n\n## Reviewed preserved boundaries\n\n- Cache-write aliases take their maximum, not their sum. The 12-hour count is\n  clamped to the normalized write total. Ratio settlement splits that total\n  once; tiered settlement subtracts actual counts from prompt and applies the\n  lifetime factor only to the fallback price variable.\n- Durable Responses billing preserves an explicit reported zero and keeps\n  missing terminal usage indeterminate. The ordinary-wallet text estimation\n  remains the pre-integration/official behavior. Canonical usage retains deep\n  copies of new nested cache details. Stream transport first-terminal policy\n  belongs to the parent's separate relay review.\n- Wallet balances and aggregate deltas remain int64. Per-request/session\n  amounts remain int, with existing quota converters and the request clamp\n  guard. The upstream int32 single-request ceiling was not applied to wallet\n  balances.\n- Existing membership sessions reject an increase beyond frozen authorization.\n  Existing tenant sessions use their durable reservation and saved identity.\n  The tenant pricing/budget snapshot and membership selected-group guard remain\n  in the local flow.\n- Task retry pre-consumption calls `ReserveBeforeSubmit`; the durable model\n  mutation retains the original wallet/subscription/token identity, checks\n  available funds and the original cap, and updates task/session state only\n  after success. The earlier relay PostgreSQL regression observes the balance\n  inside the second upstream handler and verifies an unaffordable retry never\n  reaches it (`relay-task-accept-retry-targeted.log`).\n\n## Targeted validation\n\nLocal toolchain: `.local-releases/rc49-integration/toolchain/go/bin/go`, with\n`GOTOOLCHAIN=local`. Every invocation ran in a Python subprocess with a hard\n120/180-second outer timeout. Service database setup used only the parent's\nloopback PostgreSQL test database and an isolated temporary schema.\n\n```sh\ngo test ./pkg/billingexpr -run '^Test(MaximumTokenQuotaBounds12hCacheWrites|RequestPricingPreserves12hUsagePredicates|MembershipMaximumBoundsAllTierBranches|MembershipMaximumRejectsUnboundedDenominator)$' -count=1 -timeout=90s\n```\n\nPASS, 0.019s. Log: `billing-budget-engine.log`.\n\n```sh\ngo test ./service -run '^Test(RequestBudgetCoversLongTTLCacheSettlement|RequestBudgetBounds12hRatioWithoutAddingAnotherWriteCategory|MembershipResponsesAccountingDistinguishesReportedZeroFromEstimates|BuildTieredTokenParams_UnpricedLongTTLCacheWrites|PostTextConsumeQuotaBillsOpenAI12hCacheWrites)$' -count=1 -timeout=120s\n```\n\nPASS, 0.208s. Log: `billing-budget-service.log`. This ran after the budget fixes;\nthe subsequent visitor fix is directly covered by the engine command above.\n\n```sh\ngit diff --check -- service/responses_usage.go service/tiered_settle.go service/billing_session.go service/text_quota.go service/membership_budget.go service/rc49_billing_budget_test.go pkg/billingexpr/maximum.go pkg/billingexpr/maximum_test.go\n```\n\nPASS (no output). Full suite skipped. No production access, migration,\ndeployment, commit, branch or worktree creation occurred. The budget remains a\nconservative bound on counted request input; hidden upstream context beyond\nthat input remains governed by the existing recorded platform-excess policy.\n",
+    "plugin-review-validation.md": "# Plugin completion review and repairs\n\nReviewed the rc41 → rc49 integration in pkg/jsplugin, the changed built-in task scripts, and relay/channel/task/jsplugin/adaptor.go and submit_stream.go.\n\n## Confirmed findings repaired\n\n- Durable native SSE clean EOF without the plugin done marker previously returned a successful partial result. The reader now requires completion for durable billing, returns a non-retryable error, and cuts off downstream streams. Legacy settlement behavior remains covered and unchanged.\n- Immediate completion context/hook/usage-validation errors previously returned SUCCESS at the reservation. Durable billing now reports a generic error, does not emit a successful result, and enters the host unknown-outcome path. No private hook detail or JSON is appended to delivered SSE.\n- Polling completion hook/validation errors previously preserved SUCCESS. For tasks with frozen BillingContext, single polling returns an observation error and batch polling marks only the affected result UNKNOWN. Pending results and confirmed failures remain valid; zero is explicitly valid. Optional omitted facts are accepted when present in the frozen snapshot; expression keys missing from both snapshots remain unresolved. Frozen prices, reservation quota and funding source are unchanged.\n\nThe smallest relevant tests pass. The final facts check refines missing-key handling after the broader polling regression passed; intermediate failure was only a test's typed TaskStatus assertion and is retained in historical log output.\n\n## Additional confirmed script issue repaired\n\nThe selected ./plugins native/Responses/Wan3 checks passed 27 top-level tests and 351 tests/subtests, with one failing subtest: TestDoubaoNativeOfficialBodies/a_duration_that_is_not_a_number. Doubao videoSeconds turns boolean true into one second, under-reserving relative to the documented fallback to the model maximum. The primary owner fixed numeric/string-only duration and frames parsing, using the model maximum for other values while retaining the 3600-second ceiling. The failing native group and adjacent Seedance usage-facts group then passed: 42 tests/subtests, 0.098 seconds. Other already-passing providers were not rerun.\n\n## Other review observations\n\nHost usage validation still bounds extracted numeric multipliers and honors per-model profiles; vendorBody/native markers are removed or reconstructed at host-protocol decoding boundaries. utils.fetch retains GET/HEAD-only bounded calls, per-call network limits and host authorization. Query redirect credential removal is monotonic across an untrusted hop. No further concrete new credential-leak or billing-bound regression was established in this review. This is not exhaustive verification of arbitrary third-party plugin code.\n\n## Exact successful commands\n\n```sh\n.local-releases/rc49-integration/toolchain/go/bin/go test ./relay/channel/task/jsplugin -run 'Test(DurableTaskSubmitStreamRequiresConfirmedUsage|TaskSubmitStreamContract|TaskSubmitStreamRelaysToNativeClients|TaskSubmitDeltaStreamContract|TaskSubmitHooksReceiveIndependentRequestSnapshots)$' -count=1\n```\n\n```sh\n.local-releases/rc49-integration/toolchain/go/bin/go test ./relay/channel/task/jsplugin -run 'Test(DurableTaskPollingRequiresTrustworthyCompletionUsage|TaskAdaptorUsageProfilesFollowExecutionModel|TaskAdaptorBoundsNativeUsageBeforeQuotaCalculation|TaskUsageValidationLeavesReturnedHostRequestUnchanged)$' -count=1\n```\n\n```sh\n.local-releases/rc49-integration/toolchain/go/bin/go test ./relay/channel/task/jsplugin -run '^TestDurableTaskPollingRequiresTrustworthyCompletionUsage$' -count=1\n```\n\nLogs: plugin-durable-stream-targeted.log, plugin-durable-polling-targeted.log, plugin-durable-polling-facts-targeted.log.\n\nThe built-in script command is recorded in plugins-native-responses-command.txt with JSON events in plugins-native-responses-targeted.jsonl; per-package timeout is 90 seconds and process limit 240 seconds. No repository-wide suite, frontend production build or production access was performed.\n\nFinal Doubao command: `.local-releases/rc49-integration/toolchain/go/bin/go test ./plugins -run '^TestDoubao(NativeOfficialBodies|SeedanceUsageFacts)$' -count=1 -timeout=90s -json`. Exact absolute command and full event output: plugins-doubao-duration-command.txt and plugins-doubao-duration-targeted.jsonl. No confirmed review finding remains open within the inspected scope.\n",
+    "frontend-validation.md": "# rc49 frontend acceptance\n\n304 mapped frontend paths closed: 154 applied, 148 adapted, 2 local-equivalent. Five docs paths are recorded separately. 93 distinct scoped test paths were invoked across domain batches and failing-scope retries; logs retain intermediate failures, not a single full-suite green run.\n\n## Final outcomes\n\n- Scoped Bun check: 977 reachable files, no type errors. Exact roots: `typecheck-changed-accepted.log`.\n- Scoped oxlint: exit 0; four warnings retained (existing Safari indexOf, global isNaN/isFinite, serialized PUT fixture JSON cloning). Exact roots: `lint-changed-accepted.log`.\n- Last three affected test files: 31/31 passed (`tests-last-three.log`).\n- Local-equivalence pricing/wallet/group tests: 60/60 passed (`tests-pricing-local-equivalence.log`).\n- i18n source check: 7506 referenced keys found in en/zh. Seven locale translation maps each have 9902 identical keys. Temporary add-missing-keys.mjs removed after sync.\n- OpenAPI JSON semantic comparison proves only channel POST 200 response changed; plugin declaration/schema exactly match rc49.\n- Full frontend test suite, full-project `bun check -b`, and production build were not run. No production access/deployment performed.\n\n## Resolved test failures\n\n- Auto-group fixtures preserve KKAI named profiles/reset-on-group-change and unavailable choices; passing domain/new-contracts/remaining-domain batches.\n- Price issue/table, detail previews, frozen upstream sync and display-expression confirmation/undo failures resolved by domain, new-contracts and specific retries.\n- Metadata fixtures now use expression pricing; metadata independence/zero/stale behavior remains covered. Redemption Clear now maps undefined to null and passes.\n- Marketplace controlled dialog fixture closes before toast assertion; wallet legacy response uses the separate legacy dialog; USD credit amount and localized discounts retained.\n- Tenant sidebar includes existing usage-guide; TLS-off expects explicit false; targeted retries passed.\n- Raw unknown expression remains hidden on model cards; decorative payment icons avoid duplicate accessible button names; local equivalence tests passed.\n- Plugin override removal now tests task-expression inheritance. Ordinary OpenAI/plugin expressions remain independent. Provider tab keyboard navigation remains tested.\n- Mobile quick-action tests explicitly provide usage_log_csv_export capability; missing-capability behavior remains covered by export dialog tests.\n- Official group-settings tab-layout test omitted as local-equivalent: KKAI membership/display-name/named-Auto-profile workspace is tested by group-ratio-form, group-ratio-visual-editor and auto-group-profiles-editor.\n\n## Commands and detailed evidence\n\n`frontend-test-evidence.json` contains each exact historical test command, test-name filter, failure identifiers and summary. The per-path ledger references applicable logs. Later filtered retries resolve earlier failing cases; do not interpret historical failure output as an outstanding failure.\n\n```sh\nvitest run src/features/model-pricing/__tests__/editor-layout.test.tsx src/features/system-settings/models/__tests__/plugin-pricing.test.tsx src/features/usage-logs/components/__tests__/mobile-filter.test.tsx\n```\n\n```sh\nvitest run src/features/model-pricing/__tests__/editor-layout.test.tsx src/features/pricing/__tests__/model-cards.test.tsx src/features/wallet/components/recharge-form-card.test.tsx src/features/wallet/__tests__/copy.test.tsx src/features/system-settings/models/group-ratio-form.test.tsx src/features/system-settings/models/group-ratio-visual-editor.test.ts src/features/system-settings/models/auto-group-profiles-editor.test.tsx\n```\n\n```sh\nnode scripts/check-i18n.mjs\n```\n\n## Acceptance limits\n\nNo live browser/API, backend image/frontend artifact compatibility or production rollback acceptance was attempted. Backend/combined acceptance belongs to the primary operator. Docs retain KKAI durable outcome semantics as confirmed by the backend owner; declarations remain upstream API v1.\n"
+  },
+  "full_suite": "SKIPPED",
+  "production_operations": "NONE",
+  "remaining_gaps": [
+    "Full Go/workspace suites and full frontend typecheck/build were not run.",
+    "No Linux image/PGO, browser end-to-end, real provider integration or exact old/new binary mixed-version acceptance.",
+    "Schema22 migration, independent log DB receipt, compatible rollback pair and fresh production state remain release prerequisites.",
+    "24 upstream backend legacy fixture files plus one SQLite-specific test were not restored; local selected boundary tests do not establish equivalent coverage.",
+    "Four scoped frontend lint warnings remain; no errors."
+  ],
+  "final_local_checks": [
+    {
+      "command": "git diff --check",
+      "result": "PASS; final execution recorded separately"
+    },
+    {
+      "check": "878 unique upstream path dispositions; 215 commit provenance associations",
+      "result": "PASS; machine ledger includes local file digests"
+    }
+  ],
+  "fixture_cleanup": {
+    "at": "2026-11-10T04:24:02.172444+00:00",
+    "containers": [
+      {
+        "name": "kkai-rc49-postgres-local",
+        "id": "5e780bd662528f76eee40b2b1fbf048ce0961634bb77d26da4c8c8841f2a0de2",
+        "status": "removed",
+        "mounts": "none; ephemeral fixture storage only"
+      },
+      {
+        "name": "kkai-rc49-redis-local",
+        "id": "b03a272aa1283e38ebe19330f50a29e8023389a44b784914111e56a01b7f6bc2",
+        "status": "removed",
+        "mounts": "none; ephemeral fixture storage only"
+      }
+    ],
+    "preserved": "cached images/toolchains/logs; no other resources touched"
+  },
+  "record_phase": "historical initial scoped verification before the authorized full validation round",
+  "superseded_by": "rc49-full-validation.json"
+}

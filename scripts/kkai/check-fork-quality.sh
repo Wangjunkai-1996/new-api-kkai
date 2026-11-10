@@ -139,10 +139,18 @@ fi
 bun "$ROOT/scripts/kkai/compare-diagnostics.mjs" \
   go-vet "$TMP_ROOT/go-vet-base.txt" "$TMP_ROOT/go-vet-current.txt"
 
+echo "Checking independent relaykit and tokenkit modules"
+for module in relaykit tokenkit; do
+  (cd "$ROOT/$module" && GOWORK=off go vet ./...)
+done
+
 echo "[8/8] Running test suite"
 if [[ $FULL -eq 1 ]]; then
   go test ./...
   go test -tags kkai_bridge ./...
+  for module in relaykit tokenkit; do
+    (cd "$ROOT/$module" && GOWORK=off go test ./...)
+  done
 else
   echo "Quick mode: skipped default and kkai_bridge Go test suites; CI runs --full."
 fi

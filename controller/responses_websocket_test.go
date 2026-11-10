@@ -41,6 +41,7 @@ var responsesWSTestUserSequence atomic.Int64
 
 func setupResponsesWSRequestTest(t *testing.T) (*model.User, *model.Token) {
 	t.Helper()
+	require.NoError(t, i18n.Init())
 	previousDB := model.DB
 	previousLogDB := model.LOG_DB
 	previousType := common.MainDatabaseType()
@@ -234,6 +235,7 @@ func TestResponsesWSRequestRunnerRejectsRevokedCredentials(t *testing.T) {
 }
 
 func TestResponsesWSRequestRunnerUsesExistingMemoryRateLimit(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	_, token := setupResponsesWSRequestTest(t)
 	setting.ModelRequestRateLimitEnabled = true
 	setting.ModelRequestRateLimitDurationMinutes = 1
@@ -246,7 +248,8 @@ func TestResponsesWSRequestRunnerUsesExistingMemoryRateLimit(t *testing.T) {
 	apiError := runner(httptest.NewRequest(http.MethodPost, "/v1/responses", nil), "limited", handle)
 	require.NotNil(t, apiError)
 	assert.Equal(t, http.StatusTooManyRequests, apiError.StatusCode)
-	assert.Equal(t, http.StatusText(http.StatusTooManyRequests), apiError.Error())
+	message := i18n.Translate("", i18n.MsgRateLimitTotalReached, map[string]any{"Minutes": 1, "Max": 1})
+	assert.Equal(t, common.MessageWithRequestId(message, "limited"), apiError.Error())
 	assert.Equal(t, 1, called)
 }
 
@@ -895,8 +898,9 @@ func TestResponsesStreamOutcomesPreserveAccounting(t *testing.T) {
 			delta       bool
 			failed      bool
 			ignored     bool
+			redacted    bool
 		}{
-			{name: "failed-null-fixed", expression: `tier("request", fixed(0.002))`, terminal: `{"type":"response.failed","response":{"id":"first","status":"failed","usage":null,"error":{"code":"server_error","message":"sensitive upstream detail"}}}`, failed: true},
+			{name: "failed-null-fixed", expression: `tier("request", fixed(0.002))`, terminal: `{"type":"response.failed","response":{"id":"first","status":"failed","usage":null,"error":{"code":"server_error","message":"sensitive upstream detail Bearer sk-upstream-secret"}}}`, failed: true, redacted: true},
 			{name: "failed-missing-fixed", expression: `tier("request", fixed(0.002))`, terminal: `{"type":"response.failed","response":{"id":"first","status":"failed"}}`, failed: true},
 			{name: "failed-actual-usage", expression: `tier("input", p * 2)`, terminal: `{"type":"response.failed","response":{"id":"first","status":"failed","usage":{"input_tokens":1000,"output_tokens":10,"total_tokens":1010}}}`, failed: true},
 			{name: "failed-estimated-output", expression: `tier("output", c * 2000)`, terminal: `{"type":"response.failed","response":{"id":"first","status":"failed","usage":null}}`, delta: true, failed: true},
@@ -956,6 +960,7 @@ func TestResponsesStreamOutcomesPreserveAccounting(t *testing.T) {
 					if tc.failed {
 						assert.Contains(t, string(body), "response.created")
 						assert.Contains(t, string(body), "event: error")
+						assert.NotContains(t, string(body), "sensitive upstream detail")
 					} else {
 						assert.Contains(t, string(body), terminal)
 					}
@@ -974,7 +979,12 @@ func TestResponsesStreamOutcomesPreserveAccounting(t *testing.T) {
 							if wantError, ok := want["error"].(map[string]any); ok {
 								gotError, ok := got["error"].(map[string]any)
 								require.True(t, ok)
-								assert.Equal(t, wantError["code"], gotError["code"])
+								if tc.redacted {
+									assert.Equal(t, "upstream_error", gotError["code"])
+									assert.NotContains(t, fmt.Sprint(gotError), "sk-upstream-secret")
+								} else {
+									assert.Equal(t, wantError["code"], gotError["code"])
+								}
 								delete(want, "error")
 								delete(got, "error")
 							}
@@ -1143,7 +1153,128 @@ func TestResponsesWebSocketAmbiguousControlErrorClosesAndSettlesOnce(t *testing.
 	var timeout net.Error
 	assert.False(t, errors.As(err, &timeout) && timeout.Timeout(), "the server must close before the read deadline")
 	fixture.closeAndWait(t)
+	require.Eventually(t, func() bool {
+		var token model.Token
+		return model.DB.First(&token, fixture.token.Id).Error == nil && token.RemainQuota == 3000
+	}, 3*time.Second, 10*time.Millisecond, "legacy billing refunds asynchronously after the failed response")
 	assertResponsesWSAccounting(t, fixture, nil)
+}
+
+// Every way a session ends sends the client a close frame whose code says
+// why. A dropped socket would read as a synthetic 1006 close error, so a
+// received 1000, 1001, 1008 or 1011 proves the gateway sent the frame.
+func TestResponsesWebSocketCloseCodes(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	const (
+		created   = `{"type":"response.created","response":{"id":"active","status":"in_progress"}}`
+		delta     = `{"type":"response.output_text.delta","delta":"hello"}`
+		completed = `{"type":"response.completed","response":{"id":"active","status":"completed","usage":{"input_tokens":1000,"output_tokens":10,"total_tokens":1010}}}`
+	)
+	for _, tc := range []struct {
+		name   string
+		events []string // upstream events after the create, all relayed
+		// After the events, and after the client read them with waitClient,
+		// upstream sends upstreamClose or drops the socket. Otherwise it reads
+		// until the gateway closes the connection.
+		upstreamClose    int
+		drop, waitClient bool
+		timeout          bool
+		interrupted      bool
+		end              func(*testing.T, *responsesWSBillingTest)
+		code             int
+		reason           string
+		upstreamCode     int // the close code upstream receives, when checked
+	}{
+		{name: "upstream closes after completion", events: []string{completed}, upstreamClose: websocket.CloseNormalClosure, code: websocket.CloseNormalClosure, reason: "upstream connection closed"},
+		{name: "idle upstream goes away", events: []string{completed}, waitClient: true, upstreamClose: websocket.CloseGoingAway, code: websocket.CloseGoingAway, reason: "upstream connection closed"},
+		{name: "idle upstream drops", events: []string{completed}, waitClient: true, drop: true, code: websocket.CloseInternalServerErr, reason: "upstream connection closed"},
+		// A normal upstream close still truncates the active response.
+		{name: "upstream closes mid-response", events: []string{created, delta}, interrupted: true, upstreamClose: websocket.CloseNormalClosure, code: websocket.CloseInternalServerErr, reason: "upstream connection closed"},
+		{name: "upstream drops mid-response", events: []string{created, delta}, interrupted: true, drop: true, code: websocket.CloseInternalServerErr, reason: "upstream connection closed"},
+		{name: "upstream response times out", events: []string{created}, interrupted: true, timeout: true, code: websocket.CloseInternalServerErr, reason: "upstream response timed out", upstreamCode: websocket.CloseInternalServerErr},
+		{name: "client closes", events: []string{completed}, end: func(t *testing.T, fixture *responsesWSBillingTest) {
+			require.NoError(t, fixture.client.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second)))
+		}, code: websocket.CloseNormalClosure, upstreamCode: websocket.CloseNormalClosure},
+		{name: "channel disabled", events: []string{completed}, end: func(t *testing.T, fixture *responsesWSBillingTest) {
+			require.Equal(t, 1, service.CloseActiveWebSocketsForChannel(fixture.channel.Id, service.ChannelDisabledCloseReason))
+		}, code: websocket.ClosePolicyViolation, reason: service.ChannelDisabledCloseReason, upstreamCode: websocket.ClosePolicyViolation},
+		{name: "token revoked", events: []string{completed}, end: func(t *testing.T, fixture *responsesWSBillingTest) {
+			fixture.token.Status = common.TokenStatusDisabled
+			require.NoError(t, fixture.token.SelectUpdate())
+			require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"ws-billing","input":"again"}`)))
+			assert.Equal(t, float64(http.StatusUnauthorized), readResponsesWSTestEvent(t, fixture.client)["status"])
+		}, code: websocket.ClosePolicyViolation, upstreamCode: websocket.ClosePolicyViolation},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clientRead := make(chan struct{})
+			upstreamCodes := make(chan int, 2)
+			fixture := newResponsesWSBillingTest(t, `tier("request", fixed(0.002))`, func(ws *websocket.Conn, _ *http.Request) {
+				defaultClose := ws.CloseHandler()
+				ws.SetCloseHandler(func(code int, text string) error {
+					upstreamCodes <- code
+					return defaultClose(code, text)
+				})
+				if _, _, err := ws.ReadMessage(); !assert.NoError(t, err) {
+					return
+				}
+				for _, event := range tc.events {
+					if !assert.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte(event))) {
+						return
+					}
+				}
+				if tc.waitClient {
+					<-clientRead
+				}
+				if tc.drop {
+					return
+				}
+				if tc.upstreamClose != 0 && !assert.NoError(t, ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(tc.upstreamClose, "upstream shutdown"), time.Now().Add(time.Second))) {
+					return
+				}
+				for {
+					if _, _, err := ws.ReadMessage(); err != nil {
+						return
+					}
+				}
+			})
+			if tc.timeout {
+				constant.StreamingTimeout = 1
+			}
+			require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"ws-billing","input":"hi"}`)))
+			for _, event := range tc.events {
+				actual, err := common.Marshal(readResponsesWSTestEvent(t, fixture.client))
+				require.NoError(t, err)
+				assert.JSONEq(t, event, string(actual))
+			}
+			close(clientRead)
+			if tc.end != nil {
+				tc.end(t, fixture)
+			}
+			if tc.interrupted {
+				assert.Equal(t, "error", readResponsesWSTestEvent(t, fixture.client)["type"])
+			}
+			require.NoError(t, fixture.client.SetReadDeadline(time.Now().Add(5*time.Second)))
+			_, _, err := fixture.client.ReadMessage()
+			var closeErr *websocket.CloseError
+			require.ErrorAs(t, err, &closeErr)
+			assert.Equal(t, tc.code, closeErr.Code)
+			assert.Equal(t, tc.reason, closeErr.Text)
+			fixture.closeAndWait(t)
+			if tc.interrupted {
+				require.Eventually(t, func() bool {
+					var token model.Token
+					return model.DB.First(&token, fixture.token.Id).Error == nil && token.RemainQuota == 3000
+				}, 3*time.Second, 10*time.Millisecond)
+				assertResponsesWSAccounting(t, fixture, nil)
+			} else {
+				assertResponsesWSAccounting(t, fixture, []int{1000})
+			}
+			if tc.upstreamCode != 0 {
+				require.Len(t, upstreamCodes, 1)
+				assert.Equal(t, tc.upstreamCode, <-upstreamCodes)
+			}
+		})
+	}
 }
 
 // A control event queued while another is still outstanding is rejected

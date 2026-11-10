@@ -2,12 +2,12 @@
 
 package kkaimigrate
 
-// The bridge serves only fully verified online-expanded v11 or the final v14.
-// It cannot run on pristine/partial v11. Historical v12/v13 are not bridge states.
+// Both rc49 profiles require the same canonical21 plus expansion contract.
+// This build tag does not turn rc49 into the historical compatibility binary.
 const (
-	RuntimeMinVersion      int64 = MembershipSchemaVersion
-	RuntimeMaxVersion      int64 = TenantOnlineSchemaVersion
-	MigrationTargetVersion int64 = MembershipSchemaVersion
+	RuntimeMinVersion      int64 = MembershipBillingRecoverySchemaVersion
+	RuntimeMaxVersion      int64 = MembershipBillingRecoverySchemaVersion
+	MigrationTargetVersion int64 = MembershipBillingRecoverySchemaVersion
 	RequiredRuntimeVersion int64 = RuntimeMinVersion
 	MaxCompatibleVersion   int64 = RuntimeMaxVersion
 )

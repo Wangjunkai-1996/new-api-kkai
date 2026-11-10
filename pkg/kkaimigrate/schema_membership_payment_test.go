@@ -64,7 +64,7 @@ func TestMembershipPaymentExpandPreservesPriorContractsAndPayments(t *testing.T)
 	} {
 		require.NoError(t, check(ctx, db))
 	}
-	if RuntimeMaxVersion >= MembershipPaymentSchemaVersion {
+	if RuntimeMinVersion <= MembershipPaymentSchemaVersion && RuntimeMaxVersion >= MembershipPaymentSchemaVersion {
 		require.NoError(t, CheckRequired(ctx, db))
 	}
 	_, err = ApplyMembershipPaymentExpand(ctx, db, Options{Offline: true})

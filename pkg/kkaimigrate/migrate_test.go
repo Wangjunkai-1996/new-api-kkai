@@ -292,12 +292,12 @@ func TestApplyRejectsNonContiguousAppliedPrefix(t *testing.T) {
 
 func TestCheckRejectsMissingAndTamperedMigrations(t *testing.T) {
 	db := newMigrationTestDB(t)
-	require.ErrorIs(t, Check(context.Background(), db, RiskSchemaVersion), ErrSchemaNotReady)
+	require.ErrorIs(t, checkThroughVersion(context.Background(), db, RiskSchemaVersion, RiskSchemaVersion, KnownCatalogVersion), ErrSchemaNotReady)
 	_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
 	require.NoError(t, db.Model(&AppliedMigration{}).Where("version = ?", RiskSchemaVersion).
 		Update("checksum", "tampered").Error)
-	require.ErrorIs(t, Check(context.Background(), db, CurrentVersion), ErrChecksumMismatch)
+	require.ErrorIs(t, checkThroughVersion(context.Background(), db, MembershipSchemaVersion, MembershipSchemaVersion, KnownCatalogVersion), ErrChecksumMismatch)
 }
 
 func TestCheckRejectsUnknownFutureMigration(t *testing.T) {
@@ -311,7 +311,7 @@ func TestCheckRejectsUnknownFutureMigration(t *testing.T) {
 		AppliedAt:   1,
 		ExecutionMS: 1,
 	}).Error)
-	require.ErrorIs(t, Check(context.Background(), db, CurrentVersion), ErrFutureMigration)
+	require.ErrorIs(t, checkThroughVersion(context.Background(), db, MembershipSchemaVersion, MembershipSchemaVersion, KnownCatalogVersion), ErrFutureMigration)
 }
 
 func TestCheckRejectsInvalidMigrationCatalog(t *testing.T) {

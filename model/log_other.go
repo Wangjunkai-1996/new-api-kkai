@@ -4,14 +4,16 @@ import (
 	"encoding/json"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 )
 
 const (
-	logOtherAdminInfoKey = "admin_info"
-	logOtherRootInfoKey  = "root_info"
-	logOtherAuditInfoKey = "audit_info"
+	logOtherAdminInfoKey    = "admin_info"
+	logOtherRootInfoKey     = "root_info"
+	logOtherAuditInfoKey    = "audit_info"
+	logOtherContentPartsKey = "content_parts"
 )
 
 // legacySensitiveLogOtherKeys are historical top-level fields that must never
@@ -72,6 +74,50 @@ func (o *LogOther) MergePublic(values map[string]any) {
 	for key, value := range values {
 		o.SetPublic(key, value)
 	}
+}
+
+// setContent stores structured content under content_parts, which the web
+// console renders in the viewer's language, and returns the English text kept
+// in the content column for exports and API callers.
+func (o *LogOther) setContent(content any) string {
+	var parts []*common.Message
+	switch value := content.(type) {
+	case nil:
+		return ""
+	case string:
+		return value
+	case *common.Message:
+		if value != nil {
+			parts = []*common.Message{value}
+		}
+	case []*common.Message:
+		parts = value
+	case map[string]any:
+		// A single structured message also survives an outbox round trip.
+		data, err := common.Marshal(value)
+		var message common.Message
+		if err != nil || common.Unmarshal(data, &message) != nil || message.Key == "" {
+			return ""
+		}
+		parts = []*common.Message{&message}
+	default:
+		// Outbox JSON decoding restores structured messages as generic arrays.
+		data, err := common.Marshal(content)
+		if err != nil || common.Unmarshal(data, &parts) != nil {
+			return ""
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	o.SetPublic(logOtherContentPartsKey, parts)
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != nil {
+			texts = append(texts, part.Error())
+		}
+	}
+	return strings.Join(texts, ", ")
 }
 
 func (o *LogOther) SetAdmin(key string, value any) bool {
@@ -159,7 +205,7 @@ func (o *LogOther) jsonString() string {
 	}
 	data, err := common.Marshal(o.toMap())
 	if err != nil {
-		common.SysError("failed to marshal log other: " + err.Error())
+		common.SysError(common.LogText("failed to marshal log other: %s", err.Error()))
 		return ""
 	}
 	return string(data)

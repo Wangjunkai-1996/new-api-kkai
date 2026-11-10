@@ -1,6 +1,6 @@
 module github.com/Wangjunkai-1996/new-api-kkai/build/kkai-image
 
-go 1.26.0
+go 1.26.10
 
 require github.com/redis/go-redis/v9 v9.17.1
 

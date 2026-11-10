@@ -61,40 +61,44 @@ func (TaskAccountingHandler) Handle(ctx context.Context, event model.KKAIOutboxE
 	}
 	attachQuotaSaturationToOther(other, accountingContext.QuotaClamp)
 
-	logContent := fmt.Sprintf("操作 %s", task.Action)
+	logMessages := []*common.Message{common.NewMessage("Action {{action}}", map[string]any{"action": task.Action})}
 	billingContext := task.PrivateData.BillingContext
 	if billingContext != nil && billingContext.PerCallBilling {
 		if billingContext.OtherRatios["seconds"] > 0 {
-			logContent += "，按秒计费"
+			logMessages = append(logMessages, common.NewMessage("Billed per second"))
 		} else {
-			logContent += "，按次计费"
+			logMessages = append(logMessages, common.NewMessage("Billed per request"))
 		}
 	} else if billingContext != nil {
-		priceData := taskBillingContextPriceData(billingContext)
-		if priceData != nil {
-			ratios := priceData.OtherRatios()
-			keys := make([]string, 0, len(ratios))
-			for key, ratio := range ratios {
+		var contents []string
+		if priceData := taskBillingContextPriceData(billingContext); priceData != nil {
+			for key, ratio := range priceData.OtherRatios() {
 				if ratio != 1 {
-					keys = append(keys, key)
+					contents = append(contents, fmt.Sprintf("%s: %.2f", key, ratio))
 				}
 			}
-			sort.Strings(keys)
-			contents := make([]string, 0, len(keys))
-			for _, key := range keys {
-				contents = append(contents, fmt.Sprintf("%s: %.2f", key, ratios[key]))
-			}
-			if len(contents) > 0 {
-				logContent += ", 计算参数：" + strings.Join(contents, ", ")
+		}
+		if snapshot := billingContext.TieredSnapshot; snapshot != nil {
+			for key, value := range snapshot.UsageFacts {
+				contents = append(contents, fmt.Sprintf("%s: %v", key, value))
 			}
 		}
+		sort.Strings(contents)
+		if len(contents) > 0 {
+			logMessages = append(logMessages, common.NewMessage("Billing parameters: {{params}}", map[string]any{"params": strings.Join(contents, ", ")}))
+		}
+	}
+	other.SetPublic("content_parts", logMessages)
+	content := make([]string, 0, len(logMessages))
+	for _, message := range logMessages {
+		content = append(content, message.Error())
 	}
 
 	log := &model.Log{
 		Username:  accountingContext.Username,
 		TokenName: accountingContext.TokenName,
 		ModelName: taskModelName(task),
-		Content:   logContent,
+		Content:   strings.Join(content, ", "),
 		Other:     other.JSONString(),
 	}
 	created, err := model.CompleteTaskAccountingLog(ctx, task.ID, log)

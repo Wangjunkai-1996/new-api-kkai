@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -16,17 +17,19 @@ import (
 )
 
 func TestResellerFinanceWorkersFreezeUntilFinalSchemaAtStartup(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:"+t.TempDir()+"/worker-schema.db"), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, err := db.DB()
+	dsn := os.Getenv("TEST_AUTH_CACHE_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_AUTH_CACHE_POSTGRES_DSN is required for the PostgreSQL startup contract")
+	}
+	db, cleanup, err := openAuthCachePostgresTestDB(dsn)
 	require.NoError(t, err)
 	previousDB, previousType := model.DB, common.MainDatabaseType()
 	model.DB = db
-	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	common.SetMainDatabaseType(common.DatabaseTypePostgreSQL)
 	t.Cleanup(func() {
 		model.DB = previousDB
 		common.SetMainDatabaseType(previousType)
-		assert.NoError(t, sqlDB.Close())
+		assert.NoError(t, cleanup())
 	})
 	// Start from actual legacy tables and apply the public historical migration
 	// entry points. Merely inserting a v14 ledger row must never enable a worker.
@@ -72,7 +75,7 @@ func TestResellerFinanceWorkersFreezeUntilFinalSchemaAtStartup(t *testing.T) {
 	finalRuntime := CaptureTenantRuntime(db)
 	assert.Equal(t, "finalized", finalRuntime.SchemaAtStartup)
 	assert.True(t, finalRuntime.ResellerReadyAtStartup)
-	expectedContract, err := kkaimigrate.ContractForDialect(kkaimigrate.DialectSQLite)
+	expectedContract, err := kkaimigrate.ContractForDialect(kkaimigrate.DialectPostgres)
 	require.NoError(t, err)
 	assert.Equal(t, expectedContract, finalRuntime.SchemaContract, "live startup evidence must expose the compiled schema compatibility")
 	assert.Empty(t, bridge.Descriptors(), "the running bridge must remain frozen after the database advances")

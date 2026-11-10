@@ -76,7 +76,7 @@ func GetUserGroups(c *gin.Context) {
 	}
 	for _, autoGroup := range service.GetUserAutoGroups(userGroup) {
 		usableGroups[autoGroup] = map[string]interface{}{
-			"ratio":        "自动",
+			"ratio":        "auto",
 			"desc":         setting.GetUsableGroupDescription(autoGroup),
 			"display_name": setting.GetGroupDisplayName(autoGroup),
 			"is_auto":      true,

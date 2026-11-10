@@ -233,3 +233,7 @@ func RunTenantConsumptionSettlements(ctx context.Context) error {
 	}
 	return errors.Join(failures...)
 }
+
+func (s *tenantBillingSession) ReserveBeforeSubmit(targetQuota int) error {
+	return s.Reserve(targetQuota)
+}

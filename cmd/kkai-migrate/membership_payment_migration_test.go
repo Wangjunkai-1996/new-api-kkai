@@ -70,6 +70,7 @@ func TestMembershipPaymentProofRejectsV21AndHistoricalRuntimeSubstitution(t *tes
 }
 
 func TestMembershipPaymentProofRejectsDriftAndIncompatibleRuntimes(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	proof, status, now := membershipPaymentProofFixture(t)
 	expected := proof.Runtimes[0].SchemaContract.SchemaContract
 	require.NoError(t, validateMembershipPaymentProofAgainstContract(proof, status, now, expected))
@@ -166,6 +167,7 @@ func TestMembershipPaymentCommandRequiresItsOwnFixedProof(t *testing.T) {
 }
 
 func TestMembershipPaymentInspectionIsReadonlyAndRejectsUnreceiptedObjects(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	db := newInvoiceCommandFixture(t)
 	ctx := context.Background()
 	_, err := kkaimigrate.ApplyInvoiceExpand(ctx, db, kkaimigrate.Options{Offline: true})

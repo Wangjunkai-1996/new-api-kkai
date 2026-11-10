@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/dlclark/regexp2"
+	"github.com/dlclark/regexp2/v2"
 )
 
 type Codec struct {
@@ -108,10 +108,12 @@ type mergeCandidate struct {
 
 type mergeHeap []mergeCandidate
 
-func (h mergeHeap) Len() int           { return len(h) }
-func (h mergeHeap) Less(i, j int) bool { return h[i].rank < h[j].rank || h[i].rank == h[j].rank && h[i].index < h[j].index }
-func (h mergeHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *mergeHeap) Push(value any)    { *h = append(*h, value.(mergeCandidate)) }
+func (h mergeHeap) Len() int { return len(h) }
+func (h mergeHeap) Less(i, j int) bool {
+	return h[i].rank < h[j].rank || h[i].rank == h[j].rank && h[i].index < h[j].index
+}
+func (h mergeHeap) Swap(i, j int)   { h[i], h[j] = h[j], h[i] }
+func (h *mergeHeap) Push(value any) { *h = append(*h, value.(mergeCandidate)) }
 func (h *mergeHeap) Pop() any {
 	last := len(*h) - 1
 	value := (*h)[last]

@@ -69,7 +69,7 @@ func TestResponsesWSWalletClientCancellationSettlesMeasuredUsage(t *testing.T) {
 			constant.ContextKeyChannelHeaderOverride: channel.GetHeaderOverride(),
 		}}
 	session.startTargetReader(target)
-	t.Cleanup(func() { session.shutdown(); session.workers.Wait() })
+	t.Cleanup(func() { session.shutdown(websocket.CloseNormalClosure, ""); session.workers.Wait() })
 
 	create, _, err := normalizeResponsesWSTestMessage([]byte(`{"type":"response.create","model":"ws-wallet-cancel","input":"hello"}`))
 	require.NoError(t, err)

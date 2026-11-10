@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"math"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
@@ -33,7 +34,17 @@ func addNewRecord(type_ int, id int, value int64) {
 	if _, ok := batchUpdateStores[type_][id]; !ok {
 		batchUpdateStores[type_][id] = value
 	} else {
-		batchUpdateStores[type_][id] += value
+		old := batchUpdateStores[type_][id]
+		sum := old + value
+		if (value > 0 && sum < old) || (value < 0 && sum > old) {
+			common.SysError(common.LogText("batch update overflow: type=%d id=%d old=%d value=%d", type_, id, old, value))
+			if value > 0 {
+				sum = math.MaxInt64
+			} else {
+				sum = math.MinInt64
+			}
+		}
+		batchUpdateStores[type_][id] = sum
 	}
 }
 
@@ -72,7 +83,7 @@ func batchUpdate() {
 			case BatchUpdateTypeTokenQuota:
 				err := increaseTokenQuota(key, value)
 				if err != nil {
-					common.SysLog("failed to batch update token quota: " + err.Error())
+					common.SysLog(common.LogText("failed to batch update token quota: %s", err.Error()))
 				}
 			case BatchUpdateTypeChannelUsedQuota:
 				updateChannelUsedQuota(key, value)
@@ -97,7 +108,7 @@ func batchUpdate() {
 	for key := range userIDs {
 		updateUserQuotaUsedQuotaAndRequestCount(key, userQuotaStore[key], usedQuotaStore[key], requestCountStore[key])
 	}
-	common.SysLog("batch update finished")
+	common.SysLog(common.LogText("batch update finished"))
 }
 
 func RecordExist(err error) (bool, error) {

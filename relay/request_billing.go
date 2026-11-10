@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
@@ -103,7 +104,7 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 		return nil // Each response.create obtains its own complete authorization.
 	}
 	if priceData.FreeModel && info.MembershipPricing == nil && info.TenantID == 0 {
-		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", info.OriginModelName))
+		logger.LogInfo(c, common.LogText("model %s is free, skipping pre-consume", info.OriginModelName))
 		if service.ImageStudioGenerationID(c) > 0 {
 			return service.PreConsumeBilling(c, 0, info)
 		}

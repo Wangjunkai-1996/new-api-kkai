@@ -59,21 +59,22 @@ type TaskSubmissionAttempt struct {
 }
 
 type TaskSubmissionAcceptance struct {
-	RequestPolicy   json.RawMessage
-	PluginState     []byte
-	ResultURL       string
-	ArchiveSource   string
-	ResultDiscarded bool
-	TieredSnapshot  *billingexpr.BillingSnapshot
-	UpstreamTaskID  string
-	TaskData        []byte
-	ChannelID       int
-	Status          TaskStatus
-	Progress        string
-	FailReason      string
-	FinishTime      int64
-	OtherRatios     map[string]float64
-	TargetQuota     int
+	RequestPolicy    json.RawMessage
+	PluginState      []byte
+	ResultURL        string
+	ArchiveSource    string
+	ResultDiscarded  bool
+	SubmissionInline bool
+	TieredSnapshot   *billingexpr.BillingSnapshot
+	UpstreamTaskID   string
+	TaskData         []byte
+	ChannelID        int
+	Status           TaskStatus
+	Progress         string
+	FailReason       string
+	FinishTime       int64
+	OtherRatios      map[string]float64
+	TargetQuota      int
 }
 
 type TaskSubmissionAmbiguity struct {
@@ -161,7 +162,7 @@ func ReserveTaskBilling(ctx context.Context, taskID int64, request TaskBillingRe
 		task.PrivateData.BillingSource = request.Source
 		task.PrivateData.TokenId = request.TokenID
 		task.PrivateData.TokenQuota = tokenQuota
-		task.PrivateData.TokenBilling = tokenQuota > 0
+		task.PrivateData.TokenBilling = !request.SkipToken && request.TokenID > 0
 		task.PrivateData.BillingState = TaskBillingStateReserved
 		if err := persistTaskBillingMutation(tx, task); err != nil {
 			return err
@@ -423,6 +424,7 @@ func applyTaskSubmissionAcceptance(task *Task, acceptance TaskSubmissionAcceptan
 	task.PrivateData.ResultURL = acceptance.ResultURL
 	task.PrivateData.ArchiveSource = acceptance.ArchiveSource
 	task.PrivateData.ResultDiscarded = acceptance.ResultDiscarded
+	task.PrivateData.SubmissionInline = acceptance.SubmissionInline
 	task.PrivateData.UpstreamTaskID = acceptance.UpstreamTaskID
 	if acceptance.ChannelID > 0 {
 		task.ChannelId = acceptance.ChannelID

@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 const RefreshCookieName = "new_api_refresh"
@@ -289,7 +290,11 @@ func RefreshLoginSession(rawRefreshToken, expectedSID, ip, userAgent string, ten
 		if errors.Is(err, model.ErrUserSessionInactive) {
 			return nil, nil, ErrLoginSessionRevoked
 		}
-		return nil, nil, ErrRefreshTokenInvalid
+		if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, model.ErrUserSessionInvalid) {
+			return nil, nil, ErrRefreshTokenInvalid
+		}
+		// Temporary lookup failures must not clear a valid browser session.
+		return nil, nil, err
 	}
 	if session.Status != model.UserSessionStatusActive || session.RevokedAt != 0 || session.ExpiresAt <= time.Now().Unix() {
 		return nil, nil, ErrLoginSessionRevoked

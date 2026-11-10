@@ -24,7 +24,7 @@ func ModelRequestRateLimitGroup2JSONString() string {
 
 	jsonBytes, err := common.Marshal(ModelRequestRateLimitGroup)
 	if err != nil {
-		common.SysLog("error marshalling model request group rate limits: " + err.Error())
+		common.SysLog(common.LogText("error marshalling model request group rate limits: %s", err.Error()))
 	}
 	return string(jsonBytes)
 }

@@ -21,7 +21,7 @@ func TestTenantRateLimitsIsolateSameIPAndOwnerID(t *testing.T) {
 	}{
 		{"ip", rateLimitFactory(1, 60, t.Name()+"-ip")},
 		{"user", userRateLimitFactory(1, 60, t.Name()+"-user")},
-		{"model", memoryRateLimitHandler(60, 1, 0)},
+		{"model", memoryRateLimitHandler("991234", 60, 1, 0)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, request := range []struct {

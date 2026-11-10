@@ -46,7 +46,7 @@ func assertTenantOnlineMigration(t *testing.T, db *gorm.DB) {
 	require.NoError(t, err)
 	assert.Equal(t, "expanded", status.State)
 	assert.Equal(t, status.TotalSteps, status.CompletedSteps)
-	_, err = Apply(ctx, db, Options{})
+	_, err = applyThroughVersion(ctx, db, Options{}, TenantOnlineSchemaVersion, TenantOnlineSchemaVersion)
 	assert.ErrorIs(t, err, ErrUnsafeMigration, "normal startup must not finalize the contract")
 	dry, err := FinalizeTenantOnlineSchema(ctx, db, Options{DryRun: true})
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func assertTenantOnlineMigration(t *testing.T, db *gorm.DB) {
 	_, err = FinalizeTenantOnlineSchema(ctx, db, Options{})
 	require.NoError(t, err)
 	require.NoError(t, CheckTenantOnlineSchema(ctx, db))
-	require.NoError(t, CheckRequired(ctx, db))
+	require.NoError(t, checkThroughVersion(ctx, db, TenantOnlineSchemaVersion, TenantOnlineSchemaVersion, TenantOnlineSchemaVersion))
 	assert.Error(t, checkThroughVersion(ctx, db, 11, 11, 11), "the old binary is not a post-contract rollback")
 	var versions []int64
 	require.NoError(t, db.Model(&AppliedMigration{}).Order("version").Pluck("version", &versions).Error)

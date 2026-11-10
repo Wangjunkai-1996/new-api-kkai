@@ -384,6 +384,8 @@ func TestDisabledArtifactStorePreservesPluginUpstreamContent(t *testing.T) {
 	task := setupGenericTaskTest(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "provider-key", r.Header.Get("x-goog-api-key"))
+		assert.Equal(t, "provider-key", r.Header.Get("X-API-Key"), "channel header overrides reach credentialed downloads")
+		assert.NotEqual(t, "ignored.example", r.Host)
 		assert.Equal(t, "bytes=0-13", r.Header.Get("Range"))
 		w.Header().Set("Content-Type", "video/mp4")
 		w.Header().Set("Content-Range", "bytes 0-13/14")
@@ -397,9 +399,10 @@ func TestDisabledArtifactStorePreservesPluginUpstreamContent(t *testing.T) {
 	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemoryCache })
 
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", task.ChannelId).Updates(map[string]any{
-		"type":     constant.ChannelTypeGemini,
-		"key":      "provider-key",
-		"base_url": upstream.URL,
+		"type":            constant.ChannelTypeGemini,
+		"key":             "provider-key",
+		"base_url":        upstream.URL,
+		"header_override": `{"X-API-Key":"{api_key}","Host":"ignored.example"}`,
 	}).Error)
 	task.Platform = constant.TaskPlatform("google")
 	task.PrivateData.Execution = &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{
@@ -407,7 +410,7 @@ func TestDisabledArtifactStorePreservesPluginUpstreamContent(t *testing.T) {
 	}}
 	task.SetData(map[string]any{"response": map[string]any{
 		"generateVideoResponse": map[string]any{
-			"generatedVideos": []any{map[string]any{"video": map[string]any{"uri": upstream.URL}}},
+			"generatedSamples": []any{map[string]any{"video": map[string]any{"uri": upstream.URL}}},
 		},
 	}})
 	require.NoError(t, model.DB.Save(task).Error)

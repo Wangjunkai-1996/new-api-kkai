@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/andybalholm/brotli"
 	"github.com/gin-gonic/gin"
+	"github.com/klauspost/compress/zstd"
 )
 
 type readCloser struct {
@@ -63,6 +64,33 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 			c.Request.Body = wrapMaxBytes(&readCloser{
 				Reader: reader,
 				closeFn: func() error {
+					return origBody.Close()
+				},
+			})
+			c.Request.Header.Del("Content-Encoding")
+			c.Request.Header.Del("Content-Length")
+			c.Request.ContentLength = -1
+		case "zstd":
+			// The frame header sets the decoder's window, and the decoder allocates
+			// it before any output exists, so the output limit below does not bound
+			// it. 8MiB is the window RFC 8878 asks encoders to stay within.
+			// In streaming mode MaxMemory also caps the window at the request limit.
+			// Disable async decoding to avoid reading the body before downstream
+			// middleware (including authentication) decides to consume it.
+			reader, err := zstd.NewReader(origBody,
+				zstd.WithDecoderMaxWindow(8<<20),
+				zstd.WithDecoderMaxMemory(uint64(maxBytes)),
+				zstd.WithDecoderConcurrency(1),
+			)
+			if err != nil {
+				_ = origBody.Close()
+				c.AbortWithStatus(http.StatusBadRequest)
+				return
+			}
+			c.Request.Body = wrapMaxBytes(&readCloser{
+				Reader: reader,
+				closeFn: func() error {
+					reader.Close()
 					return origBody.Close()
 				},
 			})

@@ -131,7 +131,7 @@ func TestTenantResponsesWSDurableOutcomes(t *testing.T) {
 			state := &responsesWSCallState{inbox: make(chan responsesWSMessage), controls: make(chan responsesWSControl, 1), done: make(chan struct{})}
 			session.ctx, session.cancel, session.client, session.target, session.current = ctx, cancel, downstream, target, state
 			session.startTargetReader(target)
-			t.Cleanup(func() { session.shutdown(); session.workers.Wait() })
+			t.Cleanup(func() { session.shutdown(websocket.CloseNormalClosure, ""); session.workers.Wait() })
 			create, _, err := normalizeResponsesWSTestMessage([]byte(`{"type":"response.create","model":"ws-tenant-model","input":"hello"}`))
 			require.NoError(t, err)
 			c.Request = c.Request.WithContext(ctx)

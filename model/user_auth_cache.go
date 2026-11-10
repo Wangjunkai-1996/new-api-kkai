@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 
@@ -45,26 +46,151 @@ func userAuthFenceTTLSeconds() int {
 	return cacheTTL + extra
 }
 
-func writeUserCache(user *UserBase, includeQuota bool) error {
-	if user == nil || user.Id <= 0 || !common.RedisEnabled || common.RDB == nil {
-		return nil
+type userCacheMetadata struct {
+	Id             int
+	TenantID       int64
+	Group          string
+	Email          string
+	Status         int
+	Role           int
+	Username       string
+	Setting        string
+	AuthVersion    int64
+	CacheSchema    int
+	CacheExpiresAt int64
+}
+
+func userCacheAuthMetadata(user *UserBase) userCacheMetadata {
+	return userCacheMetadata{
+		Id: user.Id, TenantID: user.TenantID, Group: user.Group, Email: user.Email,
+		Status: user.Status, Role: user.Role, Username: user.Username, Setting: user.Setting,
+		AuthVersion: user.AuthVersion, CacheSchema: user.CacheSchema, CacheExpiresAt: user.CacheExpiresAt,
+	}
+}
+
+// Redis failure before observing a cache retains the existing database-only
+// fallback. Once a repair has observed Redis, its version floor is mandatory.
+func readUserCacheFromDatabase(userId int, requireFloor bool) (*UserBase, error) {
+	var user User
+	if err := DB.Select("id", "tenant_id", "group", "email", "quota", "status", "role", "username", "setting", "auth_version").
+		Where("id = ?", userId).First(&user).Error; err != nil {
+		return nil, err
+	}
+	if user.AuthVersion <= 0 || user.TenantID < 0 {
+		return nil, errAuthCacheIntegrity
+	}
+	floor, floorErr := getUserAuthVersionFloor(userId)
+	if requireFloor && floorErr != nil {
+		return nil, floorErr
+	}
+	if floorErr == nil && floor > user.AuthVersion {
+		return nil, ErrUserAuthCachePending
+	}
+	return user.ToBaseUser(), nil
+}
+
+// Observe Redis before reading the database: old writers can modify metadata
+// without changing either AuthVersion or an existing MAC. After publication,
+// re-read the full metadata so a committed change whose cache writer is delayed
+// cannot leave a newly signed stale snapshot behind.
+func refreshUserCacheFromDatabase(userId int, includeQuota bool) (*UserBase, error) {
+	if !common.RedisEnabled || common.RDB == nil {
+		return readUserCacheFromDatabase(userId, false)
+	}
+	key := getUserCacheKey(userId)
+	for attempt := range 3 {
+		observed, err := common.RDB.HGetAll(context.Background(), key).Result()
+		if err != nil {
+			if !includeQuota || attempt > 0 {
+				return nil, err
+			}
+			return readUserCacheFromDatabase(userId, false)
+		}
+		user, err := readUserCacheFromDatabase(userId, true)
+		if err != nil {
+			return nil, err
+		}
+		if err = writeUserCache(user, includeQuota, observed); err != nil {
+			if errors.Is(err, errAuthCacheSnapshotChanged) {
+				continue
+			}
+			if errors.Is(err, ErrUserAuthCachePending) || errors.Is(err, errAuthCacheUnsafeCounters) || errors.Is(err, errAuthCacheIntegrity) {
+				return nil, err
+			}
+			// A transport error can arrive after Redis executed the script.
+			// Revoke that possible publication and reject this request: its
+			// post-read revocation guard could not be confirmed.
+			if discardErr := discardAuthCacheSignature(key, user.CacheMAC); discardErr != nil {
+				common.SysLog("failed to discard unconfirmed user cache signature: " + discardErr.Error())
+			}
+			return nil, err
+		}
+
+		verified, verifyErr := readUserCacheFromDatabase(userId, true)
+		if verifyErr == nil {
+			verified.CacheExpiresAt = user.CacheExpiresAt
+			if userCacheAuthMetadata(verified) == userCacheAuthMetadata(user) {
+				return user, nil
+			}
+		}
+		if err := discardAuthCacheSignature(key, user.CacheMAC); err != nil {
+			return nil, fmt.Errorf("discard unconfirmed user cache signature: %w", err)
+		}
+		if verifyErr != nil {
+			return nil, verifyErr
+		}
+	}
+	// Stop publishing a busy row. This request gets a fresh authoritative read
+	// and the current version floor, without renewing an invalid cache lease.
+	return readUserCacheFromDatabase(userId, true)
+}
+
+func writeUserCache(user *UserBase, includeQuota bool, observed map[string]string) error {
+	if user == nil || user.Id <= 0 || user.AuthVersion <= 0 || user.TenantID < 0 {
+		return errAuthCacheIntegrity
 	}
 	user.CacheSchema = userCacheSchemaVersion
-	if user.AuthVersion <= 0 {
-		return fmt.Errorf("invalid user auth version")
+	user.CacheExpiresAt = time.Now().Add(time.Duration(userCacheTTLSeconds()) * time.Second).UnixMilli()
+	var err error
+	user.CacheMAC, err = authCacheMAC(getUserCacheKey(user.Id), userCacheAuthMetadata(user))
+	if err != nil {
+		return err
+	}
+	observedJSON, err := common.Marshal(observed)
+	if err != nil {
+		return err
 	}
 	includeQuotaArg := "0"
 	if includeQuota {
 		includeQuotaArg = "1"
 	}
-	ttl := userCacheTTLSeconds()
-	const script = `
+	const script = authCacheCASLua + `
+if not authCacheMatches(ARGV[15], {Quota = true}) then
+  return {-1, ''}
+end
 local incoming = tonumber(ARGV[1])
 local pending = tonumber(redis.call('GET', KEYS[2]) or '0')
 local committed = tonumber(redis.call('GET', KEYS[3]) or '0')
-local current = tonumber(redis.call('HGET', KEYS[1], 'AuthVersion') or '0')
+local current = tonumber(redis.call('HGET', KEYS[1], 'AuthVersion') or '0') or 0
+if pending == nil or committed == nil then
+  return {-3, ''}
+end
 if pending > incoming or committed > incoming or current > incoming then
-  return 0
+  return {0, ''}
+end
+local exists = redis.call('EXISTS', KEYS[1]) == 1
+if exists then
+  if redis.call('HGET', KEYS[1], 'Id') ~= ARGV[2]
+    or redis.call('HGET', KEYS[1], 'TenantID') ~= ARGV[3]
+    or redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
+    return {-2, ''}
+  end
+  -- Redis validates its own canonical signed-int64 format without converting
+  -- the live balance through Lua's floating-point number representation.
+  local checked = redis.pcall('HINCRBY', KEYS[1], 'Quota', '0')
+  if type(checked) == 'table' and checked.err then
+    return {-2, ''}
+  end
 end
 if committed < incoming then
   redis.call('SET', KEYS[3], ARGV[1])
@@ -72,31 +198,51 @@ end
 if pending > 0 and pending <= incoming then
   redis.call('DEL', KEYS[2])
 end
-if ARGV[10] == '0' and redis.call('EXISTS', KEYS[1]) == 0 then
-  return 1
+if not exists and ARGV[11] == '0' then
+  return {1, ''}
 end
 redis.call('HSET', KEYS[1],
-  'Id', ARGV[2], 'TenantID', ARGV[13], 'Group', ARGV[3], 'Email', ARGV[4],
-  'Status', ARGV[5], 'Role', ARGV[6], 'Username', ARGV[7],
-  'Setting', ARGV[8], 'AuthVersion', ARGV[1], 'CacheSchema', ARGV[9])
-if ARGV[10] == '1' and redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
-  redis.call('HSET', KEYS[1], 'Quota', ARGV[11])
+  'Id', ARGV[2], 'TenantID', ARGV[3], 'Group', ARGV[4], 'Email', ARGV[5],
+  'Status', ARGV[6], 'Role', ARGV[7], 'Username', ARGV[8],
+  'Setting', ARGV[9], 'AuthVersion', ARGV[1], 'CacheSchema', ARGV[10],
+  'CacheExpiresAt', ARGV[13], 'CacheMAC', ARGV[14])
+if not exists then
+  redis.call('HSET', KEYS[1], 'Quota', ARGV[12])
+  redis.call('PEXPIREAT', KEYS[1], ARGV[13])
 end
-redis.call('EXPIRE', KEYS[1], ARGV[12])
-return 1`
+-- Existing hashes keep their lease. A failed database recheck must not
+-- extend the lifetime of metadata whose signature is about to be discarded.
+return {1, redis.call('HGET', KEYS[1], 'Quota')}`
 	result, err := common.RDB.Eval(context.Background(), script,
 		[]string{getUserCacheKey(user.Id), getUserAuthFenceKey(user.Id), getUserAuthVersionKey(user.Id)},
-		user.AuthVersion, user.Id, user.Group, user.Email, user.Status, user.Role,
-		user.Username, user.Setting, user.CacheSchema, includeQuotaArg, user.Quota, ttl,
-		user.TenantID,
-	).Int()
+		user.AuthVersion, user.Id, user.TenantID, user.Group, user.Email, user.Status, user.Role,
+		user.Username, user.Setting, user.CacheSchema, includeQuotaArg, user.Quota,
+		user.CacheExpiresAt, user.CacheMAC, string(observedJSON),
+	).Slice()
 	if err != nil {
 		return err
 	}
-	if result == 0 {
-		return ErrUserAuthCachePending
+	if len(result) != 2 {
+		return fmt.Errorf("invalid user cache refresh result")
 	}
-	return nil
+	switch result[0] {
+	case int64(0):
+		return ErrUserAuthCachePending
+	case int64(-1):
+		return errAuthCacheSnapshotChanged
+	case int64(-2):
+		return errAuthCacheUnsafeCounters
+	case int64(-3):
+		return errAuthCacheIntegrity
+	case int64(1):
+		if quota, ok := result[1].(string); ok && quota != "" {
+			user.Quota, err = strconv.ParseInt(quota, 10, 64)
+			return err
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid user cache refresh result")
+	}
 }
 
 func getUserAuthVersionFloor(userId int) (int64, error) {
@@ -228,11 +374,8 @@ func BumpUserAuthVersion(userId int) (int64, error) {
 // PublishUserAuthCache refreshes the current database state after a successful
 // auth-sensitive transaction without touching the cached quota field.
 func PublishUserAuthCache(userId int) error {
-	user, err := GetUserById(userId, false)
-	if err != nil {
-		return err
-	}
-	return updateUserCache(*user)
+	_, err := refreshUserCacheFromDatabase(userId, false)
+	return err
 }
 
 // InitializeUserAuthVersions must run after AutoMigrate when upgrading an
@@ -244,6 +387,10 @@ func InitializeUserAuthVersions() error {
 func updateUserCacheFieldAtVersion(userId int, field string, value interface{}, authVersion int64) error {
 	if !common.RedisEnabled {
 		return nil
+	}
+	if field != "Quota" {
+		_, err := refreshUserCacheFromDatabase(userId, false)
+		return err
 	}
 	if userId <= 0 || authVersion <= 0 {
 		return fmt.Errorf("invalid user auth version")

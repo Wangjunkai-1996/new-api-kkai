@@ -23,7 +23,7 @@ func RunAuthArtifactCleanup(ctx context.Context) error {
 	if err != nil {
 		cleanupErrors = append(cleanupErrors, fmt.Errorf("count hourly user session issuance: %w", err))
 	} else if count > int64(common.UserSessionHourlyAlertThreshold) {
-		common.SysError(fmt.Sprintf(
+		common.SysError(common.LogText(
 			"hourly user session issuance exceeded alert threshold: count=%d threshold=%d window_seconds=%d",
 			count,
 			common.UserSessionHourlyAlertThreshold,

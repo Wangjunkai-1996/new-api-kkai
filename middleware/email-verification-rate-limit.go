@@ -1,14 +1,13 @@
 package middleware
 
 import (
-	"context"
-	"fmt"
 	"net/http"
-	"time"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -17,40 +16,31 @@ const (
 	EmailVerificationDuration      = 30 // 30秒时间窗口
 )
 
-func redisEmailVerificationRateLimiter(c *gin.Context) {
-	ctx := context.Background()
-	rdb := common.RDB
-	key := tenantRateLimitKey(c, "emailVerification:"+EmailVerificationRateLimitMark+":"+c.ClientIP())
+var emailVerificationCounterScript = redis.NewScript(`
+local count = redis.call('INCR', KEYS[1])
+local ttl = redis.call('TTL', KEYS[1])
+if ttl < 0 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
+end
+return {count, ttl}
+`)
 
-	count, err := rdb.Incr(ctx, key).Result()
+func redisEmailVerificationRateLimiter(c *gin.Context) {
+	key := tenantRateLimitKey(c, "emailVerification:"+EmailVerificationRateLimitMark+":"+c.ClientIP())
+	result, err := emailVerificationCounterScript.Run(c.Request.Context(), common.RDB, []string{key}, EmailVerificationDuration).Int64Slice()
 	if err != nil {
-		// fallback
+		inMemoryRateLimiter.Init(common.RateLimitKeyExpirationDuration)
 		memoryEmailVerificationRateLimiter(c)
 		return
 	}
-
-	// 第一次设置键时设置过期时间
-	if count == 1 {
-		_ = rdb.Expire(ctx, key, time.Duration(EmailVerificationDuration)*time.Second).Err()
-	}
-
-	// 检查是否超出限制
-	if count <= int64(EmailVerificationMaxRequests) {
+	if result[0] <= int64(EmailVerificationMaxRequests) {
 		c.Next()
 		return
 	}
-
-	// 获取剩余等待时间
-	ttl, err := rdb.TTL(ctx, key).Result()
-	waitSeconds := int64(EmailVerificationDuration)
-	if err == nil && ttl > 0 {
-		waitSeconds = int64(ttl.Seconds())
-	}
-
-	c.JSON(http.StatusTooManyRequests, gin.H{
-		"success": false,
-		"message": fmt.Sprintf("发送过于频繁，请等待 %d 秒后再试", waitSeconds),
-	})
+	waitSeconds := max(int64(1), result[1])
+	c.Header("Retry-After", strconv.FormatInt(waitSeconds, 10))
+	common.ApiErrorStatus(c, http.StatusTooManyRequests, common.NewMessage("Please wait {{seconds}} seconds before requesting another verification code.", map[string]any{"seconds": waitSeconds}))
 	c.Abort()
 }
 
@@ -58,10 +48,7 @@ func memoryEmailVerificationRateLimiter(c *gin.Context) {
 	key := tenantRateLimitKey(c, EmailVerificationRateLimitMark+":"+c.ClientIP())
 
 	if !inMemoryRateLimiter.Request(key, EmailVerificationMaxRequests, EmailVerificationDuration) {
-		c.JSON(http.StatusTooManyRequests, gin.H{
-			"success": false,
-			"message": "发送过于频繁，请稍后再试",
-		})
+		common.ApiErrorStatus(c, http.StatusTooManyRequests, common.NewMessage("Please wait before requesting another verification code."))
 		c.Abort()
 		return
 	}

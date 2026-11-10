@@ -42,6 +42,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { translateServerText } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import {
@@ -433,11 +434,18 @@ export const GroupSelector: React.FC<GroupSelectorProps> = React.memo(
                       </span>
                       {(description || hasRatio) && (
                         <div className='text-muted-foreground truncate text-[9px] leading-tight'>
-                          {description}
+                          {description
+                            ? translateServerText(t, description)
+                            : ''}
                           {hasRatio && (
                             <>
                               {' · '}
-                              {t('Ratio: {{value}}', { value: group.ratio })}
+                              {t('Ratio: {{value}}', {
+                                value:
+                                  typeof group.ratio === 'number'
+                                    ? group.ratio
+                                    : t('Auto'),
+                              })}
                             </>
                           )}
                         </div>
@@ -500,12 +508,17 @@ export const GroupSelector: React.FC<GroupSelectorProps> = React.memo(
                         </span>
                         {(description || hasRatio) && (
                           <div className='text-muted-foreground mt-0.5 text-xs'>
-                            {description}
+                            {description
+                              ? translateServerText(t, description)
+                              : ''}
                             {hasRatio && (
                               <>
                                 {' · '}
                                 {t('Ratio: {{value}}', {
-                                  value: group.ratio,
+                                  value:
+                                    typeof group.ratio === 'number'
+                                      ? group.ratio
+                                      : t('Auto'),
                                 })}
                               </>
                             )}

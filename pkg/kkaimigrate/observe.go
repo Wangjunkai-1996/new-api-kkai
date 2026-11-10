@@ -7,9 +7,10 @@ import (
 )
 
 type Observation struct {
-	Schema             int    `json:"schema"`
-	CurrentVersion     int64  `json:"current_version"`
-	MigrationSetDigest string `json:"migration_set_digest"`
+	Schema             int               `json:"schema"`
+	CurrentVersion     int64             `json:"current_version"`
+	MigrationSetDigest string            `json:"migration_set_digest"`
+	Expansions         map[string]string `json:"expansions,omitempty"`
 }
 
 type validatedMigrationState struct {
@@ -87,9 +88,16 @@ func Observe(ctx context.Context, db *gorm.DB) (*Observation, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Observation{
+	result := &Observation{
 		Schema:             MigrationContractSchema,
 		CurrentVersion:     state.currentVersion,
 		MigrationSetDigest: migrationSetDigest(state.dialect, state.prefix),
-	}, nil
+	}
+	if state.dialect == DialectPostgres && state.currentVersion == MembershipBillingRecoverySchemaVersion && db.Migrator().HasTable(&rc49OnlineReceipt{}) {
+		if err := CheckRC49OnlineExpansion(ctx, db); err != nil {
+			return nil, err
+		}
+		result.Expansions = map[string]string{RC49OnlineExpansion: RC49OnlineExpansionDigest()}
+	}
+	return result, nil
 }

@@ -2,9 +2,9 @@
 # The external_frontend tag removes static embed requirements; the Rsbuild
 # dev server supplies the UI and proxies API requests to this container.
 
-FROM golang:1.26.1-alpine AS builder
+FROM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS builder
 
-ENV GO111MODULE=on CGO_ENABLED=0
+ENV GO111MODULE=on CGO_ENABLED=0 GOWORK=off
 ARG TARGETOS
 ARG TARGETARCH
 ENV GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64}
@@ -15,12 +15,13 @@ WORKDIR /build
 
 ADD go.mod go.sum ./
 COPY relaykit/go.mod relaykit/go.sum ./relaykit/
+COPY tokenkit/go.mod tokenkit/go.sum ./tokenkit/
 COPY third_party/tokenizer/go.mod third_party/tokenizer/go.sum ./third_party/tokenizer/
 RUN go mod download
 
 COPY . .
 
-RUN go build -tags=external_frontend -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)'" -o new-api
+RUN go build -pgo="$(go list -m -f '{{.Dir}}' github.com/Calcium-Ion/moejs)/default.pgo" -tags=external_frontend -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)'" -o new-api
 
 FROM debian:bookworm-slim
 

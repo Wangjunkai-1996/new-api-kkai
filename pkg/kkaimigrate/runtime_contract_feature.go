@@ -2,14 +2,13 @@
 
 package kkaimigrate
 
-// This compatibility runtime serves final tenant schema 14 before and after
-// the separately controlled application-prefix (15), request-ticket (16), invoice (17),
-// wallet-payment (18), shop (19), membership-payment (20), and billing-recovery (21)
-// expansions. Startup never performs these expansions.
+// rc49 requires canonical21 plus the separately receipted online expansion.
+// The expansion leaves canonical history unchanged so accepted max21 binaries
+// remain usable for rollback. ContractForDialect declares the extra requirement.
 const (
-	RuntimeMinVersion      int64 = TenantOnlineSchemaVersion
+	RuntimeMinVersion      int64 = MembershipBillingRecoverySchemaVersion
 	RuntimeMaxVersion      int64 = MembershipBillingRecoverySchemaVersion
-	MigrationTargetVersion int64 = TenantOnlineSchemaVersion
+	MigrationTargetVersion int64 = MembershipBillingRecoverySchemaVersion
 	RequiredRuntimeVersion int64 = RuntimeMinVersion
 	MaxCompatibleVersion   int64 = RuntimeMaxVersion
 )

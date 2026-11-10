@@ -19,9 +19,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 var (
@@ -35,9 +34,9 @@ const (
 	responsesStreamDiagnosticFieldLimit   = 256
 )
 
-func hasReportedResponsesUsage(usage gjson.Result) bool {
+func hasReportedResponsesUsage(usage ojson.Result) bool {
 	input, output := usage.Get("input_tokens"), usage.Get("output_tokens")
-	return input.Type == gjson.Number && input.Float() >= 0 && output.Type == gjson.Number && output.Float() >= 0
+	return input.Type == ojson.Number && input.Float() >= 0 && output.Type == ojson.Number && output.Float() >= 0
 }
 
 func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -54,7 +53,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 	if info.HasDurableBilling() {
-		info.BillingHasReportedUsage = hasReportedResponsesUsage(gjson.GetBytes(responseBody, "usage"))
+		info.BillingHasReportedUsage = hasReportedResponsesUsage(ojson.GetBytes(responseBody, "usage"))
 		if !info.BillingHasReportedUsage {
 			responsesResponse.Usage = nil // An empty object is not explicit zero usage.
 		}
@@ -96,12 +95,13 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	var toolUsage responsesToolUsage
 	toolUsage.observeResponse(&responsesResponse)
 	toolUsage.commit(info, true)
+	info.ApplyVendorToolUsage(responseBody)
 	return usage, nil
 }
 
 func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	if resp == nil || resp.Body == nil {
-		logger.LogError(c, "invalid response or response body")
+		logger.LogError(c, common.LogText("invalid response or response body"))
 		return nil, types.NewError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse)
 	}
 
@@ -133,6 +133,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var streamErr *types.NewAPIError
 	var toolUsage responsesToolUsage
 	sawSuccessfulTerminal := false
+	var downstreamWriteErr error
 	resetResponsesStreamDiagnostics(c, resp.StatusCode)
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
@@ -143,14 +144,14 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		var streamResponse dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
 			markResponsesStreamFailure(c, "stream.decode_error", "", err.Error(), true)
-			logger.LogError(c, "failed to unmarshal stream response: "+err.Error())
+			logger.LogError(c, common.LogText("failed to unmarshal stream response: %s", err.Error()))
 			sr.Error(err)
 			return
 		}
-		if info.HasDurableBilling() && streamResponse.Response != nil && !hasReportedResponsesUsage(gjson.Get(data, "response.usage")) {
+		if info.HasDurableBilling() && streamResponse.Response != nil && !hasReportedResponsesUsage(ojson.Get(data, "response.usage")) {
 			streamResponse.Response.Usage = nil
 		}
-		accumulator.Observe(&streamResponse)
+		accumulator.Observe(&streamResponse, common.StringToByteSlice(data))
 		if info.HasDurableBilling() && accumulator.HasReportedUsage() {
 			toolUsage.observeResponse(streamResponse.Response)
 		}
@@ -189,12 +190,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
-			sawSuccessfulTerminal = true
-			sr.Done()
+			sawSuccessfulTerminal = streamResponse.Response != nil && info.StreamStatus.ResponseOutcome() == string(relaycommon.ResponseOutcomeCompleted)
 		case "response.failed", "response.incomplete", "response.error", "response.cancelled", "response.canceled", "error":
 			if tokenLimited {
 				sawSuccessfulTerminal = true
-				sr.Done()
 				break
 			}
 			message := fmt.Sprintf("responses stream ended with %s", streamResponse.Type)
@@ -214,7 +213,21 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 		if streamErr == nil {
 			toolUsage.observeEvent(&streamResponse)
-			sendResponsesStreamData(c, streamResponse, data)
+			if downstreamWriteErr == nil {
+				if err := helper.ResponseChunkData(c, streamResponse, data); err != nil {
+					// Preserve the bounded upstream drain after a downstream write
+					// fails so disconnecting cannot conceal a later policy error.
+					downstreamWriteErr = err
+					sr.Error(err)
+				}
+			}
+			if sawSuccessfulTerminal {
+				if downstreamWriteErr != nil {
+					sr.Stop(downstreamWriteErr)
+				} else {
+					sr.Done()
+				}
+			}
 		}
 	})
 	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
@@ -274,10 +287,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 }
 
 func rewriteSGLangResponsesCreatedAt(info *relaycommon.RelayInfo, payload []byte, path string, createdAt dto.IntValue) []byte {
-	if info.GetChannelType() != constant.ChannelTypeSGLang || !gjson.GetBytes(payload, path).Exists() {
+	if info.GetChannelType() != constant.ChannelTypeSGLang || !ojson.GetBytes(payload, path).Exists() {
 		return payload
 	}
-	patched, err := sjson.SetBytes(payload, path, int(createdAt))
+	patched, err := ojson.SetBytes(payload, path, int(createdAt))
 	if err != nil {
 		return payload
 	}
@@ -295,12 +308,12 @@ func responsesStreamEventStartsSemanticOutput(response *dto.ResponsesStreamRespo
 		return false
 	}
 	rawData = strings.TrimSpace(rawData)
-	if rawData == "" || rawData == "[DONE]" || !gjson.Valid(rawData) {
+	if rawData == "" || rawData == "[DONE]" || !ojson.Valid(rawData) {
 		return false
 	}
 	eventType := strings.TrimSpace(response.Type)
 	if eventType == "" {
-		eventType = strings.TrimSpace(gjson.Get(rawData, "type").String())
+		eventType = strings.TrimSpace(ojson.Get(rawData, "type").String())
 	}
 	if eventType == "" {
 		return false
@@ -314,11 +327,11 @@ func responsesStreamEventStartsSemanticOutput(response *dto.ResponsesStreamRespo
 		// pre-output failure into an apparent semantic response.
 		return false
 	case "response.output_item.added":
-		return responsesStreamAddedItemStartsOutput(gjson.Get(rawData, "item"))
+		return responsesStreamAddedItemStartsOutput(ojson.Get(rawData, "item"))
 	case "response.reasoning_summary_part.added":
-		return responsesStreamAddedPartStartsOutput(gjson.Get(rawData, "part"), true)
+		return responsesStreamAddedPartStartsOutput(ojson.Get(rawData, "part"), true)
 	case "response.content_part.added":
-		return responsesStreamAddedPartStartsOutput(gjson.Get(rawData, "part"), false)
+		return responsesStreamAddedPartStartsOutput(ojson.Get(rawData, "part"), false)
 	case "response.output_item.done", "response.content_part.done":
 		// A done event can carry the complete item/part even when no delta was
 		// emitted. Keep the replay guard conservative for this boundary.
@@ -334,9 +347,9 @@ func responsesStreamEventStartsSemanticOutput(response *dto.ResponsesStreamRespo
 	case "response.image_generation_call.partial_image":
 		return responsesStreamHasNonEmptyString(rawData, "partial_image_b64")
 	case "response.reasoning_summary_part.done":
-		return responsesStreamPartHasText(gjson.Get(rawData, "part"))
+		return responsesStreamPartHasText(ojson.Get(rawData, "part"))
 	case "response.completed", "response.done":
-		for _, item := range gjson.Get(rawData, "response.output").Array() {
+		for _, item := range ojson.Get(rawData, "response.output").Array() {
 			if responsesStreamItemHasOutput(item) {
 				return true
 			}
@@ -350,11 +363,11 @@ func responsesStreamEventStartsSemanticOutput(response *dto.ResponsesStreamRespo
 }
 
 func responsesStreamHasNonEmptyString(rawData, path string) bool {
-	value := gjson.Get(rawData, path)
+	value := ojson.Get(rawData, path)
 	return value.Exists() && value.String() != ""
 }
 
-func responsesStreamPartHasText(part gjson.Result) bool {
+func responsesStreamPartHasText(part ojson.Result) bool {
 	if !part.Exists() || !part.IsObject() {
 		return false
 	}
@@ -363,7 +376,7 @@ func responsesStreamPartHasText(part gjson.Result) bool {
 		part.Get("refusal").String() != ""
 }
 
-func responsesStreamAddedPartStartsOutput(part gjson.Result, reasoning bool) bool {
+func responsesStreamAddedPartStartsOutput(part ojson.Result, reasoning bool) bool {
 	if !part.Exists() || !part.IsObject() {
 		return true
 	}
@@ -383,7 +396,7 @@ func responsesStreamAddedPartStartsOutput(part gjson.Result, reasoning bool) boo
 	}
 }
 
-func responsesStreamAddedItemStartsOutput(item gjson.Result) bool {
+func responsesStreamAddedItemStartsOutput(item ojson.Result) bool {
 	if !item.Exists() || !item.IsObject() {
 		return true
 	}
@@ -434,7 +447,7 @@ func responsesStreamAddedItemStartsOutput(item gjson.Result) bool {
 	}
 }
 
-func responsesStreamItemHasOutput(item gjson.Result) bool {
+func responsesStreamItemHasOutput(item ojson.Result) bool {
 	if !item.Exists() || !item.IsObject() {
 		return false
 	}

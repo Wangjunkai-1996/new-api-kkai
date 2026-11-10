@@ -290,3 +290,7 @@ func imageGenerationBillingError(err error) *types.NewAPIError {
 		)
 	}
 }
+
+func (session *imageGenerationBillingSession) ReserveBeforeSubmit(targetQuota int) error {
+	return session.Reserve(targetQuota)
+}

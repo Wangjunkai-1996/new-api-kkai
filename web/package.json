@@ -6,14 +6,14 @@
     "classic"
   ],
   "catalog": {
-    "@lobehub/icons": "^5.10.1",
+    "@lobehub/icons": "~5.22.0",
     "@rsbuild/core": "^2.1.4",
     "@rsbuild/plugin-react": "^2.1.0",
     "@rsbuild/plugin-tailwindcss": "^2.0.3",
-    "axios": "^1.18.1",
+    "axios": "^1.20.0",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.21",
-    "oxfmt": "^0.57.0",
+    "oxfmt": "^0.72.0",
     "oxlint": "^1.72.0",
     "prettier": "^3.8.3",
     "qrcode.react": "^4.2.0",
@@ -23,5 +23,6 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "sse.js": "^2.8.0"
-  }
+  },
+  "packageManager": "bun@1.4.4"
 }

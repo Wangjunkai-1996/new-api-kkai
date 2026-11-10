@@ -43,7 +43,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 	}
 	summary.UnfinishedTasks = len(tasks)
 
-	logger.LogInfo(ctx, fmt.Sprintf("检测到未完成的任务数有: %v", len(tasks)))
+	logger.LogInfo(ctx, common.LogText("unfinished tasks found: %v", len(tasks)))
 	taskChannelM := make(map[int][]string)
 	taskM := make(map[int]map[string][]*model.Midjourney)
 	membershipTasks := make(map[int]bool)
@@ -78,9 +78,9 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 			"progress": "100%",
 		})
 		if err != nil {
-			logger.LogError(ctx, fmt.Sprintf("Fix null mj_id task error: %v", err))
+			logger.LogError(ctx, common.LogText("Fix null mj_id task error: %v", err))
 		} else {
-			logger.LogInfo(ctx, fmt.Sprintf("Fix null mj_id task success: %v", nullTaskIds))
+			logger.LogInfo(ctx, common.LogText("Fix null mj_id task success: %v", nullTaskIds))
 		}
 	}
 	if len(taskChannelM) == 0 {
@@ -98,7 +98,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 		}
 		processedChannels++
 		summary.ChannelsScanned++
-		logger.LogInfo(ctx, fmt.Sprintf("渠道 #%d 未完成的任务有: %d", channelId, len(taskIds)))
+		logger.LogInfo(ctx, common.LogText("channel #%d has %d unfinished tasks", channelId, len(taskIds)))
 		if len(taskIds) == 0 {
 			continue
 		}
@@ -119,7 +119,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 				"progress":    "100%",
 			})
 			if err != nil {
-				logger.LogInfo(ctx, fmt.Sprintf("UpdateMidjourneyTask error: %v", err))
+				logger.LogInfo(ctx, common.LogText("UpdateMidjourneyTask error: %v", err))
 			}
 			continue
 		}
@@ -129,7 +129,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 			"ids": taskIds,
 		})
 		if err != nil {
-			logger.LogError(ctx, fmt.Sprintf("Get Task marshal body error: %v", err))
+			logger.LogError(ctx, common.LogText("Get Task marshal body error: %v", err))
 			continue
 		}
 		timeout := time.Second * 15
@@ -137,26 +137,26 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 		req, err := http.NewRequestWithContext(requestCtx, "POST", requestUrl, bytes.NewBuffer(body))
 		if err != nil {
 			cancel()
-			logger.LogError(ctx, fmt.Sprintf("Get Task error: %v", err))
+			logger.LogError(ctx, common.LogText("Get Task error: %v", err))
 			continue
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("mj-api-secret", midjourneyChannel.Key)
 		resp, err := service.GetHttpClient().Do(req)
 		if err != nil {
-			logger.LogError(ctx, fmt.Sprintf("Get Task Do req error: %v", err))
+			logger.LogError(ctx, common.LogText("Get Task Do req error: %v", err))
 			cancel()
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			logger.LogError(ctx, fmt.Sprintf("Get Task status code: %d", resp.StatusCode))
+			logger.LogError(ctx, common.LogText("Get Task status code: %d", resp.StatusCode))
 			resp.Body.Close()
 			cancel()
 			continue
 		}
 		responseBody, err := io.ReadAll(resp.Body)
 		if err != nil {
-			logger.LogError(ctx, fmt.Sprintf("Get Mjp Task parse body error: %v", err))
+			logger.LogError(ctx, common.LogText("Get Mjp Task parse body error: %v", err))
 			resp.Body.Close()
 			cancel()
 			continue
@@ -164,7 +164,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 		var responseItems []dto.MidjourneyDto
 		err = common.Unmarshal(responseBody, &responseItems)
 		if err != nil {
-			logger.LogError(ctx, fmt.Sprintf("Get Mjp Task parse body error2: %v, body: %s", err, string(responseBody)))
+			logger.LogError(ctx, common.LogText("Get Mjp Task parse body error2: %v, body: %s", err, string(responseBody)))
 			resp.Body.Close()
 			cancel()
 			continue

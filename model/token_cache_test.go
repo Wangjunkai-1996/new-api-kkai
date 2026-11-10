@@ -350,7 +350,7 @@ func TestTokenCacheAutoGroupsLegacyBackfillPreservesQuotaAndPermissions(t *testi
 	assert.Equal(t, cached, warm)
 }
 
-func TestTokenCacheTenantBackfillPreservesReservedQuota(t *testing.T) {
+func TestTokenCacheMissingTenantDoesNotAdoptReservedQuota(t *testing.T) {
 	truncateTables(t)
 	resetBatchUpdateTestState(t)
 	useUserCacheMiniRedis(t)
@@ -366,12 +366,11 @@ func TestTokenCacheTenantBackfillPreservesReservedQuota(t *testing.T) {
 	require.NoError(t, common.RDB.HDel(context.Background(), getTokenCacheKey(token.Key), "TenantID").Err())
 	_, err = cacheGetTokenByKey(token.Key)
 	require.Error(t, err)
-	loaded, err = GetTokenByKey(token.Key, false)
+	before, err := common.RDB.HGetAll(context.Background(), getTokenCacheKey(token.Key)).Result()
 	require.NoError(t, err)
-	assert.Equal(t, int64(42), loaded.TenantID)
-	warm, err := cacheGetTokenByKey(token.Key)
+	_, err = GetTokenByKey(token.Key, false)
+	require.ErrorIs(t, err, errAuthCacheUnsafeCounters)
+	after, err := common.RDB.HGetAll(context.Background(), getTokenCacheKey(token.Key)).Result()
 	require.NoError(t, err)
-	assert.Equal(t, int64(42), warm.TenantID)
-	assert.Equal(t, 30, warm.RemainQuota)
-	assert.Equal(t, 70, warm.UsedQuota)
+	assert.Equal(t, before, after, "missing ownership must not be filled by adopting in-flight counters")
 }

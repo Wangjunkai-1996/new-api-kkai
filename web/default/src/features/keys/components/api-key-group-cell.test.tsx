@@ -24,6 +24,16 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { ApiKey } from '../types'
 import { ApiKeyGroupCell } from './api-key-group-cell'
 
+vi.mock('@/hooks/use-console-contract', () => ({
+  useConsoleContract: () => ({
+    contract: {
+      capabilities: contractState.supportsInlineGroup
+        ? ['token_group_inline']
+        : [],
+    },
+  }),
+}))
+
 const apiMocks = vi.hoisted(() => ({
   getUserGroups: vi.fn(),
   updateApiKeyGroup: vi.fn(),
@@ -58,16 +68,6 @@ vi.mock('./api-keys-provider', () => ({
 }))
 
 vi.mock('sonner', () => ({ toast: toastMocks }))
-
-vi.mock('@/hooks/use-console-contract', () => ({
-  useConsoleContract: () => ({
-    contract: {
-      capabilities: contractState.supportsInlineGroup
-        ? ['token_group_inline']
-        : [],
-    },
-  }),
-}))
 
 const userGroups = {
   default: {
@@ -104,6 +104,7 @@ const apiKey: ApiKey = {
   model_limits_enabled: false,
   model_limits: '',
   allow_ips: '',
+  allow_user_quota_query: false,
 }
 
 const queryClients: QueryClient[] = []

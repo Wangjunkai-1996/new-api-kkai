@@ -58,6 +58,7 @@ func shopProofFixture(t *testing.T) (*shopControllerProof, *shopMigrationStatus,
 }
 
 func TestShopProofRejectsDriftAndIncompatibleRuntimes(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	proof, status, now := shopProofFixture(t)
 	require.NoError(t, validateShopControllerProof(proof, status, now))
 	encoded, err := common.Marshal(proof)
@@ -152,6 +153,7 @@ func TestShopCommandRequiresItsOwnFixedProof(t *testing.T) {
 }
 
 func TestShopInspectionIsReadonlyAndRejectsUnreceiptedObjects(t *testing.T) {
+	requireHistoricalMigrationRuntime(t)
 	db := newInvoiceCommandFixture(t)
 	ctx := context.Background()
 	_, err := kkaimigrate.ApplyInvoiceExpand(ctx, db, kkaimigrate.Options{Offline: true})

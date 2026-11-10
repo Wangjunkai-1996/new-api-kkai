@@ -7,6 +7,13 @@ import (
 
 // GetEndpointTypesByChannelType 获取渠道最优先端点类型（所有的渠道都支持 OpenAI 端点）
 func GetEndpointTypesByChannelType(channelType int, modelName string) []types.EndpointType {
+	// The DeepSeek Search and Fetch routing names serve only their endpoint.
+	switch modelName {
+	case constant.DeepSeekSearchModel:
+		return []types.EndpointType{types.EndpointTypeDeepSeekToolsSearch}
+	case constant.DeepSeekFetchModel:
+		return []types.EndpointType{types.EndpointTypeDeepSeekToolsFetch}
+	}
 	var endpointTypes []types.EndpointType
 	switch channelType {
 	case constant.ChannelTypeJina:

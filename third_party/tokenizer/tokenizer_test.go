@@ -18,6 +18,7 @@ func TestO200kBase(t *testing.T) {
 	}
 
 	tests := []testCase{
+		{text: "'RE", ids: []uint{6, 1099}},
 		{text: "hello world", ids: []uint{24912, 2375}},
 		{text: "hello  world", ids: []uint{24912, 220, 2375}},
 		{text: "hello   world", ids: []uint{24912, 256, 2375}},
@@ -35,6 +36,7 @@ func TestCl100kBase(t *testing.T) {
 	}
 
 	tests := []testCase{
+		{text: "'RE", ids: []uint{95253}},
 		{text: "hello world", ids: []uint{15339, 1917}},
 		{text: "hello  world", ids: []uint{15339, 220, 1917}},
 		{text: "hello   world", ids: []uint{15339, 256, 1917}},

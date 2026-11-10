@@ -50,7 +50,7 @@ func TestRequestTicketExpandPreservesHistoryAndBusinessData(t *testing.T) {
 			require.NoError(t, CheckRequestTicketRuntimeSchema(ctx, db))
 			require.NoError(t, CheckTenantOnlineSchema(ctx, db))
 			require.NoError(t, CheckResellerApplicationSchema(ctx, db))
-			if RuntimeMaxVersion >= 16 {
+			if RuntimeMinVersion <= 16 && RuntimeMaxVersion >= 16 {
 				require.NoError(t, CheckRequired(ctx, db))
 			}
 			var existing tenantV12ResellerApplication

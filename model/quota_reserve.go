@@ -184,7 +184,7 @@ func reserveTokenQuotaDB(id int, quota int) (bool, error) {
 // batch 模式则在缓存不可用时关闭预扣，避免未刷盘余额被重复授权。
 func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if quota < 0 {
-		return false, errors.New("quota 不能为负数！")
+		return false, errors.New("quota cannot be negative")
 	}
 	if quota == 0 {
 		return true, nil
@@ -209,7 +209,7 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 			return false, errBatchQuotaCacheUnavailable
 		}
 		if err != nil {
-			common.SysLog("user quota cache reserve unavailable, falling back to database: " + err.Error())
+			common.SysLog(common.LogText("user quota cache reserve unavailable, falling back to database: %s", err.Error()))
 		}
 		return reserveUserQuotaDB(id, quota)
 	}
@@ -226,7 +226,7 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 		}
 		compensated, compensateErr := cacheApplyUserQuotaDelta(id, int64(quota))
 		if compensateErr != nil || compensated != cacheQuotaOK {
-			common.SysError(fmt.Sprintf("failed to compensate reserved user quota: result=%d error=%v", compensated, compensateErr))
+			common.SysError(common.LogText("failed to compensate reserved user quota: result=%d error=%v", compensated, compensateErr))
 		}
 		return false, err
 	}
@@ -237,7 +237,7 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 // tokens skip the balance check but still update remain/used accounting.
 func TryReserveTokenQuota(id int, key string, quota int, unlimited bool) (bool, error) {
 	if quota < 0 {
-		return false, errors.New("quota 不能为负数！")
+		return false, errors.New("quota cannot be negative")
 	}
 	if quota == 0 {
 		return true, nil
@@ -265,7 +265,7 @@ func TryReserveTokenQuota(id int, key string, quota int, unlimited bool) (bool, 
 			return false, errBatchQuotaCacheUnavailable
 		}
 		if err != nil {
-			common.SysLog("token quota cache reserve unavailable, falling back to database: " + err.Error())
+			common.SysLog(common.LogText("token quota cache reserve unavailable, falling back to database: %s", err.Error()))
 		}
 		return reserveTokenQuotaDB(id, quota)
 	}
@@ -282,7 +282,7 @@ func TryReserveTokenQuota(id int, key string, quota int, unlimited bool) (bool, 
 		}
 		compensated, compensateErr := cacheApplyTokenQuotaDelta(id, key, int64(quota))
 		if compensateErr != nil || compensated != cacheQuotaOK {
-			common.SysError(fmt.Sprintf("failed to compensate reserved token quota: result=%d error=%v", compensated, compensateErr))
+			common.SysError(common.LogText("failed to compensate reserved token quota: result=%d error=%v", compensated, compensateErr))
 		}
 		return false, err
 	}

@@ -72,6 +72,7 @@ func isChannelIDInList(list []int, channelID int) bool {
 
 var filterEvalOrder = []dto.ChannelFilterKind{
 	dto.FilterRequestPath,
+	dto.FilterTaskPluginEndpoint,
 	dto.FilterTaskPluginIdentity,
 	dto.FilterResponsesWebSocket,
 	dto.FilterAllowedChannelTypes,
@@ -178,12 +179,24 @@ func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilte
 			return false
 		}
 		return slices.Contains(filter.TaskPluginChannelTypes, ch.Type)
+	case dto.FilterTaskPluginEndpoint:
+		pluginChannel := slices.Contains(filter.TaskPluginChannelTypes, ch.Type)
+		if ch.Type == constant.ChannelTypeTaskPlugin || ch.Type == constant.ChannelTypeNewAPI {
+			pluginChannel = slices.ContainsFunc(filter.TaskPluginKeys, ch.GetSetting().BindsTaskPlugin)
+		}
+		if filter.TaskPluginRelayOnly {
+			return ch.Type != constant.ChannelTypeTaskPlugin && !pluginChannel
+		}
+		// Ordinary channels and matching plugin channels compete using the same
+		// group, priority, weight, affinity, and pin rules. Unrelated type-61
+		// plugins cannot execute this endpoint.
+		return ch.Type != constant.ChannelTypeTaskPlugin || pluginChannel
 	case dto.FilterResponsesWebSocket:
 		if !ch.GetSetting().ResponsesWebSocketEnabled {
 			return false
 		}
 		switch ch.Type {
-		case constant.ChannelTypeOpenAI, constant.ChannelTypeCodex, constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI:
+		case constant.ChannelTypeOpenAI, constant.ChannelTypeAzure, constant.ChannelTypeCodex, constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI:
 			return true
 		case constant.ChannelTypeAdvancedCustom, constant.ChannelTypeVLLM, constant.ChannelTypeSGLang:
 			var config *relaydto.AdvancedCustomConfig

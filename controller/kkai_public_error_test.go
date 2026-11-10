@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -237,6 +238,7 @@ func TestKKAIPublicTaskErrorTreatsNonClientPolicyAsUnavailable(t *testing.T) {
 }
 
 func TestRespondTaskErrorPreservesPolicyWarnings(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	tests := []struct {
 		name            string
 		taskErr         *dto.TaskError
@@ -274,6 +276,7 @@ func TestRespondTaskErrorPreservesPolicyWarnings(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			ctx, _ := gin.CreateTestContext(recorder)
 			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			ctx.Request.Header.Set("Accept-Language", "zh-CN")
 
 			respondTaskError(ctx, test.taskErr)
 

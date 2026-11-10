@@ -18,17 +18,11 @@ func TestDescribeContractJSONRequiresTenantSchema(t *testing.T) {
 		SchemaManagement string `json:"schema_management"`
 	}
 	require.NoError(t, common.UnmarshalJsonStr(output, &result))
-	assert.EqualValues(t, 14, result.RuntimeMinVersion)
+	assert.EqualValues(t, 21, result.RuntimeMinVersion)
 	assert.EqualValues(t, 21, result.RuntimeMaxVersion)
-	assert.EqualValues(t, 14, result.MigrationTargetVersion)
-	assert.Equal(t, result.MigrationSetDigest, result.CompatiblePrefixes["14"])
-	assert.Contains(t, result.CompatiblePrefixes, "15")
-	assert.Contains(t, result.CompatiblePrefixes, "16")
-	assert.Contains(t, result.CompatiblePrefixes, "17")
-	assert.Contains(t, result.CompatiblePrefixes, "18")
-	assert.Contains(t, result.CompatiblePrefixes, "19")
-	assert.Contains(t, result.CompatiblePrefixes, "20")
-	assert.Contains(t, result.CompatiblePrefixes, "21")
-	assert.Len(t, result.CompatiblePrefixes, 8)
+	assert.EqualValues(t, 21, result.MigrationTargetVersion)
+	assert.Equal(t, result.MigrationSetDigest, result.CompatiblePrefixes["21"])
+	assert.Len(t, result.CompatiblePrefixes, 1)
+	assert.Equal(t, map[string]string{kkaimigrate.RC49OnlineExpansion: kkaimigrate.RC49OnlineExpansionDigest()}, result.RequiredExpansions)
 	assert.Equal(t, common.SchemaManagementMode, result.SchemaManagement)
 }

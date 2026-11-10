@@ -40,6 +40,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import zhTW from '@/i18n/locales/zh-TW.json'
 import zh from '@/i18n/locales/zh.json'
 import { api } from '@/lib/api'
+import { STATUS_QUERY_KEY } from '@/lib/status-query'
 
 import { CommonLogsFilterBar } from '../common-logs-filter-bar'
 import { CompactDateTimeRangePicker } from '../compact-date-time-range-picker'
@@ -99,12 +100,18 @@ async function renderMobileFilter() {
       ],
     }),
   })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  client.setQueryData(STATUS_QUERY_KEY, {
+    console_contract: {
+      format_version: 1,
+      api_contracts: [2, 3],
+      capabilities: ['usage_log_csv_export'],
+    },
+  })
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
+    <QueryClientProvider client={client}>
       <RouterProvider router={router} />
     </QueryClientProvider>
   )
@@ -174,14 +181,14 @@ it('applies mobile drawer filters only when Search is pressed', async () => {
 it('keeps all quick actions visible without opening a menu', async () => {
   await renderMobileFilter()
   const user = userEvent.setup()
-  for (const name of ['Hide', 'Filter', 'Search', 'View']) {
+  for (const name of ['Hide', 'Filter', 'Search', 'Export', 'View']) {
     expect(screen.getByRole('button', { name })).toBeVisible()
   }
   expect(screen.queryByRole('button', { name: 'More' })).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'Hide' }))
   expect(screen.getByRole('button', { name: 'Show' })).toBeVisible()
   screen.getByRole('button', { name: 'Show' }).focus()
-  for (const name of ['Filter', 'Search', 'View']) {
+  for (const name of ['Filter', 'Search', 'Export', 'View']) {
     await user.tab()
     expect(screen.getByRole('button', { name })).toHaveFocus()
   }
@@ -229,6 +236,32 @@ it('keeps Search visible while loading and prevents repeated searches', async ()
   expect(onSearch).toHaveBeenCalledTimes(1)
 })
 
+it('places the end action between Search and View on desktop', () => {
+  function DesktopFixture() {
+    // oxlint-disable-next-line react/incompatible-library -- Exercise TanStack Table directly in the test fixture.
+    const table = useReactTable({
+      data: [],
+      columns: [],
+      getCoreRowModel: getCoreRowModel(),
+    })
+    return (
+      <LogsFilterToolbar
+        table={table}
+        primaryFilters={null}
+        actionEnd={<button type='button'>Export</button>}
+        hasActiveFilters={false}
+        onReset={() => {}}
+        onSearch={() => {}}
+      />
+    )
+  }
+  render(<DesktopFixture />)
+  const names = screen
+    .getAllByRole('button')
+    .map((button) => button.textContent)
+  expect(names.slice(-4)).toEqual(['Reset', 'Search', 'Export', 'View'])
+})
+
 it('collapses only date and statistics while keeping the right-hand quick actions visible', async () => {
   await renderMobileFilter()
   const user = userEvent.setup()
@@ -245,7 +278,7 @@ it('collapses only date and statistics while keeping the right-hand quick action
   expect(screen.queryByRole('button', { name: date })).not.toBeInTheDocument()
   expect(screen.queryByText('Usage')).not.toBeInTheDocument()
   const actions = screen.getByRole('group', { name: 'Actions' })
-  for (const name of ['Hide', 'Filter', 'Search', 'View']) {
+  for (const name of ['Hide', 'Filter', 'Search', 'Export', 'View']) {
     expect(within(actions).getByRole('button', { name })).toBeVisible()
   }
   expect(
@@ -289,3 +322,36 @@ it.each([
     })
   }
 )
+
+it('keeps the seconds of the current range when it is confirmed again', async () => {
+  const user = userEvent.setup()
+  const onChange = vi.fn()
+  render(
+    <CompactDateTimeRangePicker
+      start={new Date(2026, 8, 7, 9, 30, 15)}
+      end={new Date(2026, 8, 8, 17, 45, 59)}
+      onChange={onChange}
+    />
+  )
+  await user.click(screen.getByRole('button', { name: /^2026/ }))
+  await user.click(screen.getByRole('button', { name: 'Confirm' }))
+  expect(onChange).toHaveBeenCalledWith({
+    start: new Date(2026, 8, 7, 9, 30, 15),
+    end: new Date(2026, 8, 8, 17, 45, 59),
+  })
+})
+
+it('shows the seconds of the selected range on the trigger', () => {
+  render(
+    <CompactDateTimeRangePicker
+      start={new Date(2026, 8, 7, 9, 30, 15)}
+      end={new Date(2026, 8, 8, 17, 45, 59)}
+      onChange={() => undefined}
+    />
+  )
+  expect(
+    screen.getByRole('button', {
+      name: '2026-09-07 09:30:15 ~ 2026-09-08 17:45:59',
+    })
+  ).toBeVisible()
+})

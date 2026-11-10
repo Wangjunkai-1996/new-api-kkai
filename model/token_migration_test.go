@@ -241,7 +241,7 @@ func TestMigrateTokenKeyUniquenessPostgreSQL(t *testing.T) {
 			require.NoError(t, migrateTokenKeyUniqueness(tx))
 			require.NoError(t, tx.AutoMigrate(&Token{}))
 			original := Token{UserId: 1, Key: "preserved-key", Name: "preserve me"}
-			require.NoError(t, tx.Create(&original).Error)
+			require.NoError(t, tx.Session(&gorm.Session{SkipHooks: true}).Create(&original).Error)
 			if test.prepareOld != nil {
 				test.prepareOld(t, tx)
 			}

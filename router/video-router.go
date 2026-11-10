@@ -26,13 +26,21 @@ func SetVideoRouter(router *gin.Engine) {
 	}
 	// openai compatible API video routes
 	// Customer-facing video protocol: https://api.kkrich.ltd/docs/apps/seedance
-	{
-		videoV1Router.POST("/videos", controller.RelayTask)
-		videoV1Router.GET("/videos/:task_id", controller.RelayTaskFetch)
+	for _, operation := range []string{"create", "retrieve"} {
+		handlers, err := taskPluginProtocolHandlers("openai_video", operation)
+		if err != nil {
+			panic(err)
+		}
+		if operation == "create" {
+			router.POST("/v1/videos", handlers...)
+		} else {
+			router.GET("/v1/videos/:task_id", handlers...)
+		}
 	}
 
 	klingV1Router := router.Group("/kling/v1")
 	klingV1Router.Use(middleware.RouteTag("relay"))
+	klingV1Router.Use(defaultPluginDispatcher.dispatch)
 	klingV1Router.Use(middleware.KlingRequestConvert(), middleware.TokenAuth(), middleware.KKAIPolicyKeyCooldown(), middleware.Distribute())
 	{
 		klingV1Router.POST("/videos/text2video", controller.RelayTask)

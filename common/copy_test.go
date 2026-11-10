@@ -16,6 +16,7 @@ type copyFixture struct {
 	Tools json.RawMessage
 	Flags map[string][]bool
 	Extra map[string]json.RawMessage
+	Items []json.RawMessage
 }
 
 func TestDeepCopyRawMessageIsolation(t *testing.T) {
@@ -29,7 +30,6 @@ func TestDeepCopyRawMessageIsolation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, src, *got)
 	assert.NotNil(t, got.Tools)
-	assert.Equal(t, cap(src.Tools), cap(got.Tools))
 	got.Input[0] = '['
 	got.Flags["enabled"][0] = true
 	got.Extra["raw"][0] = '['
@@ -39,13 +39,27 @@ func TestDeepCopyRawMessageIsolation(t *testing.T) {
 }
 
 func TestDeepCopyRawMessageContainerSemantics(t *testing.T) {
-	for _, raw := range []json.RawMessage{nil, {}, json.RawMessage(`null`), json.RawMessage(`false`)} {
-		src := copyFixture{Input: raw, Extra: map[string]json.RawMessage{"value": raw}}
-		var legacy copyFixture
-		require.NoError(t, copier.CopyWithOption(&legacy, &src, copier.Option{DeepCopy: true, IgnoreEmpty: true}))
-		got, err := DeepCopy(&src)
-		require.NoError(t, err)
-		assert.Equal(t, legacy, *got)
+	for _, tc := range []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{"nil", nil}, {"empty", json.RawMessage{}}, {"null", json.RawMessage(`null`)}, {"false", json.RawMessage(`false`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := copyFixture{Input: tc.raw, Extra: map[string]json.RawMessage{"value": tc.raw}, Items: []json.RawMessage{tc.raw}}
+			got, err := DeepCopy(&src)
+			require.NoError(t, err)
+			assert.Equal(t, src, *got)
+			encoded, err := Marshal(got)
+			if tc.name == "empty" {
+				assert.Error(t, err, "empty raw JSON must not become a valid null value")
+				return
+			}
+			require.NoError(t, err)
+			want, err := Marshal(src)
+			require.NoError(t, err)
+			assert.Equal(t, want, encoded)
+		})
 	}
 }
 
