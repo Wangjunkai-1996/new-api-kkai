@@ -10,6 +10,8 @@ outline: [2, 3]
 
 下面示例适用于 macOS、Linux 和 Windows WSL。它只使用 Python 3 标准库，不需要额外安装 SDK。直接调用接口的字段与响应格式见[图片生成 API](/api/image-generation)；习惯图形界面可看 [Cherry Studio 生图](/apps/image2)。
 
+本页使用图片专用入口 `https://image.kkai.win`，现有 image 分组 Token、模型和计费方式不变。该域名只提供图片 API 和模型查询；浏览器直接打开根地址返回 `404` 是正常的。
+
 ## 1. 准备 Token 和模型
 
 在 KKRICH [令牌管理](https://api.kkrich.ltd/keys/)创建一个专供生图的 Token，分组选择 **image 图片**。不要复用 Codex 对话模型所用的其他分组 Token，也不要将 Token 写入 `SKILL.md`、脚本、项目文件或聊天记录。
@@ -22,7 +24,7 @@ read -rs KKRICH_IMAGE_API_KEY
 printf '\n'
 export KKRICH_IMAGE_API_KEY
 
-curl --fail-with-body https://api.kkrich.ltd/v1/models \
+curl --fail-with-body https://image.kkai.win/v1/models \
   -H "Authorization: Bearer $KKRICH_IMAGE_API_KEY"
 ```
 
@@ -61,7 +63,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-API_URL = "https://api.kkrich.ltd/v1/images/generations"
+API_URL = "https://image.kkai.win/v1/images/generations"
 MAX_RESPONSE = 80 * 1024 * 1024
 
 

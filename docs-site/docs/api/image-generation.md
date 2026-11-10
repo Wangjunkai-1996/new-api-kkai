@@ -16,7 +16,7 @@ outline: [2, 3]
 
 ```bash
 read -r -s 'KKRICH_IMAGE_API_KEY?粘贴 image 分组 Token：' && export KKRICH_IMAGE_API_KEY && echo
-curl --fail-with-body -sS "https://api.kkrich.ltd/v1/models" \
+curl --fail-with-body -sS "https://image.kkai.win/v1/models" \
   -H "Authorization: Bearer $KKRICH_IMAGE_API_KEY"
 ```
 
@@ -26,7 +26,9 @@ curl --fail-with-body -sS "https://api.kkrich.ltd/v1/models" \
 export KKRICH_IMAGE_MODEL='从模型列表复制的图片模型 ID'
 ```
 
-API Base URL 为 `https://api.kkrich.ltd/v1`。请求均使用 `Authorization: Bearer <Token>`；不要把 Image Studio 控制台使用的登录态接口当作客户 API。
+图片 API 推荐使用专用入口 `https://image.kkai.win/v1`，现有 Token、模型和计费方式不变。请求均使用 `Authorization: Bearer <Token>`；不要把 Image Studio 控制台使用的登录态接口当作客户 API。
+
+该入口的图片生成、编辑和模型查询路径也兼容省略 `/v1`；本文示例统一保留 `/v1`，使用 OpenAI SDK 时将 `base_url` 设为 `https://image.kkai.win/v1`。直接在浏览器打开 `https://image.kkai.win/` 返回 `404` 是正常的，这个地址不提供网页首页，不影响调用图片 API。
 
 ## 生成第一张图片
 
@@ -34,7 +36,7 @@ API Base URL 为 `https://api.kkrich.ltd/v1`。请求均使用 `Authorization: B
 
 ```bash
 curl --fail-with-body -sS --max-time 300 \
-  "https://api.kkrich.ltd/v1/images/generations" \
+  "https://image.kkai.win/v1/images/generations" \
   -H "Authorization: Bearer $KKRICH_IMAGE_API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"model\":\"$KKRICH_IMAGE_MODEL\",\"prompt\":\"一座雨后的城市花园，柔和晨光，画面干净，无文字\",\"n\":1}" \
@@ -110,7 +112,7 @@ PY
 
 ```bash
 curl --fail-with-body -sS --max-time 300 \
-  "https://api.kkrich.ltd/v1/images/edits" \
+  "https://image.kkai.win/v1/images/edits" \
   -H "Authorization: Bearer $KKRICH_IMAGE_API_KEY" \
   -F "model=$KKRICH_IMAGE_MODEL" \
   -F "image=@./reference.png" \
