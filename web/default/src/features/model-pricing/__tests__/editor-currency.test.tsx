@@ -47,7 +47,8 @@ import {
   useSystemConfigStore,
 } from '@/stores/system-config-store'
 
-import { previewModelPricing } from '../api'
+import { prepareExpressionPricingChanges, previewModelPricing } from '../api'
+import { pricingFromDraft } from '../pricing'
 
 const clients: QueryClient[] = []
 
@@ -157,6 +158,118 @@ async function commit(
   })
   return result as ModelRatioData | null
 }
+
+it('edits legacy prices in site currency without converting their billing mode', async () => {
+  vi.spyOn(api, 'post').mockImplementation(async (_url, request) => ({
+    data: {
+      success: true,
+      data: {
+        effective: {
+          CompletionRatio: 2,
+          CreateCacheRatio: 1.25,
+          ...(request as { pricing: object }).pricing,
+        },
+        cache_write_mode: 'claude_ttl',
+      },
+    },
+  }))
+  const editor = renderEditor({
+    name: 'claude-fable-5-1',
+    billingMode: 'per-token',
+  })
+  await selectCurrency('Site currency (CNY)')
+  expect(screen.getByRole('textbox', { name: 'Input price' })).toHaveValue('14')
+  expect(
+    await screen.findByRole('textbox', { name: 'Cache Creation (5m)' })
+  ).toHaveValue('17.5')
+  expect(
+    screen.getByRole('textbox', { name: 'Cache create (1h) price' })
+  ).toHaveValue('28')
+  expect(await commit(editor.ref)).toBeNull()
+  const user = userEvent.setup()
+  const completionPrice = screen.getByRole('textbox', {
+    name: 'Completion price',
+  })
+  await user.clear(completionPrice)
+  expect(completionPrice).toHaveValue('')
+  await user.type(completionPrice, '42')
+  fireEvent.change(screen.getByRole('textbox', { name: 'Cache read price' }), {
+    target: { value: '0' },
+  })
+  const draft = await commit(editor.ref)
+  expect(draft).toMatchObject({
+    billingMode: 'per-token',
+    ratio: '1',
+    completionRatio: '3',
+    cacheRatio: '0',
+    createCacheRatio: '',
+  })
+  expect(draft?.billingExpr).toBeUndefined()
+  if (!draft) throw new Error('Expected edited pricing')
+  const pricing = pricingFromDraft(draft)
+  expect(pricing).toEqual({
+    'billing_setting.billing_mode': 'ratio',
+    ModelRatio: 1,
+    CompletionRatio: 3,
+    CacheRatio: 0,
+  })
+  await expect(
+    prepareExpressionPricingChanges([
+      { model_name: draft.name, expected_version: 'v1', pricing },
+    ])
+  ).resolves.toEqual([
+    { model_name: draft.name, expected_version: 'v1', pricing, reset: false },
+  ])
+  expect(api.post).not.toHaveBeenCalledWith(
+    '/api/option/model_pricing/convert',
+    expect.anything()
+  )
+})
+
+it('edits a fixed price directly and preserves an explicit zero', async () => {
+  const editor = renderEditor({ billingMode: 'per-request', price: '0.04' })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Fixed price' }), {
+    target: { value: '0' },
+  })
+  const draft = await commit(editor.ref)
+  expect(draft).toMatchObject({ billingMode: 'per-request', price: '0' })
+  expect(draft?.billingExpr).toBeUndefined()
+})
+
+it('keeps audio ratio prices editable after preview responses', async () => {
+  vi.spyOn(api, 'post').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        effective: { ModelRatio: 1, AudioRatio: 3, AudioCompletionRatio: 4 },
+        billing_details: {
+          audio_input_price: 6,
+          audio_output_price: 24,
+          audio_text_branches: true,
+        },
+      },
+    },
+  })
+  const editor = renderEditor({
+    billingMode: 'per-token',
+    audioRatio: '3',
+    audioCompletionRatio: '4',
+  })
+  await waitFor(() => expect(api.post).toHaveBeenCalled())
+  fireEvent.change(screen.getByRole('textbox', { name: 'Audio input price' }), {
+    target: { value: '8' },
+  })
+  expect(
+    screen.getByRole('textbox', { name: 'Audio input price' })
+  ).toBeEnabled()
+  expect(
+    screen.getByRole('textbox', { name: 'Audio output price' })
+  ).toHaveValue('32')
+  expect(await commit(editor.ref)).toMatchObject({
+    audioRatio: '4',
+    audioCompletionRatio: '4',
+  })
+})
 
 it('previews legacy conversion in the selected currency and applies only after confirmation', async () => {
   const expression = 'tier("base", p * 2 + c * 4 + cr * 0)'

@@ -71,7 +71,7 @@ it.each(['none', 'standard', 'claude_ttl', 'openai_ttl'] as const)(
       CreateCacheRatio: 1.25,
       ImageRatio: 1,
     }
-    const configured = { ModelRatio: 2 }
+    const configured = {}
     useAuthStore
       .getState()
       .auth.setUser({ id: 1, username: 'administrator', role: 100 })
@@ -168,11 +168,17 @@ it.each(['none', 'standard', 'claude_ttl', 'openai_ttl'] as const)(
       }
     }
     expect(
-      screen.queryByRole('textbox', { name: 'Completion price' })
-    ).not.toBeInTheDocument()
+      screen.getByRole('textbox', { name: 'Completion price' })
+    ).toHaveValue('16')
     expect(
-      screen.queryByRole('textbox', { name: 'Cache read price' })
-    ).not.toBeInTheDocument()
+      screen.getByRole('textbox', { name: 'Cache read price' })
+    ).toHaveValue('4')
+    expect(screen.getByRole('textbox', { name: 'Input price' })).toHaveValue(
+      '4'
+    )
+    expect(
+      screen.getByRole('button', { name: 'Save model prices' })
+    ).toBeEnabled()
     expect(
       screen.getByRole('button', { name: 'Convert to expression' })
     ).toBeVisible()

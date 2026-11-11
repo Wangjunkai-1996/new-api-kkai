@@ -86,6 +86,7 @@ import { cn } from '@/lib/utils'
 import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
+import { ModelPriceFields } from './model-price-fields'
 import {
   buildPreviewRows,
   createInitialLaneState,
@@ -113,6 +114,7 @@ type ModelPricingSheetProps = {
   isSaving?: boolean
   usageSchema?: BillingUsageSchema
   imagePricingPolicy?: ModelPricingEntry['image_pricing_policy']
+  pricingEntry?: ModelPricingEntry
   billingUnit?: 'second' | 'request'
   pluginVariants?: ModelPricingPluginVariant[]
   onDirtyChange?: (dirty: boolean) => void
@@ -146,6 +148,7 @@ export const ModelPricingSheet = forwardRef<
     usageSchema,
     billingUnit,
     imagePricingPolicy,
+    pricingEntry,
     pluginVariants,
     onDirtyChange,
     scrollHeader,
@@ -172,6 +175,7 @@ export const ModelPricingSheet = forwardRef<
           usageSchema={usageSchema}
           billingUnit={billingUnit}
           imagePricingPolicy={imagePricingPolicy}
+          pricingEntry={pricingEntry}
           pluginVariants={pluginVariants}
           onDirtyChange={onDirtyChange}
           scrollHeader={scrollHeader}
@@ -196,6 +200,7 @@ export const ModelPricingEditorPanel = forwardRef<
     usageSchema,
     billingUnit,
     imagePricingPolicy,
+    pricingEntry,
     pluginVariants,
     onDirtyChange,
     embedded = false,
@@ -216,11 +221,6 @@ export const ModelPricingEditorPanel = forwardRef<
       ? siteCurrency
       : USD_PRICING_CURRENCY
   const [pricingMode, setPricingMode] = useState<PricingMode>('tiered_expr')
-  const {
-    promptPrice,
-    prices: lanePrices,
-    enabled: laneEnabled,
-  } = createInitialLaneState(editData)
   const [billingExpr, setBillingExpr] = useState(DEFAULT_TOKEN_BILLING_EXPR)
   const [expressionEdited, setExpressionEdited] = useState(false)
   const [displayBillingExpr, setDisplayBillingExpr] = useState('')
@@ -257,8 +257,18 @@ export const ModelPricingEditorPanel = forwardRef<
       editData.audioCompletionRatio,
     ].some(hasValue)
   let initialPricingMode: PricingMode = 'tiered_expr'
-  if (editData?.billingMode !== 'tiered_expr' && hasLegacyPricing) {
-    initialPricingMode = hasValue(editData?.price) ? 'per-request' : 'per-token'
+  const inheritedPricing = pricingEntry?.effective
+  const hasInheritedPricing =
+    inheritedPricing?.ModelPrice !== undefined ||
+    inheritedPricing?.ModelRatio !== undefined
+  if (
+    editData?.billingMode !== 'tiered_expr' &&
+    (hasLegacyPricing || hasInheritedPricing)
+  ) {
+    initialPricingMode =
+      hasValue(editData?.price) || inheritedPricing?.ModelPrice !== undefined
+        ? 'per-request'
+        : 'per-token'
   }
   const initialBillingExpr =
     editData?.billingExpr ||
@@ -284,13 +294,13 @@ export const ModelPricingEditorPanel = forwardRef<
     compute: (values) => values,
   })
   let previewRequest = ''
-  if (pricingMode === 'per-token' && watchedValues.name.trim()) {
+  if (pricingMode !== 'tiered_expr' && watchedValues.name.trim()) {
     try {
       previewRequest = JSON.stringify({
         model_name: watchedValues.name.trim(),
         pricing: pricingFromDraft({
           ...watchedValues,
-          billingMode: 'per-token',
+          billingMode: pricingMode,
         }),
       })
     } catch {
@@ -310,6 +320,23 @@ export const ModelPricingEditorPanel = forwardRef<
   })
   const effectivePreview =
     previewRequest === debouncedPreviewRequest ? pricePreview.data : undefined
+  const fieldPricing =
+    effectivePreview ??
+    (pricingEntry && {
+      effective: pricingEntry.effective,
+      cacheWriteMode: pricingEntry.cache_write_mode,
+      billingDetails: pricingEntry.billing_details,
+    })
+  const {
+    promptPrice,
+    prices: lanePrices,
+    enabled: laneEnabled,
+  } = createInitialLaneState({
+    ...pricingRow(watchedValues.name, fieldPricing?.effective ?? {}),
+    ...Object.fromEntries(
+      Object.entries(watchedValues).filter(([, value]) => hasValue(value))
+    ),
+  })
   const usageSchemaByModel = useMemo(
     () =>
       new Map(
@@ -433,7 +460,7 @@ export const ModelPricingEditorPanel = forwardRef<
   useEffect(() => {
     if (!editData) return
     if (editData.billingMode === 'tiered_expr') return
-    if (editData.price || editData.ratio) return
+    if (editData.price || editData.ratio || hasInheritedPricing) return
 
     const schema = taskUsageSchema
     if (!schema || Object.keys(schema).length === 0) return
@@ -441,7 +468,7 @@ export const ModelPricingEditorPanel = forwardRef<
 
     setPricingMode('tiered_expr')
     autoSwitchedForRef.current = editData.name
-  }, [editData, taskUsageSchema])
+  }, [editData, taskUsageSchema, hasInheritedPricing])
 
   useEffect(() => {
     onDirtyChange?.(
@@ -686,8 +713,16 @@ export const ModelPricingEditorPanel = forwardRef<
     ref,
     () => ({
       commitDraft: async () => {
-        if (pricingMode !== 'tiered_expr' || imagePricingPolicy) return null
+        if (imagePricingPolicy) return null
         if (
+          pricingMode !== 'tiered_expr' &&
+          !form.formState.isDirty &&
+          pluginExpressionsEqual(pluginExpressions, editData?.pluginBillingExpr)
+        ) {
+          return null
+        }
+        if (
+          pricingMode === 'tiered_expr' &&
           !hasLegacyPricing &&
           !editData?.billingExpr &&
           !expressionEdited &&
@@ -901,26 +936,31 @@ export const ModelPricingEditorPanel = forwardRef<
                     </FieldGroup>
                   ) : (
                     <div className='space-y-4'>
-                      <Alert className='border-amber-500/40 bg-amber-500/10 p-4 text-amber-900 dark:text-amber-100'>
-                        <AlertTriangle aria-hidden='true' className='size-5' />
-                        <AlertDescription className='space-y-3 text-sm text-inherit'>
-                          <p className='font-medium'>
-                            {t(
-                              'Legacy prices are read-only. Preview their conversion to an expression before editing or saving.'
-                            )}
-                          </p>
-                          <Button
-                            type='button'
-                            disabled={conversion.isPending}
-                            onClick={() => void convertPricing()}
-                          >
-                            {conversionButtonLabel}
-                          </Button>
-                          {conversionReason && (
-                            <p role='status'>{t(conversionReason)}</p>
-                          )}
-                        </AlertDescription>
-                      </Alert>
+                      <ModelPriceFields
+                        key={`${editorReloadToken}:${watchedValues.name}`}
+                        values={watchedValues}
+                        effective={fieldPricing}
+                        mode={pricingMode}
+                        currency={currency}
+                        billingUnit={billingUnit}
+                        onChange={(field, value) => {
+                          conversionGeneration.current += 1
+                          form.setValue(field, value, { shouldDirty: true })
+                        }}
+                      />
+                      <div className='space-y-3'>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          disabled={conversion.isPending}
+                          onClick={() => void convertPricing()}
+                        >
+                          {conversionButtonLabel}
+                        </Button>
+                        {conversionReason && (
+                          <p role='status'>{t(conversionReason)}</p>
+                        )}
+                      </div>
                       {manualConversion && expressionEditor}
                     </div>
                   )}
@@ -986,7 +1026,7 @@ export const ModelPricingEditorPanel = forwardRef<
                   <Button
                     type='button'
                     onClick={onSave}
-                    disabled={isSaving || pricingMode !== 'tiered_expr'}
+                    disabled={isSaving}
                     className='w-full sm:w-auto'
                   >
                     <Save data-icon='inline-start' />

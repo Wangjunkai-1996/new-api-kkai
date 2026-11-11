@@ -953,6 +953,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
             <ModelPricingEditorPanel
               ref={editorPanelRef}
               editData={editData}
+              pricingEntry={pricingConfig.data?.entries.find(
+                (entry) => entry.model_name === editData?.name
+              )}
               scrollHeader={scrollHeader}
               pluginVariants={
                 pricingConfig.data?.entries.find(
@@ -1018,6 +1021,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
           open={sheetOpen}
           onOpenChange={setSheetOpen}
           editData={editData}
+          pricingEntry={pricingConfig.data?.entries.find(
+            (entry) => entry.model_name === editData?.name
+          )}
           scrollHeader={scrollHeader}
           pluginVariants={
             pricingConfig.data?.entries.find(

@@ -175,6 +175,7 @@ export function ModelPricingPanel(props: {
         embedded
         ref={editor}
         editData={editData}
+        pricingEntry={entry}
         usageSchema={entry.usage_schema}
         billingUnit={entry.billing_unit}
         pluginVariants={entry.plugin_variants}
