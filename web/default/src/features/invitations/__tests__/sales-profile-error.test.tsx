@@ -20,12 +20,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
+import { toast } from 'sonner'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { KkaiWalletRewardsCard } from '@/features/kkai-wallet/invitation-rewards-card'
 import { getSiteConfigQueryKey } from '@/features/site-config/api'
 import { useSidebarData } from '@/hooks/use-sidebar-data'
 import { api } from '@/lib/api'
+import { createAppQueryClient } from '@/lib/query-client'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { Invitations } from '../index'
@@ -221,4 +223,58 @@ test('wallet retries unknown sales identity instead of exposing the ordinary tra
   expect(
     screen.queryByText('Failed to load sales account')
   ).not.toBeInTheDocument()
+})
+
+test('does not toast a background sales profile maintenance response', async () => {
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 4, username: 'seller-four', role: 1 })
+  vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    if (url.endsWith('/status')) {
+      return {
+        data: {
+          success: true,
+          data: {
+            available: true,
+            settlementEnabled: true,
+            userInvitationRebateEnabled: true,
+          },
+        },
+      }
+    }
+    if (url.endsWith('/sales-profile')) {
+      const error = Object.assign(new Error('资金结算维护中，请稍后重试'), {
+        response: {
+          status: 423,
+          data: {
+            code: 'funds_maintenance',
+            message: '资金结算维护中，请稍后重试',
+          },
+        },
+      })
+      throw error
+    }
+    return { data: { success: true, data: {} } }
+  })
+  const errorToast = vi.spyOn(toast, 'error')
+  const client = createAppQueryClient()
+  client.setDefaultOptions({ queries: { retry: false } })
+  client.setQueryData(getSiteConfigQueryKey(), {
+    tenant_id: 0,
+    hostname: window.location.host,
+    status: 'active',
+    site_name: 'Test site',
+  })
+  clients.push(client)
+
+  render(
+    <QueryClientProvider client={client}>
+      <InvitationSidebarEntry />
+      <Invitations />
+    </QueryClientProvider>
+  )
+
+  await screen.findByRole('link', { name: 'Invitation Rebate' })
+  await screen.findByText('Failed to load sales account')
+  expect(errorToast).not.toHaveBeenCalled()
 })

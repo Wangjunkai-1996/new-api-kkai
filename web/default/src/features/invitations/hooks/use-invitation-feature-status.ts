@@ -38,6 +38,7 @@ export const useInvitationFeatureStatus = (enabled = true) => {
     queryFn: async () =>
       normalizeInvitationStatus(await getInvitationFeatureStatus()),
     enabled,
+    meta: { errorToast: false },
     retry: false,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
@@ -52,6 +53,7 @@ export const useInvitationFeatureStatus = (enabled = true) => {
         'Failed to load sales account'
       ),
     enabled: profileEnabled,
+    meta: { errorToast: false },
     retry: false,
     staleTime: 60_000,
   })
