@@ -20,7 +20,7 @@
 | 责任域 | 现有文件 / 符号 | 必须改动及完成条件 |
 | --- | --- | --- |
 | 路由与鉴权 | `router/kkai_routes.go::registerVideoStudioAPIRoutes`；`router/relay-router.go::SetRelayRouter` | 保留现有 URL 与 session/Token 边界；增加只读回执查询。新建入口关闭时不阻断已受理任务的查询与后台处理 |
-| 能力目录 | `controller/video_studio_catalog.go::ListVideoStudioModels`；`service/video_model_profiles.go::ListEffectiveVideoModelProfiles`、`normalizeVideoModelProfileInput`、`decodeVideoModelProfile` | 返回已验收的新能力；未知总数量、未验收适配器或无法匹配渠道时不得启用 profile；新 profile 保留实际 `model` 字符串 |
+| 能力目录 | `controller/video_studio_catalog.go::ListVideoStudioModels`；`service/video_model_profiles.go::ListEffectiveVideoModelProfiles`、`normalizeVideoModelProfileInput`、`decodeVideoModelProfile` | 返回已验收的新能力；缺少媒体分类限额、未验收适配器或无法匹配渠道时不得启用 profile；新 profile 保留实际 `model` 字符串 |
 | 规格与参数 | `service/video_model_spec.go::VideoModelSpec`、`ValidateVideoModelSpec`、`validateVideoReferenceInputs`；`service/video_parameter_validation.go` | 增加明确的媒体约束，移除一角色只能一份素材和必须映射标量 request key 的假设；新模式只接受新合同 |
 | 提交规范化 | `service/video_studio_submission.go::VideoStudioSubmissionRequest`、`NormalizeVideoStudioSubmission`、`normalizeVideoReferences`、`buildVideoTaskPayload`、`ApplyVideoStudioEffectiveGroup` | 规范化有序集合，验证媒体证据、所有权、组合、精确型号及能力版本；不再构造单图兼容别名 |
 | 报价与幂等 | `service/video_submission_integrity.go::VideoStudioIdempotencyFingerprint`、`NewVideoStudioQuote`、`ValidateVideoStudioQuote`；`service/idempotency.go` | 两类 hash 纳入同一有序语义；绑定任务不因 URL 重签改变；保护未终结的视频幂等记录，新增只读 lookup |
@@ -49,7 +49,7 @@
 
 ### 3.2 完整可解析示例
 
-下面的配置示例使用 `max_total_count:null`，因为供应商文档只分别给出图片、视频、音频的限制，没有声明三类素材合计上限。启用时后端以各媒体策略的 `max_count` 之和作为本站数据库查询和请求放大的安全上界，不把 `9+3+3` 冒充供应商合同总数；用户目录只返回已启用且通过新合同验证的 profile。
+图片、视频、音频分别执行各自的数量上限，没有跨类型合计上限。下面的配置示例保留 `max_total_count:null` 供存量结构兼容，该字段不参与启用或提交校验。后端在逐项查询素材前按 role/category 检查各类 `max_count`，分类超限或不支持的角色立即拒绝；不计算三类数量之和作为另一条规则。用户目录只返回已启用且通过新合同验证的 profile。
 
 ```json
 {
@@ -154,7 +154,7 @@
 | --- | --- | --- |
 | `specification.modes` | 必填、非空、无重复 | 新普通流程仅 `text_to_video` / `reference_to_video`；已验收的高级方式可增加明确的 `first_frame_to_video` / `first_last_frame`，不默认开放 |
 | `reference_policy` | 含参考模式时必填 | 取代旧参考输入的标量字段映射；管理员只选择已验证预设及收紧限制 |
-| `max_total_count` | 可选；供应商未声明合计上限时保持 null | 为空时由各媒体策略 `max_count` 之和作为本站安全上界；不会对外宣称供应商合计上限 |
+| `max_total_count` | 兼容存量结构，新增配置保持 null | 不参与启用或提交校验；图片、视频、音频仅执行各自 `max_count` |
 | `requires_visual` | 必填 bool | 参考生成须至少一张图片或一个视频，不能只有音频 |
 | `requires_video` | 必填 bool | 当前精确型号必须至少有一个参考视频；无素材不能转为文字生成 |
 | `audio_requires_generate_audio` | 支持音频时必填 bool | true 是本站首版保守规则；只有已验收音频+静音组合才可设 false，不声称供应商强制要求 |
@@ -322,7 +322,7 @@ Go DTO 中可选标量使用指针和 `omitempty`，保留显式 0/false；必�
 | --- | --- | --- | --- |
 | 400 | `video_request_contract_invalid` | 本地已落地 | 旧格式、未知字段/role/mode、缺 position 或位置不连续；刷新/调整，任务及预扣均未创建 |
 | 400 | `video_reference_combination_invalid` | 本地已落地 | 只有音频、缺必须视频、帧与多模态混用；按 issues 补素材 |
-| 400 | `video_reference_limit_exceeded` | 本地已落地 | 类型数量、总数、字节、尺寸、时长、FPS 不符；保留其它有效文件 |
+| 400 | `video_reference_limit_exceeded` | 本地已落地 | 分类数量、字节、尺寸、时长、FPS 不符；保留其它有效文件 |
 | 400 | `video_audio_output_required` | 本地已落地 | 当前预设未验收参考音频+关闭输出声音；用户选择开启或移除音频 |
 | 409 | `video_capabilities_stale` | 本地已落地 | 重新获取能力、保留草稿、重新报价；不自动提交 |
 | 409 | `video_reference_unavailable` | 本地已落地 | 自己的素材未 ready、已删或缺必要探测证据；查询/重传，不提交子集 |
@@ -392,7 +392,7 @@ Go DTO 中可选标量使用指针和 `omitempty`，保留显式 0/false；必�
 
 应用内部只使用一份规范化参考集合。`buildVideoTaskPayload` 输出给已确认适配链路的有序数据，不再同时产生 `images/image/reference_image` 兼容副本。供应商字段 `content[]` 或 `reference_images/reference_videos/reference_audios` 由适配边界投影，首版只选择一种已验证上游协议。
 
-接入负责人交付适配器合同证据，至少包含：精确客户 model → 上游 model 的映射；每类素材数量/总数/格式；每角色顺序是否保留；三类组合与音频+generate_audio=false 的结果；URL 拉取时机及鉴权；任务提交/查询/结果错误映射；计费使用的型号、输出秒数及声音条件。未定位适配器源码与版本前，相关能力保持关闭。
+接入负责人交付适配器合同证据，至少包含：精确客户 model → 上游 model 的映射；每类素材数量/格式；每角色顺序是否保留；三类组合与音频+generate_audio=false 的结果；URL 拉取时机及鉴权；任务提交/查询/结果错误映射；计费使用的型号、输出秒数及声音条件。未定位适配器源码与版本前，相关能力保持关闭。
 
 本地 `plugins/tasks/sora/plugin.js` 已将有序集合投影为三类数组或首尾帧字段，并显式拒绝未知 metadata、旧字段和位置冲突，不透传任意 JSON。外置 adapter 仍需按这些实际输出字段完成独立合同验收；应用插件测试通过不构成真实上游贯通证据。组合支持与预扣前拒绝仍须在实际渠道链路验证。
 
@@ -420,7 +420,7 @@ SQLite、MySQL ≥5.7.8、PostgreSQL ≥9.6 统一使用 TEXT 存 JSON，避免�
 
 | 任务 | 具体输出 | 依赖 / 完成门槛 |
 | --- | --- | --- |
-| BE-01 冻结能力 | 第 3 节字段落为 Go DTO 和验证器；管理员新预设；精确型号验收清单 | 总数、声音组合、渠道/适配器证据未完成的 profile 不能启用 |
+| BE-01 冻结能力 | 第 3 节字段落为 Go DTO 和验证器；管理员新预设；精确型号验收清单 | 分类限额、声音组合、渠道/适配器证据未完成的 profile 不能启用 |
 | BE-02 媒体证据 | audio purpose、MP3/WAV 内容探测、FPS/证据持久化、直接 ready 和错误投影 | 拍定第 10.2 节方案；三类文件的安全边界与失败重试清晰 |
 | BE-03 规范化集合 | DTO 的 position、模式/组合/数量检查、引用 canonicalizer、quote/fingerprint 改造 | 只采用新语义；false/0 不丢；同 role 换序确实改变 hash |
 | BE-04 提交与回执 | 新错误封装、只读 by-key、幂等 TTL 保护、provisional关联使用真实position | 无重复派发/扣费；不把 lookup not_found 当授权重建任务 |
@@ -452,7 +452,7 @@ go test ./relay/channel/task/jsplugin -run '^(TestTaskAdaptorJSONOrderCapability
 
 若采用 schema 扩展，先增加精确 `TestVideoMultimodalSchema` 系列覆盖三方 dialect，再仅执行 `go test ./pkg/kkaimigrate -run '^TestVideoMultimodalSchema' -count=1 -timeout=120s`，并完成版本专用 mandatory gates。本命令不能代替真实三数据库验证，也不表示已有可用测试数据库。
 
-必须新增的真实断言：音频+图片成功、纯音频拒绝、视频必填拒绝、未知总限不可启用、分类与合计边界、严格字节边界、真实 MP3/WAV/FPS、同 role 换序及数组物理乱序区别、false 保留、签名重签 hash 不变、跨用户/已删除/非 ready 拒绝、样片不隐式补素材、新任务详情返回创建时规格版本且缺媒体仍保留绑定、旧记录无版本时不提供输入复用、unknown 回执查询、TTL 不重复派发、失败按真实账务状态结算。
+必须新增的真实断言：音频+图片成功、纯音频拒绝、视频必填拒绝、无合计上限仍可启用、分类数量边界、各类同时达到上限、分类超限在逐项查库前拒绝、严格字节边界、真实 MP3/WAV/FPS、同 role 换序及数组物理乱序区别、false 保留、签名重签 hash 不变、跨用户/已删除/非 ready 拒绝、样片不隐式补素材、新任务详情返回创建时规格版本且缺媒体仍保留绑定、旧记录无版本时不提供输入复用、unknown 回执查询、TTL 不重复派发、失败按真实账务状态结算。
 
 mock 服务验收不能宣称上游生成质量或付费集成已通过；外置适配器真实验证由接入负责人另提供证据。执行者先确认本机缓存和工具链，若某命令耗时未知或预计超过五分钟，按仓库规则说明精确命令与预计耗时并取得授权；不以 `-timeout` 冒充编译耗时上限。不运行 `go test ./...`、全仓 lint/typecheck/build 作为默认补充。
 

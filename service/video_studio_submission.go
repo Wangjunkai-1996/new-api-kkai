@@ -288,18 +288,8 @@ func normalizeVideoReferences(
 	specification VideoModelSpec, mode string, parameters map[string]any,
 	inputs []VideoStudioReferenceAssetInput,
 ) ([]NormalizedVideoReferenceAsset, error) {
-	if mode == VideoModeTextToVideo && len(inputs) != 0 {
-		return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "text-to-video does not accept references")
-	}
-	policy := specification.ReferencePolicy
-	if len(inputs) > 0 {
-		maxTotal, ok := videoReferenceMaxTotalCount(policy)
-		if !ok {
-			return nil, videoStudioValidationError("video_model_capability_unavailable", 503, "reference capabilities are not available")
-		}
-		if len(inputs) > maxTotal {
-			return nil, videoReferenceLimitError("", nil, "max_total_count", len(inputs), maxTotal)
-		}
+	if _, err := validateVideoReferenceCounts(specification, mode, inputs); err != nil {
+		return nil, err
 	}
 	assets := make(map[int64]model.KKAIVideoAsset, len(inputs))
 	for _, input := range inputs {
@@ -331,27 +321,14 @@ func normalizeVideoReferences(
 // validateVideoReferenceAssets is shared by submission and sample authoring so
 // a saved sample cannot bypass the model's media or ordering contract.
 func validateVideoReferenceAssets(spec VideoModelSpec, mode string, parameters map[string]any, inputs []VideoStudioReferenceAssetInput, assets map[int64]model.KKAIVideoAsset) ([]NormalizedVideoReferenceAsset, error) {
-	if !containsVideoMode(spec.Modes, mode) || !isVideoMode(mode) {
-		return nil, videoStudioValidationError("video_request_contract_invalid", 400, "unsupported video mode")
+	counts, err := validateVideoReferenceCounts(spec, mode, inputs)
+	if err != nil {
+		return nil, err
 	}
 	if mode == VideoModeTextToVideo {
-		if len(inputs) != 0 || (spec.ReferencePolicy != nil && spec.ReferencePolicy.RequiresVideo) {
-			return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "this mode requires a different reference selection")
-		}
 		return []NormalizedVideoReferenceAsset{}, nil
 	}
 	policy := spec.ReferencePolicy
-	maxTotal, ok := videoReferenceMaxTotalCount(policy)
-	if !ok {
-		return nil, videoStudioValidationError("video_model_capability_unavailable", 503, "reference capabilities are not available")
-	}
-	if len(inputs) == 0 {
-		return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "reference assets are required")
-	}
-	if len(inputs) > maxTotal {
-		return nil, videoReferenceLimitError("", nil, "max_total_count", len(inputs), maxTotal)
-	}
-	counts := map[string]int{}
 	positions := map[string]map[int]bool{}
 	seenAssets := map[int64]bool{}
 	references := make([]NormalizedVideoReferenceAsset, 0, len(inputs))
@@ -362,13 +339,6 @@ func validateVideoReferenceAssets(spec VideoModelSpec, mode string, parameters m
 		}
 		role := input.Role
 		advanced := mode == VideoModeFirstFrameToVideo || mode == VideoModeFirstLastFrame
-		if advanced {
-			if role != model.VideoTaskAssetRoleFirstFrame && !(mode == VideoModeFirstLastFrame && role == model.VideoTaskAssetRoleLastFrame) {
-				return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "frame controls cannot be mixed with ordinary references")
-			}
-		} else if role != model.VideoTaskAssetRoleReferenceImage && role != model.VideoTaskAssetRoleReferenceVideo && role != model.VideoTaskAssetRoleReferenceAudio {
-			return nil, videoStudioValidationError("video_request_contract_invalid", 400, "unsupported reference role")
-		}
 		if seenAssets[input.AssetID] && !advanced {
 			return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "an asset cannot be repeated")
 		}
@@ -380,19 +350,12 @@ func validateVideoReferenceAssets(spec VideoModelSpec, mode string, parameters m
 			return nil, videoStudioValidationError("video_request_contract_invalid", 400, "reference positions must be unique")
 		}
 		positions[role][*input.Position] = true
-		counts[role]++
 		mediaPolicy, kind := policy.Image, "image"
 		if role == model.VideoTaskAssetRoleReferenceVideo {
 			mediaPolicy, kind = policy.Video, "video"
 		}
 		if role == model.VideoTaskAssetRoleReferenceAudio {
 			mediaPolicy, kind = policy.Audio, "audio"
-		}
-		if mediaPolicy == nil {
-			return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "this reference type is not supported")
-		}
-		if counts[role] > mediaPolicy.MaxCount {
-			return nil, videoReferenceLimitError(role, nil, "max_count", counts[role], mediaPolicy.MaxCount)
 		}
 		asset, exists := assets[input.AssetID]
 		if !exists || asset.State != model.VideoAssetStateReady || asset.Kind != model.VideoAssetKindReference || asset.DeletedAt != 0 {
@@ -483,20 +446,58 @@ func videoReferenceLimitError(role string, input *VideoStudioReferenceAssetInput
 	return &VideoStudioValidationError{Code: "video_reference_limit_exceeded", StatusCode: 400, Message: "a reference exceeds the model limits", Issues: []VideoStudioValidationIssue{issue}}
 }
 
-func videoReferenceMaxTotalCount(policy *VideoReferencePolicy) (int, bool) {
+// Reject unsupported roles and per-media count overflows before asset lookups.
+func validateVideoReferenceCounts(spec VideoModelSpec, mode string, inputs []VideoStudioReferenceAssetInput) (map[string]int, error) {
+	if !containsVideoMode(spec.Modes, mode) || !isVideoMode(mode) {
+		return nil, videoStudioValidationError("video_request_contract_invalid", 400, "unsupported video mode")
+	}
+	policy := spec.ReferencePolicy
+	if mode == VideoModeTextToVideo {
+		if len(inputs) != 0 || (policy != nil && policy.RequiresVideo) {
+			return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "this mode requires a different reference selection")
+		}
+		return nil, nil
+	}
 	if policy == nil {
-		return 0, false
+		return nil, videoStudioValidationError("video_model_capability_unavailable", 503, "reference capabilities are not available")
 	}
-	if policy.MaxTotalCount != nil {
-		return *policy.MaxTotalCount, *policy.MaxTotalCount > 0
+	if len(inputs) == 0 {
+		return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "reference assets are required")
 	}
-	total := 0
-	for _, media := range []*VideoReferenceMediaPolicy{policy.Image, policy.Video, policy.Audio} {
-		if media != nil {
-			total += media.MaxCount
+	counts := map[string]int{}
+	imageCount := 0
+	advanced := mode == VideoModeFirstFrameToVideo || mode == VideoModeFirstLastFrame
+	for _, input := range inputs {
+		role := input.Role
+		if advanced {
+			if role != model.VideoTaskAssetRoleFirstFrame && !(mode == VideoModeFirstLastFrame && role == model.VideoTaskAssetRoleLastFrame) {
+				return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "frame controls cannot be mixed with ordinary references")
+			}
+		} else if role != model.VideoTaskAssetRoleReferenceImage && role != model.VideoTaskAssetRoleReferenceVideo && role != model.VideoTaskAssetRoleReferenceAudio {
+			return nil, videoStudioValidationError("video_request_contract_invalid", 400, "unsupported reference role")
+		}
+		counts[role]++
+		mediaPolicy, count := policy.Image, counts[role]
+		switch role {
+		case model.VideoTaskAssetRoleReferenceVideo:
+			mediaPolicy = policy.Video
+		case model.VideoTaskAssetRoleReferenceAudio:
+			mediaPolicy = policy.Audio
+		default:
+			imageCount++
+			count = imageCount
+		}
+		if mediaPolicy == nil {
+			return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "this reference type is not supported")
+		}
+		if count > mediaPolicy.MaxCount {
+			return nil, videoReferenceLimitError(role, nil, "max_count", count, mediaPolicy.MaxCount)
+		}
+		if advanced && counts[role] > 1 {
+			return nil, videoReferenceLimitError(role, nil, "max_count", counts[role], 1)
 		}
 	}
-	return total, total > 0
+	return counts, nil
 }
 
 func videoReferenceMIMEAllowed(mimeType string, allowed []string) bool {

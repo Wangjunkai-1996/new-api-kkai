@@ -18,7 +18,9 @@ func VideoStudioAPIContract(c *gin.Context) {
 	case "4":
 		path := strings.TrimRight(c.Request.URL.Path, "/")
 		create := c.Request.Method == http.MethodPost && (path == "/pg/videos" || path == "/pg/videos/quote" || strings.HasSuffix(path, "/uploads"))
-		configure := strings.HasPrefix(path, "/api/admin/video-studio/") && (c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut)
+		// AdminAuth runs first; prepare model capabilities before opening creation.
+		profile := path == "/api/admin/video-studio/model-profiles" || strings.HasPrefix(path, "/api/admin/video-studio/model-profiles/")
+		configure := !profile && strings.HasPrefix(path, "/api/admin/video-studio/") && (c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut)
 		if (create || configure) && !video_studio_setting.Get().MultimodalEnabled {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"success": false, "code": "video_multimodal_unavailable", "message": "multimodal video creation is not enabled"})
 			return

@@ -86,6 +86,7 @@ export type VideoReferenceInput = {
 }
 
 export type VideoReferencePolicy = {
+  /** Retained for stored specifications; counts are limited per media kind. */
   max_total_count: number | null
   requires_visual: boolean
   requires_video: boolean

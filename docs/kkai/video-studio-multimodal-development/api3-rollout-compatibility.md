@@ -17,14 +17,14 @@
 
 后端结构能力声明为 API contracts `[3,4]`，并声明 `video_studio_multimodal`；能力声明不代表功能开关已开启。
 
-持久选项为 `video_studio.multimodal_enabled`，通过既有 `PUT /api/option/` 更新。首轮源码默认值显式为 `false`。关闭时，API 4 的创建任务、报价、发起上传和管理配置写入返回 `503 video_multimodal_unavailable`；旧 API 3、查询、已有任务及用户上传收尾仍可继续。
+持久选项为 `video_studio.multimodal_enabled`，通过既有 `PUT /api/option/` 更新。首轮源码默认值显式为 `false`。关闭时，API 4 的创建任务、报价、发起上传及样片管理写入返回 `503 video_multimodal_unavailable`；经过 AdminAuth 的模型 profile 新建/更新可预先准备能力配置，旧 API 3、查询、已有任务及用户上传收尾仍可继续。
 
 1. 明确持久化 `false`，保持新 API 4 前端未激活；按正常发布门禁交付双协议后端 A 和新媒体 writer。
-2. 验证 A 的旧页面路径和旧上游字段，准备第二个真实源码版本 B（默认值 `false → true`，不是空提交或同提交重建）。持久选项仍为 `false`，使 B 发布过程保持关闭。
-3. 确认 active、writer、rollback 后端全部具备双协议、媒体与新适配器契约，取得必要 schema/controller/adapter 证据后，再持久化 `true`、配置新模型能力并激活 API 4 前端。
+2. 验证 A 的旧页面路径和旧上游字段，准备包含分类限额修正、运行时开关观察和管理员预配置入口的真实源码版本 B。源码默认值和持久选项都保持 `false`，使 B 发布过程保持关闭；不需要为了第二次发布而更改默认值。
+3. 确认 active、writer、rollback 后端全部具备双协议、媒体与新适配器契约，取得必要 schema/controller/adapter 证据后，在开关关闭期间先准备并核对模型能力；完成后持久化 `true`、验证各进程实际生效，再激活 API 4 前端。
 4. A 作为回滚版本读取同一持久 `true`，可以继续处理已打开的新页面；不能回滚到仅 API 3 的前任后端或旧 writer。
 
-后台 worker 不依赖此开关停止处理已受理的任务。开关控制新入口，不替代安装、schema、适配器、canary 和回滚验收。
+后台 worker 不依赖此开关停止处理已受理的任务。开关控制新入口，不替代安装、schema、适配器、canary 和回滚验收。 `/api/status.video_studio.multimodal_enabled` 返回当前进程实际读取的布尔值；配置更新后须分别核对 active、writer、rollback 的精确进程，不能仅凭数据库值推断同步完成。
 
 ## 本地验证
 
@@ -45,9 +45,11 @@ GOTOOLCHAIN=local go test -modfile=/tmp/new-api-kkai-go-test.mod ./service ./con
 2. 更新 body 保留 `model`、`display_name`、`description`、`provider_label`、`enabled`、`sort_order`、`default_parameters` 的原值。`default_parameters` 中 `false`、`0` 与空值不能用 truthy 合并或预设值替换。specification.parameters 保留 control/default/options/min/max/step/request_key；仅将各参数的 mode 范围中的 `image_to_video` 对应为 `reference_to_video`。
 3. specification.version 增加 1，specification.modes 作同一 mode 对应，移除 `reference_inputs`，追加经过精确型号和 adapter 验证的 `reference_policy`。不要擅自放宽原 duration 最大值或改写 2.0 的 seconds、2.5 的 duration 映射。`_with_video_ref` 型号的 policy 必须 `requires_video: true`，不能赋予纯文本生成能力。
 4. 已有 `generate_audio: false` 保留不变；用户可显式打开后使用参考音频。如果现有 parameter key 中缺少 `generate_audio`，应在单独审查的配置差异中补充 switch，否则 `audio_requires_generate_audio` 会阻断音频引用。不要把所有型号强制默认为有声。
-5. 必须确认 policy 的非空 `max_total_count`，不要仅根据各类 count 相加猜总数。前端候选预设故意将它设为 null 并默认禁用。缺少证据时不得把原模型整体禁用来“准备”新策略：`enabled` 是双协议共享字段，会中断旧用户。
-6. A/B/adapter/writer/rollback 完成验收后，保持新前端未激活，先持久化 `video_studio.multimodal_enabled=true`，再以 header `4` `PUT /api/admin/video-studio/model-profiles/:id`。关闭开关时管理 POST/PUT 也被阻止。
+5. 图片、视频、音频只执行各类 `max_count`，没有跨类型合计上限。`max_total_count` 保留为 null 兼容存量结构，不阻止启用，也不从各类 count 相加生成总数规则；后端在逐项查询素材前完成分类数量校验。仍须确认各类格式、时长等能力及适配器证据。不得把原模型整体禁用来“准备”新策略：`enabled` 是双协议共享字段，会中断旧用户。
+6. A/B/adapter/writer/rollback 完成验收后，保持新前端未激活与开关关闭，先通过真实管理员会话以 header `4` `PUT /api/admin/video-studio/model-profiles/:id` 预配置能力。模型 profile 新建/更新不受该开关阻止；样片、上传与用户报价/提交仍受控。没有真实管理员会话时，只能采用另行审查的专用维护入口，不伪造 session 或裸写 specification JSON。
 7. PUT 会在服务端事务内冻结旧 specification/defaults；客户端不提供 `api3_snapshot`。成功后分别 GET header `3` 和 `4`，验证 API 3 保持旧模式/版本/映射/defaults，API 4 显示新策略/版本，名称和原启用状态未意外变化。并发管理编辑没有乐观锁，因此执行前要重新 GET 比较原快照，有差异则重做审查 JSON。
-8. 新建 API 4 样例，不原地转换旧样例。完成 API 4 模型和样例验证后再激活新前端。
+8. 模型配置核对完成后持久化 `video_studio.multimodal_enabled=true`，确认实际进程生效，再新建 API 4 样例；不原地转换旧样例。完成 API 4 模型和样例验证后再激活新前端。
 
 后端对自定义参数继续进行正常验证。转换失败应保留原模型并检查具体差异，不能以整个 preset 替换来绕过验证。
+
+没有管理页会话时，本轮可使用已审查的 [一次性配置 CLI](configuration-cli.md)，以精确镜像、11 条原记录指纹和独立开关 action 完成同一配置顺序。

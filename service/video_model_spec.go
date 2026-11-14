@@ -44,10 +44,9 @@ type VideoModelSpec struct {
 }
 
 // VideoReferencePolicy describes the media contract for the unified Studio
-// reference picker. A nil policy keeps the profile text-only; a non-nil policy
-// must declare a finite total count before the profile can be enabled.
+// reference picker. Each supported media type declares its own limits.
 type VideoReferencePolicy struct {
-	MaxTotalCount              *int                       `json:"max_total_count"`
+	MaxTotalCount              *int                       `json:"max_total_count"` // Retained for stored profiles; not enforced.
 	RequiresVisual             bool                       `json:"requires_visual"`
 	RequiresVideo              bool                       `json:"requires_video"`
 	AudioRequiresGenerateAudio bool                       `json:"audio_requires_generate_audio"`
@@ -167,9 +166,6 @@ func ValidateVideoModelSpec(spec VideoModelSpec, defaults map[string]any) error 
 func validateVideoReferencePolicy(policy *VideoReferencePolicy) error {
 	if policy == nil {
 		return nil
-	}
-	if policy.MaxTotalCount != nil && *policy.MaxTotalCount <= 0 {
-		return fmt.Errorf("%w: reference max_total_count must be positive when present", ErrInvalidVideoModelSpec)
 	}
 	if err := validateVideoReferenceMediaPolicy("image", policy.Image, true); err != nil {
 		return err

@@ -154,6 +154,7 @@ func GetStatus(c *gin.Context) {
 		"ImageStudioAccessMode":       imageStudioSetting.AccessMode,
 		"video_studio": gin.H{
 			"access_mode":          videoStudioSetting.AccessMode,
+			"multimodal_enabled":   videoStudioSetting.MultimodalEnabled,
 			"processing_available": videoStudioSetting.WorkerEnabled,
 			"upload_limits":        videoStudioSetting.UploadLimits(),
 		},

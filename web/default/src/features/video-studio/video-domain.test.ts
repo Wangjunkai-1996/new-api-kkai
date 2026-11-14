@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 
-import { test } from 'vitest'
+import { expect, test } from 'vitest'
 
 import { validateComposerForProfile } from './schemas'
 import type {
@@ -354,6 +354,134 @@ test('clearing a broken draft resets the empty collection to text generation', (
 
 test('empty references remain valid for text generation on multimodal profiles', () => {
   assert.equal(validateVideoReferenceMedia([], profile), null)
+})
+
+test.each([null, 0, -1, 1])(
+  'multimodal references use per-kind limits with legacy total %s',
+  (maxTotalCount) => {
+    const policy = profile.specification.reference_policy
+    assert.ok(policy?.audio)
+    const multimodalProfile: VideoModelProfile = {
+      ...profile,
+      specification: {
+        ...profile.specification,
+        parameters: [
+          { control: 'switch', key: 'generate_audio', label: 'Audio' },
+        ],
+        reference_policy: {
+          ...policy,
+          max_total_count: maxTotalCount,
+          audio: {
+            ...policy.audio,
+            max_count: 2,
+          },
+        },
+      },
+    }
+    const references = (
+      [
+        ['reference_image', 'image/jpeg', 0],
+        ['reference_image', 'image/jpeg', 0],
+        ['reference_image', 'image/jpeg', 0],
+        ['reference_video', 'video/mp4', 7.5],
+        ['reference_video', 'video/mp4', 7.5],
+        ['reference_audio', 'audio/mpeg', 7.5],
+        ['reference_audio', 'audio/mpeg', 7.5],
+      ] as const
+    ).map(([role, mime, duration], index) => ({
+      ...reference(index + 1, role),
+      asset: {
+        ...asset('ready'),
+        id: index + 1,
+        mime_type: mime,
+        duration_seconds: duration,
+      },
+    }))
+    const parameters = { generate_audio: true }
+    const values = {
+      model_profile_id: profile.id,
+      mode: 'reference_to_video' as const,
+      prompt: 'Use all reference types',
+      references,
+      parameters,
+    }
+
+    expect(validateComposerForProfile(values, multimodalProfile)).toBeNull()
+    expect(
+      validateVideoReferenceMedia(references, multimodalProfile, parameters)
+    ).toBeNull()
+
+    for (const index of [0, 3, 5]) {
+      const tooMany = [
+        ...references,
+        { ...references[index], ...reference(99, references[index].role) },
+      ]
+      expect(
+        validateComposerForProfile(
+          { ...values, references: tooMany },
+          multimodalProfile
+        )
+      ).toBe('videoStudio.validation.referenceLimitExceeded')
+      expect(
+        validateVideoReferenceMedia(tooMany, multimodalProfile, parameters)
+      ).toBe('videoStudio.validation.referenceLimitExceeded')
+    }
+    for (const index of [3, 5]) {
+      const tooLong = references.map((item, position) =>
+        position === index
+          ? { ...item, asset: { ...item.asset, duration_seconds: 7.51 } }
+          : item
+      )
+      expect(
+        validateVideoReferenceMedia(tooLong, multimodalProfile, parameters)
+      ).toBe('videoStudio.validation.referenceDurationTotalExceeded')
+    }
+  }
+)
+
+test('first and last frames share the image limit and allow one frame per role', () => {
+  const frames = [
+    { ...reference(1, 'first_frame'), asset: asset('ready') },
+    { ...reference(2, 'last_frame'), asset: { ...asset('ready'), id: 2 } },
+  ]
+  const values = {
+    model_profile_id: profile.id,
+    mode: 'first_last_frame' as const,
+    prompt: 'Interpolate these frames',
+    references: frames,
+    parameters: {},
+  }
+  expect(validateComposerForProfile(values, profile)).toBeNull()
+  expect(validateVideoReferenceMedia(frames, profile)).toBeNull()
+  const policy = profile.specification.reference_policy
+  assert.ok(policy?.image)
+  const oneImageProfile = {
+    ...profile,
+    specification: {
+      ...profile.specification,
+      reference_policy: {
+        ...policy,
+        max_total_count: null,
+        image: { ...policy.image, max_count: 1 },
+      },
+    },
+  }
+  expect(validateComposerForProfile(values, oneImageProfile)).toBe(
+    'videoStudio.validation.referenceLimitExceeded'
+  )
+  expect(validateVideoReferenceMedia(frames, oneImageProfile)).toBe(
+    'videoStudio.validation.referenceLimitExceeded'
+  )
+  const duplicated = [
+    ...frames,
+    { ...frames[0], ...reference(3, 'first_frame') },
+  ]
+  expect(
+    validateComposerForProfile({ ...values, references: duplicated }, profile)
+  ).toBe('videoStudio.validation.referenceLimitExceeded')
+  expect(validateVideoReferenceMedia(duplicated, profile)).toBe(
+    'videoStudio.validation.referenceLimitExceeded'
+  )
 })
 
 test('quote request maps first and last frame assets by canonical role order', () => {

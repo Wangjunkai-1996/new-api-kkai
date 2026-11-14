@@ -264,7 +264,6 @@ export function VideoSampleAdmin() {
     [selectedProfile?.specification.modes]
   )
   const referencePolicy = selectedProfile?.specification.reference_policy
-  const referenceLimit = referencePolicy?.max_total_count ?? 0
   const unsupportedVideoDuration =
     selectedProfile && sampleVideoAsset?.state === 'ready'
       ? getUnsupportedVideoSampleDuration(selectedProfile, sampleVideoAsset)
@@ -292,7 +291,6 @@ export function VideoSampleAdmin() {
     : null
   const referenceAssetsReady =
     missingReferences.length === 0 &&
-    referenceBindings.length <= referenceLimit &&
     referenceAssets.every((asset) => asset.state === 'ready') &&
     referenceMediaError === null &&
     (selectedMode === 'text_to_video' ||
@@ -535,16 +533,6 @@ export function VideoSampleAdmin() {
     if (values.mode === 'text_to_video' && referenceBindings.length > 0) {
       form.setError('reference_assets', {
         message: 'videoStudio.validation.textModeHasReferences',
-      })
-      return
-    }
-    if (
-      selectedProfile.specification.reference_policy?.max_total_count != null &&
-      referenceBindings.length >
-        selectedProfile.specification.reference_policy.max_total_count
-    ) {
-      form.setError('reference_assets', {
-        message: 'videoStudio.validation.referenceLimitExceeded',
       })
       return
     }
@@ -981,7 +969,7 @@ export function VideoSampleAdmin() {
               ))}
             </div>
           )}
-          {referenceLimit > 0 && (
+          {referencePolicy && (
             <div className='space-y-2'>
               <span className='text-sm font-medium'>
                 {t('videoStudio.admin.references')}

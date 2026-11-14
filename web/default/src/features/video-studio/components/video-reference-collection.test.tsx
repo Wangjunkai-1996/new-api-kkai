@@ -98,7 +98,7 @@ vi.mock('./video-asset-uploader', () => ({
   ),
 }))
 
-const profile: VideoModelProfile = {
+const profile = {
   id: 1,
   model: 'verified-video',
   display_name: 'Verified video',
@@ -110,7 +110,7 @@ const profile: VideoModelProfile = {
     modes: ['text_to_video', 'reference_to_video'],
     parameters: [],
     reference_policy: {
-      max_total_count: 5,
+      max_total_count: null,
       requires_visual: true,
       requires_video: false,
       audio_requires_generate_audio: true,
@@ -138,7 +138,7 @@ const profile: VideoModelProfile = {
   sort_order: 0,
   created_at: 1,
   updated_at: 1,
-}
+} satisfies VideoModelProfile
 const reference = (id: number, position = 0): VideoComposerReference => ({
   client_id: `ref-${id}`,
   asset_id: id,
@@ -150,12 +150,13 @@ const reference = (id: number, position = 0): VideoComposerReference => ({
 function Collection(props: {
   initial: VideoComposerReference[]
   onChange?: (references: VideoComposerReference[]) => void
+  profile?: VideoModelProfile
 }) {
   const [references, setReferences] = useState(props.initial)
   return (
     <VideoReferenceCollection
       references={references}
-      profile={profile}
+      profile={props.profile ?? profile}
       onChange={(next) => {
         setReferences(next)
         props.onChange?.(next)
@@ -236,6 +237,109 @@ test('audio selection uses the audio purpose and effective inclusive byte limit'
   fireEvent.click(screen.getByRole('button', { name: 'Add references' }))
   fireEvent.click(screen.getByRole('button', { name: 'Reference audio' }))
   expect(screen.getByText('reference_audio:14999999')).toBeInTheDocument()
+})
+
+test('empty collections allow adding media without a combined count limit', () => {
+  render(<Collection initial={[]} />)
+  expect(screen.getByRole('button', { name: 'Add references' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Add reference media' }))
+  fireEvent.click(
+    screen.getByRole('button', { name: 'videoStudio.referenceImage' })
+  )
+  expect(screen.getByText(/^Up to 3 files,/)).toBeInTheDocument()
+})
+
+test.each([
+  ['videoStudio.referenceImage', 1],
+  ['videoStudio.referenceVideo', 2],
+  ['Reference audio', 1],
+] as const)(
+  'remaining upload capacity is specific to %s',
+  (label, remaining) => {
+    const mixedProfile: VideoModelProfile = {
+      ...profile,
+      specification: {
+        ...profile.specification,
+        reference_policy: {
+          ...profile.specification.reference_policy,
+          video: {
+            allowed_mime_types: ['video/mp4'],
+            max_count: 3,
+            max_size_bytes: 49_999_999,
+            min_duration_seconds: 2,
+            max_duration_seconds: 15,
+            max_total_duration_seconds: 15,
+          },
+        },
+      },
+    }
+    const references: VideoComposerReference[] = [
+      reference(1),
+      { ...reference(2), role: 'first_frame' },
+      {
+        ...reference(3),
+        role: 'reference_video',
+        asset: { ...media(3), mime_type: 'video/mp4', duration_seconds: 3 },
+      },
+      {
+        ...reference(4),
+        role: 'reference_audio',
+        asset: { ...media(4), mime_type: 'audio/mpeg', duration_seconds: 3 },
+      },
+      { ...reference(5), included: false },
+    ]
+    render(<Collection initial={references} profile={mixedProfile} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add references' }))
+    fireEvent.click(screen.getByRole('button', { name: label }))
+    expect(
+      screen.getByText(new RegExp(`^Up to ${remaining} files,`))
+    ).toBeInTheDocument()
+  }
+)
+
+test('a stale combined limit cannot block adding a reference within its media count', () => {
+  const onChange = vi.fn()
+  render(
+    <Collection
+      initial={[reference(1), reference(2, 1)]}
+      profile={{
+        ...profile,
+        specification: {
+          ...profile.specification,
+          reference_policy: {
+            ...profile.specification.reference_policy,
+            max_total_count: 1,
+          },
+        },
+      }}
+      onChange={onChange}
+    />
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Add references' }))
+  fireEvent.click(
+    screen.getByRole('button', { name: 'videoStudio.referenceImage' })
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'ready replacement' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add to draft' }))
+  expect(onChange).toHaveBeenLastCalledWith([
+    expect.objectContaining({ asset_id: 1, position: 0 }),
+    expect.objectContaining({ asset_id: 2, position: 1 }),
+    expect.objectContaining({ asset_id: 10, position: 2 }),
+  ])
+})
+
+test('exhausting one media count leaves the other supported media available', () => {
+  render(
+    <Collection initial={[reference(1), reference(2, 1), reference(3, 2)]} />
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Add references' }))
+  expect(
+    screen.getByRole('button', { name: 'videoStudio.referenceImage' })
+  ).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Reference audio' })).toBeEnabled()
+  expect(
+    screen.getByRole('button', { name: 'videoStudio.referenceVideo' })
+  ).toBeDisabled()
 })
 
 test('unavailable bindings remain visible even when the model no longer supports their role', () => {

@@ -72,6 +72,7 @@ import {
 import type { VideoModelProfile, VideoStudioApiError } from '../types'
 import { VideoAdminWorkspace } from './video-admin-workspace'
 import { VideoModelSpecEditor } from './video-model-spec-editor'
+import { VideoMultimodalSetting } from './video-multimodal-setting'
 
 export function VideoModelAdmin() {
   const { t } = useTranslation()
@@ -454,6 +455,7 @@ export function VideoModelAdmin() {
 
   return (
     <>
+      <VideoMultimodalSetting />
       <VideoAdminWorkspace list={list} editor={editor} />
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>

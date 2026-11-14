@@ -33,15 +33,6 @@ export const validateVideoReferenceMedia = (
       ? 'videoStudio.validation.videoReferenceRequired'
       : null
   }
-  if (policy.max_total_count === null) {
-    return 'videoStudio.validation.referencePolicyRequired'
-  }
-  if (
-    policy.max_total_count !== null &&
-    included.length > policy.max_total_count
-  ) {
-    return 'videoStudio.validation.referenceLimitExceeded'
-  }
   const totalDuration: Record<'video' | 'audio', number> = {
     video: 0,
     audio: 0,
@@ -112,7 +103,10 @@ export const validateVideoReferenceMedia = (
   if (
     (policy.image && counts.image > policy.image.max_count) ||
     (policy.video && counts.video > policy.video.max_count) ||
-    (policy.audio && counts.audio > policy.audio.max_count)
+    (policy.audio && counts.audio > policy.audio.max_count) ||
+    included.filter((reference) => reference.role === 'first_frame').length >
+      1 ||
+    included.filter((reference) => reference.role === 'last_frame').length > 1
   ) {
     return 'videoStudio.validation.referenceLimitExceeded'
   }

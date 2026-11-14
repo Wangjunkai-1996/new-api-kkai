@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -230,6 +231,34 @@ func TestUpdateVideoModelProfileRequiresVerifiedReferencePolicyWhenEnabled(t *te
 	require.NoError(t, db.Create(&profile).Error)
 	_, err = UpdateVideoModelProfile(context.Background(), db, profile.ID, VideoModelProfileInput{Model: profile.Model, DisplayName: profile.DisplayName, Specification: specification, DefaultParameters: map[string]any{}, Enabled: true})
 	require.ErrorIs(t, err, ErrInvalidVideoModelSpec)
+}
+
+func TestVideoModelProfileEnablesWithOnlyPerMediaLimits(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		legacyTotal *int
+	}{{"no-aggregate", nil}, {"old-positive-aggregate", intPointer(1)}, {"old-zero-aggregate", intPointer(0)}} {
+		t.Run(test.name, func(t *testing.T) {
+			db := newVideoModelProfileTestDB(t)
+			policy := videoTestReferencePolicy()
+			policy.MaxTotalCount = test.legacyTotal
+			input := VideoModelProfileInput{
+				Model: test.name, DisplayName: test.name, Enabled: true,
+				Specification:     VideoModelSpec{Version: 1, Modes: []string{VideoModeReferenceToVideo}, ReferencePolicy: policy},
+				DefaultParameters: map[string]any{},
+			}
+			require.NoError(t, db.Create(&model.Ability{Group: VideoStudioTokenGroup, Model: input.Model, ChannelId: 1, Enabled: true}).Error)
+			created, err := CreateVideoModelProfile(context.Background(), db, input)
+			require.NoError(t, err)
+			assert.True(t, created.Enabled)
+			listed, err := ListVideoModelProfiles(context.Background(), db, false)
+			require.NoError(t, err)
+			require.Len(t, listed, 1)
+			assert.Equal(t, created.ID, listed[0].ID)
+			_, _, _, _, _, err = resolveVideoModelProfile(context.Background(), db, input.Model)
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestCreateVideoSamplePersistsReferenceMappingSnapshot(t *testing.T) {

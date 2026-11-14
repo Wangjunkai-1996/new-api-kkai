@@ -154,6 +154,20 @@ export function VideoReferenceCollection(props: VideoReferenceCollectionProps) {
   const ordered = orderedReferences(props.references)
   const included = ordered.filter((reference) => reference.included)
   const excluded = ordered.filter((reference) => !reference.included)
+  const referencesByKind = {
+    image: included.filter(
+      (reference) =>
+        reference.role !== 'reference_video' &&
+        reference.role !== 'reference_audio'
+    ),
+    video: included.filter((reference) => reference.role === 'reference_video'),
+    audio: included.filter((reference) => reference.role === 'reference_audio'),
+  }
+  const canAddReferences = MEDIA_TYPES.some(
+    (type) =>
+      referencesByKind[type.policy].length <
+      (policy?.[type.policy]?.max_count ?? 0)
+  )
   const mediaQuery = useStudioMediaUrls(
     props.references.flatMap((reference) => {
       if (!reference.asset || reference.asset.state !== 'ready') return []
@@ -183,16 +197,10 @@ export function VideoReferenceCollection(props: VideoReferenceCollectionProps) {
     ? policy?.[selectedType.policy]
     : undefined
   let maxFiles = 0
-  if (selectedPolicy && target) {
-    const groupCount = included.filter(
-      (reference) => reference.role === target.role
-    ).length
+  if (selectedType && selectedPolicy && target) {
     maxFiles = Math.max(
       0,
-      Math.min(
-        selectedPolicy.max_count - groupCount,
-        (policy?.max_total_count ?? 0) - included.length
-      )
+      selectedPolicy.max_count - referencesByKind[selectedType.policy].length
     )
     if (target.replaceId) maxFiles = 1
   }
@@ -300,7 +308,7 @@ export function VideoReferenceCollection(props: VideoReferenceCollectionProps) {
           type='button'
           size='sm'
           variant='ghost'
-          disabled={busy || !policy?.max_total_count}
+          disabled={busy || !canAddReferences}
           onClick={() => setAddOpen(true)}
         >
           <Plus aria-hidden='true' />
@@ -314,9 +322,7 @@ export function VideoReferenceCollection(props: VideoReferenceCollectionProps) {
       </p>
       <div className='video-studio-reference-summary flex flex-wrap gap-x-3 gap-y-1 text-xs'>
         {MEDIA_TYPES.map((type) => {
-          const group = included.filter(
-            (reference) => reference.role === type.role
-          )
+          const group = referencesByKind[type.policy]
           const config = policy?.[type.policy]
           if (!config && group.length === 0) return null
           const duration = group.reduce(
@@ -515,7 +521,7 @@ export function VideoReferenceCollection(props: VideoReferenceCollectionProps) {
               type='button'
               variant='outline'
               className='w-full border-dashed'
-              disabled={busy || !policy?.max_total_count}
+              disabled={busy || !canAddReferences}
               onClick={() => setAddOpen(true)}
             >
               <Plus aria-hidden='true' />
@@ -614,15 +620,8 @@ export function VideoReferenceCollection(props: VideoReferenceCollectionProps) {
             <div className='video-studio-reference-type-grid grid grid-cols-3 gap-3'>
               {MEDIA_TYPES.map((type) => {
                 const config = policy?.[type.policy]
-                const count = included.filter(
-                  (item) => item.role === type.role
-                ).length
-                const available = Boolean(
-                  config &&
-                  count < config.max_count &&
-                  policy?.max_total_count &&
-                  included.length < policy.max_total_count
-                )
+                const count = referencesByKind[type.policy].length
+                const available = Boolean(config && count < config.max_count)
                 return (
                   <Button
                     key={type.role}

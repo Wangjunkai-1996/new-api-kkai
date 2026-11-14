@@ -30,6 +30,7 @@ import type {
   VideoParameterValue,
   VideoParameters,
   VideoReferencePolicy,
+  VideoReferenceMediaPolicy,
   VideoSample,
   VideoSampleInput,
   VideoTokenCapability,
@@ -190,30 +191,6 @@ const SEEDANCE_25_MODEL_PRESET_DETAILS = {
     resolution: '720p',
     requiresVideoReference: false,
   },
-  'sd_2.5_special_720p': {
-    displayName: 'Seedance 2.5 720p',
-    description: '720p 文生 / 图生视频',
-    resolution: '720p',
-    requiresVideoReference: false,
-  },
-  'sd_2.5_special_1080p': {
-    displayName: 'Seedance 2.5 1080p',
-    description: '1080p 文生 / 多模态参考视频',
-    resolution: '1080p',
-    requiresVideoReference: false,
-  },
-  'sd_2.5_special_720p_with_video_ref': {
-    displayName: 'Seedance 2.5 720p · 视频参考',
-    description: '720p 视频参考生成',
-    resolution: '720p',
-    requiresVideoReference: true,
-  },
-  'sd_2.5_special_1080p_with_video_ref': {
-    displayName: 'Seedance 2.5 1080p · 视频参考',
-    description: '1080p 视频参考生成',
-    resolution: '1080p',
-    requiresVideoReference: true,
-  },
 } as const satisfies Record<string, VideoModelPresetDetails>
 
 const getSeedance25PresetDetails = (
@@ -316,8 +293,7 @@ export const getVideoModelPreset = (
       modes,
       parameters,
       reference_policy: details.referencePolicy ?? {
-        // A candidate without backend verification must remain disabled. A
-        // null aggregate cap is intentionally not treated as unlimited.
+        // Kept for compatibility; reference limits apply to each media kind.
         max_total_count: null,
         requires_visual: true,
         requires_video: details.requiresVideoReference,
@@ -333,16 +309,18 @@ export const getVideoModelPreset = (
           min_aspect_ratio_exclusive: 0.4,
           max_aspect_ratio_exclusive: 2.5,
         },
-        video: {
-          allowed_mime_types: ['video/mp4', 'video/quicktime'],
-          max_count: 3,
-          max_size_bytes: 49_999_999,
-          min_duration_seconds: 2,
-          max_duration_seconds: 15,
-          max_total_duration_seconds: 15,
-          min_frame_rate: 24,
-          max_frame_rate: 60,
-        },
+        video: details.requiresVideoReference
+          ? {
+              allowed_mime_types: ['video/mp4', 'video/quicktime'],
+              max_count: 3,
+              max_size_bytes: 49_999_999,
+              min_duration_seconds: 2,
+              max_duration_seconds: 15,
+              max_total_duration_seconds: 15,
+              min_frame_rate: 24,
+              max_frame_rate: 60,
+            }
+          : undefined,
         audio: {
           allowed_mime_types: ['audio/mpeg', 'audio/wav'],
           max_count: 3,
@@ -611,7 +589,7 @@ export const videoModelSpecSchema = z.object({
     .optional(),
   reference_policy: z
     .object({
-      max_total_count: z.number().int().positive().nullable(),
+      max_total_count: z.number().int().nullable(),
       requires_visual: z.boolean(),
       requires_video: z.boolean(),
       audio_requires_generate_audio: z.boolean(),
@@ -845,23 +823,101 @@ export const videoModelProfileFormSchema = z
       }
     })
 
-    if (
-      values.enabled &&
-      values.modes.some((mode) => mode !== 'text_to_video') &&
-      values.reference_policy?.max_total_count == null
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['reference_policy', 'max_total_count'],
-        message: 'videoStudio.validation.referenceTotalLimitRequired',
-      })
-    }
     if (modes.has('reference_to_video') && !values.reference_policy) {
       context.addIssue({
         code: 'custom',
         path: ['reference_policy'],
         message: 'videoStudio.validation.referencePolicyRequired',
       })
+    }
+    const presetPolicy = getVideoModelPreset(values.model)?.specification
+      .reference_policy
+    if (presetPolicy && values.reference_policy) {
+      for (const key of [
+        'requires_visual',
+        'requires_video',
+        'audio_requires_generate_audio',
+      ] as const) {
+        if (presetPolicy[key] && !values.reference_policy[key]) {
+          context.addIssue({
+            code: 'custom',
+            path: ['reference_policy', key],
+            message: 'videoStudio.validation.parameterOutOfRange',
+          })
+        }
+      }
+    }
+    for (const kind of ['image', 'video', 'audio'] as const) {
+      const media: VideoReferenceMediaPolicy | undefined =
+        values.reference_policy?.[kind]
+      if (!media) continue
+      const accepted = presetPolicy?.[kind]
+      if (
+        media.allowed_mime_types.some(
+          (mime) =>
+            !mime.startsWith(`${kind}/`) ||
+            (accepted && !accepted.allowed_mime_types.includes(mime))
+        )
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['reference_policy', kind, 'allowed_mime_types'],
+          message: 'videoStudio.validation.referenceMimeUnsupported',
+        })
+      }
+      if (accepted) {
+        for (const [key, value] of Object.entries(media)) {
+          const bound = accepted[key as keyof VideoReferenceMediaPolicy]
+          if (typeof value !== 'number' || typeof bound !== 'number') continue
+          if (
+            (key.startsWith('max_') && value > bound) ||
+            (key.startsWith('min_') && value < bound)
+          ) {
+            context.addIssue({
+              code: 'custom',
+              path: ['reference_policy', kind, key],
+              message: 'videoStudio.validation.parameterOutOfRange',
+            })
+          }
+        }
+      } else if (presetPolicy) {
+        context.addIssue({
+          code: 'custom',
+          path: ['reference_policy', kind],
+          message: 'videoStudio.validation.referenceMimeUnsupported',
+        })
+      }
+      const ranges: [
+        keyof VideoReferenceMediaPolicy,
+        keyof VideoReferenceMediaPolicy,
+      ][] =
+        kind === 'image'
+          ? [
+              ['min_width', 'max_width'],
+              ['min_height', 'max_height'],
+              ['min_aspect_ratio_exclusive', 'max_aspect_ratio_exclusive'],
+            ]
+          : [
+              ['min_duration_seconds', 'max_duration_seconds'],
+              ['max_duration_seconds', 'max_total_duration_seconds'],
+            ]
+      if (kind === 'video') ranges.push(['min_frame_rate', 'max_frame_rate'])
+      for (const [minimum, maximum] of ranges) {
+        const min = media[minimum]
+        const max = media[maximum]
+        if (
+          typeof min !== 'number' ||
+          typeof max !== 'number' ||
+          max < min ||
+          (minimum === 'min_aspect_ratio_exclusive' && max === min)
+        ) {
+          context.addIssue({
+            code: 'custom',
+            path: ['reference_policy', kind, maximum],
+            message: 'videoStudio.validation.parameterOutOfRange',
+          })
+        }
+      }
     }
   })
 
@@ -1039,6 +1095,37 @@ export const filterVideoModelCandidates = (
         !configured.has(candidate)
     )
     .sort((left, right) => left.localeCompare(right))
+}
+
+export const applyVideoModelReferencePreset = (
+  values: VideoModelProfileFormValues
+): VideoModelProfileFormValues => {
+  const preset = createVideoModelProfileFormValues(undefined, values.model)
+  if (!preset.reference_policy || values.reference_policy) return values
+  const parameters = values.parameters.map((parameter) => ({
+    ...parameter,
+    modes: [
+      ...new Set(
+        parameter.modes.map((mode) =>
+          String(mode) === 'image_to_video'
+            ? ('reference_to_video' as const)
+            : mode
+        )
+      ),
+    ].filter((mode) => preset.modes.includes(mode)),
+  }))
+  const existingKeys = new Set(parameters.map((parameter) => parameter.key))
+  return {
+    ...values,
+    modes: preset.modes,
+    reference_policy: preset.reference_policy,
+    parameters: [
+      ...parameters,
+      ...preset.parameters.filter(
+        (parameter) => !existingKeys.has(parameter.key)
+      ),
+    ],
+  }
 }
 
 const parameterControlFromForm = (
@@ -1281,16 +1368,24 @@ export const validateComposerForProfile = (
     (reference) => reference.included
   )
   const policy = profile.specification.reference_policy
-  if (values.mode === 'reference_to_video') {
-    if (!policy || policy.max_total_count === null) {
+  if (values.mode !== 'text_to_video') {
+    if (!policy) {
       return 'videoStudio.validation.referencePolicyRequired'
     }
-    if (included.length > policy.max_total_count) {
+    const firstFrameCount = included.filter(
+      (reference) => reference.role === 'first_frame'
+    ).length
+    const lastFrameCount = included.filter(
+      (reference) => reference.role === 'last_frame'
+    ).length
+    if (firstFrameCount > 1 || lastFrameCount > 1) {
       return 'videoStudio.validation.referenceLimitExceeded'
     }
-    const imageCount = included.filter(
-      (reference) => reference.role === 'reference_image'
-    ).length
+    const imageCount =
+      included.filter((reference) => reference.role === 'reference_image')
+        .length +
+      firstFrameCount +
+      lastFrameCount
     const videoCount = included.filter(
       (reference) => reference.role === 'reference_video'
     ).length
@@ -1316,8 +1411,8 @@ export const validateComposerForProfile = (
       ['audio', audioCount] as const,
     ]) {
       const mediaKind = kind as 'image' | 'video' | 'audio'
-      const limit = policy[mediaKind]?.max_count
-      if (limit !== undefined && Number(count) > limit) {
+      const limit = policy[mediaKind]?.max_count ?? 0
+      if (Number(count) > limit) {
         return 'videoStudio.validation.referenceLimitExceeded'
       }
     }

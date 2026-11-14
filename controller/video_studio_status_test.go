@@ -4,11 +4,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/QuantumNous/new-api/setting/video_studio_setting"
 
@@ -54,6 +56,33 @@ func TestGetStatusExposesFrontendMode(t *testing.T) {
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	require.Equal(t, "external", response.Data.FrontendMode)
+}
+
+func TestGetStatusExposesEffectiveVideoMultimodalSwitch(t *testing.T) {
+	previous := video_studio_setting.Get().MultimodalEnabled
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"video_studio.multimodal_enabled": strconv.FormatBool(previous)}))
+	})
+	for _, enabled := range []bool{false, true} {
+		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"video_studio.multimodal_enabled": strconv.FormatBool(enabled)}))
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/api/status", nil)
+			GetStatus(ctx)
+			require.Equal(t, http.StatusOK, recorder.Code)
+			var response struct {
+				Data struct {
+					VideoStudio struct {
+						MultimodalEnabled *bool `json:"multimodal_enabled"`
+					} `json:"video_studio"`
+				} `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			require.NotNil(t, response.Data.VideoStudio.MultimodalEnabled)
+			assert.Equal(t, enabled, *response.Data.VideoStudio.MultimodalEnabled)
+		})
+	}
 }
 
 func TestGetStatusExposesPasskeyAndTelegramConfiguration(t *testing.T) {

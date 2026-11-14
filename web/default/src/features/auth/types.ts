@@ -97,6 +97,7 @@ export interface VideoStudioUploadLimits {
 }
 
 export interface VideoStudioStatus {
+  multimodal_enabled?: boolean
   processing_available?: boolean
   upload_limits?: VideoStudioUploadLimits
 }

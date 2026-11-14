@@ -697,18 +697,68 @@ func TestVideoMultimodalDecimalDurationLimit(t *testing.T) {
 	require.Equal(t, "video_reference_limit_exceeded", validationErr.Code)
 }
 
-func TestVideoMultimodalRejectsOversizedReferenceListBeforeAssetLookup(t *testing.T) {
-	spec := VideoModelSpec{Version: 2, Modes: []string{VideoModeReferenceToVideo}, ReferencePolicy: &VideoReferencePolicy{MaxTotalCount: intPointer(1)}}
-	_, err := normalizeVideoReferences(context.Background(), nil, nil, 7, spec, VideoModeReferenceToVideo, nil,
-		[]VideoStudioReferenceAssetInput{{AssetID: 1}, {AssetID: 2}})
-	var validation *VideoStudioValidationError
-	require.ErrorAs(t, err, &validation)
-	require.Equal(t, "video_reference_limit_exceeded", validation.Code)
-	require.Equal(t, "max_total_count", validation.Issues[0].Rule)
+func TestVideoMultimodalRejectsCategoryOverflowBeforeAssetLookup(t *testing.T) {
+	for _, test := range []struct {
+		name, mode, firstRole, secondRole string
+	}{
+		{"images", VideoModeReferenceToVideo, model.VideoTaskAssetRoleReferenceImage, model.VideoTaskAssetRoleReferenceImage},
+		{"videos", VideoModeReferenceToVideo, model.VideoTaskAssetRoleReferenceVideo, model.VideoTaskAssetRoleReferenceVideo},
+		{"audio", VideoModeReferenceToVideo, model.VideoTaskAssetRoleReferenceAudio, model.VideoTaskAssetRoleReferenceAudio},
+		{"frames share image count", VideoModeFirstLastFrame, model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy := videoTestReferencePolicy()
+			policy.Image.MaxCount, policy.Video.MaxCount, policy.Audio.MaxCount = 1, 1, 1
+			spec := VideoModelSpec{Version: 2, Modes: []string{test.mode}, ReferencePolicy: policy}
+			_, err := normalizeVideoReferences(context.Background(), nil, nil, 7, spec, test.mode, nil,
+				[]VideoStudioReferenceAssetInput{{AssetID: 1, Role: test.firstRole, Position: intPointer(0)}, {AssetID: 2, Role: test.secondRole, Position: intPointer(1)}})
+			var validation *VideoStudioValidationError
+			require.ErrorAs(t, err, &validation)
+			assert.Equal(t, "video_reference_limit_exceeded", validation.Code)
+			require.Len(t, validation.Issues, 1)
+			assert.Equal(t, "max_count", validation.Issues[0].Rule)
+			assert.Equal(t, test.secondRole, validation.Issues[0].Role)
+			assert.Equal(t, 2, validation.Issues[0].Actual)
+			assert.Equal(t, 1, validation.Issues[0].Limit)
+		})
+	}
+}
+
+func TestVideoMultimodalAllowsIndependentCategoryLimits(t *testing.T) {
+	policy := videoTestReferencePolicy()
+	spec := VideoModelSpec{Version: 2, Modes: []string{VideoModeReferenceToVideo}, ReferencePolicy: policy}
+	assets := map[int64]model.KKAIVideoAsset{}
+	var inputs []VideoStudioReferenceAssetInput
+	for _, role := range []string{model.VideoTaskAssetRoleReferenceImage, model.VideoTaskAssetRoleReferenceVideo, model.VideoTaskAssetRoleReferenceAudio} {
+		for position := 0; position < 3; position++ {
+			id := int64(len(inputs) + 1)
+			asset := model.KKAIVideoAsset{ID: id, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, MIMEType: "image/png"}
+			if role == model.VideoTaskAssetRoleReferenceVideo {
+				asset.MIMEType = "video/mp4"
+			}
+			inspectVideoTestAsset(&asset)
+			if role == model.VideoTaskAssetRoleReferenceAudio {
+				asset.MIMEType, asset.DurationSeconds, asset.MediaMetadata = "audio/mpeg", 5, `{"inspection_version":1,"container":"mp3"}`
+			}
+			assets[id] = asset
+			inputs = append(inputs, VideoStudioReferenceAssetInput{AssetID: id, Role: role, Position: intPointer(position)})
+		}
+	}
+	for _, test := range []struct {
+		name        string
+		legacyTotal *int
+	}{{"no aggregate", nil}, {"old positive aggregate", intPointer(1)}, {"old zero aggregate", intPointer(0)}} {
+		t.Run(test.name, func(t *testing.T) {
+			policy.MaxTotalCount = test.legacyTotal
+			references, err := validateVideoReferenceAssets(spec, VideoModeReferenceToVideo, nil, inputs, assets)
+			require.NoError(t, err)
+			assert.Len(t, references, 9)
+		})
+	}
 }
 
 func videoTestReferencePolicy() *VideoReferencePolicy {
-	return &VideoReferencePolicy{MaxTotalCount: intPointer(6), RequiresVisual: true,
+	return &VideoReferencePolicy{RequiresVisual: true,
 		Image: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"image/png", "image/jpeg"}, MaxCount: 3, MaxSizeBytes: 20 << 20, MinWidth: 301, MaxWidth: 5999, MinHeight: 301, MaxHeight: 5999, MinAspectRatioExclusive: .4, MaxAspectRatioExclusive: 2.5},
 		Video: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"video/mp4"}, MaxCount: 3, MaxSizeBytes: 49999999, MinDurationSeconds: 2, MaxDurationSeconds: 15, MaxTotalDurationSeconds: 15, MinFrameRate: 24, MaxFrameRate: 60},
 		Audio: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"audio/mpeg"}, MaxCount: 3, MaxSizeBytes: 14999999, MinDurationSeconds: 2, MaxDurationSeconds: 15, MaxTotalDurationSeconds: 15}}

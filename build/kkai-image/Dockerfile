@@ -88,7 +88,10 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
       -o /out/kkai-credit-migrate ./cmd/kkai-credit-migrate \
     && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
-      -o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once
+      -o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
+      -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}' -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
+      -o /out/kkai-video-studio-config ./cmd/kkai-video-studio-config
 
 FROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS backend-external
 
@@ -140,7 +143,10 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
       -o /out/kkai-credit-migrate ./cmd/kkai-credit-migrate \
     && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
-      -o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once
+      -o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
+      -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}' -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
+      -o /out/kkai-video-studio-config ./cmd/kkai-video-studio-config
 
 FROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS runtime-tools
 
@@ -256,6 +262,7 @@ COPY --from=backend --chown=10007:10007 /out/new-api /new-api
 COPY --from=backend --chown=10007:10007 /out/kkai-migrate /kkai-migrate
 COPY --from=backend --chown=10007:10007 /out/kkai-credit-migrate /kkai-credit-migrate
 COPY --from=backend --chown=10007:10007 /out/kkai-video-archive-once /kkai-video-archive-once
+COPY --from=backend --chown=10007:10007 /out/kkai-video-studio-config /kkai-video-studio-config
 
 FROM runtime-base AS runtime-external
 
@@ -265,6 +272,7 @@ COPY --from=backend-external --chown=10007:10007 /out/new-api /new-api
 COPY --from=backend-external --chown=10007:10007 /out/kkai-migrate /kkai-migrate
 COPY --from=backend-external --chown=10007:10007 /out/kkai-credit-migrate /kkai-credit-migrate
 COPY --from=backend-external --chown=10007:10007 /out/kkai-video-archive-once /kkai-video-archive-once
+COPY --from=backend-external --chown=10007:10007 /out/kkai-video-studio-config /kkai-video-studio-config
 
 # Keep an unqualified build backward-compatible with the existing embedded
 # production image. The manual release script selects the external target

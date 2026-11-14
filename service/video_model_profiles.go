@@ -368,8 +368,8 @@ func validateEnabledVideoReferencePolicy(spec VideoModelSpec) error {
 		if spec.ReferencePolicy == nil {
 			return fmt.Errorf("%w: enabled reference modes require a reference policy", ErrInvalidVideoModelSpec)
 		}
-		if spec.ReferencePolicy.MaxTotalCount == nil && spec.ReferencePolicy.Image == nil && spec.ReferencePolicy.Video == nil && spec.ReferencePolicy.Audio == nil {
-			return fmt.Errorf("%w: enabled reference modes require per-media limits when no aggregate limit is documented", ErrInvalidVideoModelSpec)
+		if spec.ReferencePolicy.Image == nil && spec.ReferencePolicy.Video == nil && spec.ReferencePolicy.Audio == nil {
+			return fmt.Errorf("%w: enabled reference modes require per-media limits", ErrInvalidVideoModelSpec)
 		}
 	}
 	return nil
