@@ -111,9 +111,8 @@ func PrepareVideoStudioTaskRequest(c *gin.Context) {
 // fields for provider payloads, but Studio requests must reject typos and the
 // removed legacy reference fields before quote or submit processing.
 func unmarshalVideoStudioBodyReusable(c *gin.Context, target any) error {
-	contentType := c.Request.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "application/json") {
-		return common.UnmarshalBodyReusable(c, target)
+	if c.ContentType() != gin.MIMEJSON {
+		return errors.New("video studio requests must use application/json")
 	}
 	storage, err := common.GetBodyStorage(c)
 	if err != nil {
@@ -154,7 +153,8 @@ func QuoteVideoStudioTask(c *gin.Context) {
 func SubmitVideoStudioTask(c *gin.Context) {
 	normalized, ok := videoStudioNormalizedSubmission(c)
 	if !ok || service.ValidateVideoStudioSubmitRequest(service.VideoStudioSubmissionRequest{
-		TokenID: normalized.TokenID, MaxQuota: normalized.MaxQuota,
+		TokenID: normalized.TokenID, SpecificationVersion: normalized.SpecificationVersion,
+		MaxQuota:  normalized.MaxQuota,
 		QuoteHash: normalized.QuoteHash, QuoteExpiresAt: normalized.QuoteExpiresAt,
 	}) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{

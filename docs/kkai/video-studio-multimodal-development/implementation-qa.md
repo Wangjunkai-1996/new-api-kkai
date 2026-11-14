@@ -12,6 +12,24 @@
 - Web 生成页使用单一创作表单和混合素材区，支持上传、检查、预览、互斥播放、排序、排除/恢复、替换、失败保留、报价阻断、提交恢复、任务/结果/近期作品和七语言文案。管理端同步维护新能力策略和有序样片引用。
 - `video-media-metadata-v1` 采用独立 receipt 的可授权扩展方案，保持 canonical runtime 21 + RC49；CLI 只在显式 proof 和授权 apply 时执行。
 
+## 发布阻断（已确认的本地事实）
+
+当前应用的 PostgreSQL runtime contract 要求同时具备
+`rc49-online-v1` 与 `video-media-metadata-v1` 两个扩展。应用 manual
+deployment contract pin 为 `ec9a76512f84086e48936cdd10bf96705e33ccb0`，该
+revision 的对象在已确认的本地 `../kkai-infra` 中可读。它的 manual deploy
+contract 将 `required_expansions` 固定为只有 `rc49-online-v1`，schema
+runtime 也没有 `video-media-metadata-v1` 的 proof 路径和操作。因此当前
+应用改动不能通过该 controller 的普通 stage 镜像契约门禁；generic
+preflight 不检查候选镜像契约，成功也不能解除这个阻断。本结论仅根据
+本地源码和 pin，不声称 controller 已安装、生产已有该 receipt 或 schema
+已完成。
+
+解除条件是先安装并 pin 一个明确支持该扩展 digest、proof protocol 和
+runtime contract 的 controller，再按扩展 runbook 获取只读 schema 证据。
+不能从镜像源码推断 controller 已安装，也不能删除应用 contract 中的
+扩展、直接在生产执行新 CLI，或把本地定向测试当作生产迁移回执。
+
 ## 定向验证
 
 以下命令均在本机 Go 1.26.5 上用临时 modfile `/tmp/new-api-kkai-go-test.mod` 执行，未修改仓库 `go.mod`/`go.sum`。

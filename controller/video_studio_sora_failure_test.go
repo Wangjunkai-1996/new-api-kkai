@@ -134,7 +134,8 @@ func testVideoStudioSoraRejectionRefund(t *testing.T, status int, payload string
 	require.NoError(t, err)
 	profile := model.KKAIVideoModelProfile{
 		Model: studioModel, DisplayName: "Special Video", Description: "failure regression",
-		SpecificationVersion: 1, Specification: string(specification), DefaultParameters: `{}`, Enabled: true,
+		SpecificationVersion: 1, Specification: string(specification),
+		DefaultParameters: `{"duration":5,"ratio":"16:9","generate_audio":false}`, Enabled: true,
 		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
 	}
 	require.NoError(t, db.Create(&profile).Error)
@@ -180,7 +181,7 @@ func testVideoStudioSoraRejectionRefund(t *testing.T, status int, payload string
 	model.InitChannelCache()
 
 	creativeRequest := service.VideoStudioSubmissionRequest{
-		TokenID: token.Id, Model: studioModel, Group: service.VideoStudioTokenGroup,
+		TokenID: token.Id, SpecificationVersion: 1, Model: studioModel, Group: service.VideoStudioTokenGroup,
 		Mode: service.VideoModeTextToVideo, Prompt: "A precise camera movement",
 		Parameters: map[string]any{"duration": 5, "ratio": "16:9", "generate_audio": false},
 	}
@@ -215,7 +216,12 @@ func testVideoStudioSoraRejectionRefund(t *testing.T, status int, payload string
 
 	assert.Equal(t, wantStatus, response.Code)
 	assert.Contains(t, response.Body.String(), wantCode)
-	observation := <-observed
+	var observation upstreamObservation
+	select {
+	case observation = <-observed:
+	default:
+		t.Fatalf("submit did not reach the adapter: HTTP %d %s", response.Code, response.Body.String())
+	}
 	require.NoError(t, observation.decodeErr)
 	assert.Equal(t, http.MethodPost, observation.method)
 	assert.Equal(t, "/v1/videos", observation.path)

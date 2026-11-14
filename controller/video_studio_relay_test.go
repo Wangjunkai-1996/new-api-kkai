@@ -481,11 +481,12 @@ func TestPrepareVideoStudioTaskRequestRequiresSubmissionGuardsBeforeStorage(t *t
 func TestVideoStudioHTTPRejectsUnknownAndLegacyTopLevelFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, test := range []struct {
-		name string
-		body string
+		name, contentType, body string
 	}{
-		{name: "unknown", body: `{"token_id":1,"specification_version":1,"model":"video-model-v1","mode":"text_to_video","prompt":"test","unexpected":true}`},
-		{name: "legacy reference", body: `{"token_id":1,"specification_version":1,"model":"video-model-v1","mode":"text_to_video","prompt":"test","reference_image":"asset-old"}`},
+		{name: "unknown", contentType: "application/json", body: `{"token_id":1,"specification_version":1,"model":"video-model-v1","mode":"text_to_video","prompt":"test","unexpected":true}`},
+		{name: "legacy reference", contentType: "application/json", body: `{"token_id":1,"specification_version":1,"model":"video-model-v1","mode":"text_to_video","prompt":"test","reference_image":"asset-old"}`},
+		{name: "form payload", contentType: "application/x-www-form-urlencoded", body: "model=video-model-v1&mode=text_to_video&prompt=test"},
+		{name: "multipart payload", contentType: "multipart/form-data; boundary=video-boundary", body: "--video-boundary\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\ntest\r\n--video-boundary--\r\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			engine := gin.New()
@@ -493,7 +494,7 @@ func TestVideoStudioHTTPRejectsUnknownAndLegacyTopLevelFields(t *testing.T) {
 				c.Status(http.StatusNoContent)
 			})
 			request := httptest.NewRequest(http.MethodPost, "/pg/videos/quote", strings.NewReader(test.body))
-			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Content-Type", test.contentType)
 			response := httptest.NewRecorder()
 			engine.ServeHTTP(response, request)
 
