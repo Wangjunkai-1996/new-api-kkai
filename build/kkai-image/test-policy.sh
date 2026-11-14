@@ -78,6 +78,10 @@ contains '-o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once' "${DOCK
   fail "Dockerfile does not build /kkai-video-archive-once"
 contains '/out/kkai-video-archive-once /kkai-video-archive-once' "${DOCKERFILE}" ||
   fail "runtime image does not contain /kkai-video-archive-once"
+[[ "$(grep -Fc -- '-o /out/kkai-video-studio-config ./cmd/kkai-video-studio-config' "${DOCKERFILE}")" -eq 2 ]] ||
+  fail "both backend targets must build the reviewed video studio configuration tool"
+[[ "$(grep -Fc -- '/out/kkai-video-studio-config /kkai-video-studio-config' "${DOCKERFILE}")" -eq 2 ]] ||
+  fail "both runtime targets must contain the video studio configuration tool"
 contains 'arguments[0] == "kkai-video-archive-once"' "${ENTRYPOINT_SOURCE}" ||
   fail "entrypoint does not dispatch the exact archive command"
 contains 'ARG KKAI_SCHEMA_CONTRACT=feature' "${DOCKERFILE}" ||
@@ -86,8 +90,8 @@ contains 'GOFLAGS=-tags=kkai_bridge' "${DOCKERFILE}" ||
   fail "Dockerfile cannot compile the explicit bridge schema contract"
 contains 'io.kkrich.schema-contract="${KKAI_SCHEMA_CONTRACT}"' "${DOCKERFILE}" ||
   fail "runtime image does not identify its schema contract"
-[[ "$(grep -Fc 'common.SchemaManagementMode=external' "${DOCKERFILE}")" -eq 6 ]] ||
-  fail "application, migrator, and archive executor must compile with external schema management in both backend targets"
+[[ "$(grep -Fc 'common.SchemaManagementMode=external' "${DOCKERFILE}")" -eq 8 ]] ||
+  fail "application, migrator, archive executor, and video studio configuration tool must compile with external schema management in both backend targets"
 [[ "$(grep -Fc -- 'bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1' "${DOCKERFILE}")" -eq 1 ]] ||
   fail "frontend dependencies must use one serialized, shared install stage"
 [[ "$(grep -Fc -- 'bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1 --filter ./default' "${MAKEFILE}")" -eq 1 ]] ||
@@ -110,7 +114,7 @@ for ignored_path in '.local-releases/' '/docs-site/' '/electron/' '/scripts/kkai
 done
 contains 'id=kkai-newapi-go-build-v1,target=/root/.cache/go-build,sharing=locked' "${DOCKERFILE}" ||
   fail "Go compiler cache mount is missing"
-[[ "$(grep -Fc -- 'go build -p "${GO_BUILD_PARALLELISM}"' "${DOCKERFILE}")" -eq 10 ]] ||
+[[ "$(grep -Fc -- 'go build -p "${GO_BUILD_PARALLELISM}"' "${DOCKERFILE}")" -eq 12 ]] ||
   fail "all Go production tools must honor the bounded build parallelism"
 contains 'ARG GO_BUILD_PARALLELISM=4' "${DOCKERFILE}" ||
   fail "Dockerfile does not define a bounded Go build parallelism"
