@@ -122,14 +122,7 @@ func runVideoMediaMetadataExpansion(ctx context.Context, db *gorm.DB, operation,
 			return err
 		}
 		guard := func(ctx context.Context, locked *gorm.DB) error {
-			current, err := kkaimigrate.PlanVideoMediaMetadataExpansion(ctx, locked)
-			if err != nil {
-				return err
-			}
-			if current.DatabaseName != status.DatabaseName || current.DatabaseSchema != status.DatabaseSchema {
-				return fmt.Errorf("video media metadata database identity changed under the schema lock")
-			}
-			return validateVideoMediaMetadataControllerProof(&proof, current, time.Now())
+			return authorizeVideoMediaMetadataMutation(ctx, locked, &proof, status)
 		}
 		status, err = kkaimigrate.ApplyVideoMediaMetadataExpand(ctx, db, kkaimigrate.Options{AuthorizeMutation: guard})
 		if err != nil {
@@ -142,4 +135,18 @@ func runVideoMediaMetadataExpansion(ctx context.Context, db *gorm.DB, operation,
 	}
 	_, err = fmt.Fprintln(output, string(encoded))
 	return err
+}
+
+func authorizeVideoMediaMetadataMutation(ctx context.Context, locked *gorm.DB, proof *videoMediaMetadataControllerProof, status *kkaimigrate.VideoMediaMetadataExpansionStatus) error {
+	// Apply revalidates the complete schema and receipt after acquiring the
+	// migration lock. Keep each subsequent mutation bound to that same database
+	// and a live proof without repeating the full schema scan under the lock.
+	name, schema, err := kkaimigrate.TenantOnlineDatabaseIdentity(ctx, locked)
+	if err != nil {
+		return err
+	}
+	if status == nil || name != status.DatabaseName || schema != status.DatabaseSchema {
+		return fmt.Errorf("video media metadata database identity changed under the schema lock")
+	}
+	return validateVideoMediaMetadataControllerProof(proof, status, time.Now())
 }

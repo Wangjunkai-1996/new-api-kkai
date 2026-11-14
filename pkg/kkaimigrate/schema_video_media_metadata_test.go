@@ -122,6 +122,43 @@ func TestVideoMediaMetadataPostgresPreservesOldWritesAndNeverQueuesTraffic(t *te
 	assert.Equal(t, before, after)
 }
 
+func TestVideoMediaMetadataPostgresRevalidatesSourceUnderLock(t *testing.T) {
+	db := newVideoMediaMetadataExpansionDB(t, DialectPostgres)
+	ctx := t.Context()
+	status, err := PlanVideoMediaMetadataExpansion(ctx, db)
+	require.NoError(t, err)
+	require.Equal(t, "pristine", status.State)
+	var original AppliedMigration
+	require.NoError(t, db.First(&original, "version = ?", MembershipBillingRecoverySchemaVersion).Error)
+	checksum := original.Checksum
+	require.NoError(t, db.Model(&original).Where("version = ?", original.Version).Update("checksum", "invalid").Error)
+	authorized := false
+	options := Options{AuthorizeMutation: func(ctx context.Context, locked *gorm.DB) error {
+		authorized = true
+		var holdsLock bool
+		require.NoError(t, locked.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted)").Scan(&holdsLock).Error)
+		require.True(t, holdsLock)
+		return nil
+	}}
+	_, err = ApplyVideoMediaMetadataExpand(ctx, db, options)
+	require.ErrorIs(t, err, ErrChecksumMismatch)
+	assert.False(t, authorized, "canonical drift after preflight must fail before proof authorization or mutation")
+	assert.False(t, db.Migrator().HasTable(&videoMediaMetadataReceipt{}))
+	require.NoError(t, db.Model(&original).Where("version = ?", original.Version).Update("checksum", checksum).Error)
+
+	require.NoError(t, db.Exec("ALTER TABLE kkai_video_assets ADD COLUMN media_metadata TEXT").Error)
+	_, err = ApplyVideoMediaMetadataExpand(ctx, db, options)
+	require.ErrorIs(t, err, ErrSchemaNotReady)
+	assert.False(t, authorized, "physical drift after preflight must fail before proof authorization or receipt creation")
+	assert.False(t, db.Migrator().HasTable(&videoMediaMetadataReceipt{}))
+	require.NoError(t, db.Exec("ALTER TABLE kkai_video_assets DROP COLUMN media_metadata").Error)
+
+	status, err = ApplyVideoMediaMetadataExpand(ctx, db, options)
+	require.NoError(t, err)
+	assert.True(t, authorized)
+	assert.Equal(t, "ready", status.State)
+}
+
 func TestVideoMediaMetadataObservationRequiresVerifiedReceiptAndPhysicalColumn(t *testing.T) {
 	db := newVideoMediaMetadataExpansionDB(t, DialectSQLite)
 	ctx := context.Background()
