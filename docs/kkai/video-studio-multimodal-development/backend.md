@@ -49,7 +49,7 @@
 
 ### 3.2 完整可解析示例
 
-下面是**待验收、不可启用的配置示例**，不是生产模型现状。三类素材的合计上限尚未确认，所以 `max_total_count:null` 且 `enabled:false`；管理员启用前必须填入实际合同验收值，不能把 9+3+3 猜成 15。用户目录只返回已启用且通过新合同验证的 profile。
+下面的配置示例使用 `max_total_count:null`，因为供应商文档只分别给出图片、视频、音频的限制，没有声明三类素材合计上限。启用时后端以各媒体策略的 `max_count` 之和作为本站数据库查询和请求放大的安全上界，不把 `9+3+3` 冒充供应商合同总数；用户目录只返回已启用且通过新合同验证的 profile。
 
 ```json
 {
@@ -154,7 +154,7 @@
 | --- | --- | --- |
 | `specification.modes` | 必填、非空、无重复 | 新普通流程仅 `text_to_video` / `reference_to_video`；已验收的高级方式可增加明确的 `first_frame_to_video` / `first_last_frame`，不默认开放 |
 | `reference_policy` | 含参考模式时必填 | 取代旧参考输入的标量字段映射；管理员只选择已验证预设及收紧限制 |
-| `max_total_count` | 配置期可为 null；启用时必须为正整数 | 未知不是无限制；同一请求中各角色素材之和的已验收上限 |
+| `max_total_count` | 可选；供应商未声明合计上限时保持 null | 为空时由各媒体策略 `max_count` 之和作为本站安全上界；不会对外宣称供应商合计上限 |
 | `requires_visual` | 必填 bool | 参考生成须至少一张图片或一个视频，不能只有音频 |
 | `requires_video` | 必填 bool | 当前精确型号必须至少有一个参考视频；无素材不能转为文字生成 |
 | `audio_requires_generate_audio` | 支持音频时必填 bool | true 是本站首版保守规则；只有已验收音频+静音组合才可设 false，不声称供应商强制要求 |
