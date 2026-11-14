@@ -518,6 +518,8 @@ expect_maintenance_preparation() {
     profile=bridge flag=--prepare-online purpose=tenant-online-preparation
   elif [[ ${protocol} == rc49-expansion-v1 ]]; then
     profile=feature flag=--prepare-online purpose=rc49-online-preparation
+  elif [[ ${protocol} == video-media-metadata-v1 ]]; then
+    profile=feature flag=--prepare-online purpose=video-media-metadata-preparation
   fi
 
   : >"${call_log}"
@@ -601,6 +603,7 @@ expect_maintenance_preparation tenant-maintenance-v1
 expect_maintenance_preparation tenant-maintenance-v2
 expect_maintenance_preparation tenant-online-v1
 expect_maintenance_preparation rc49-expansion-v1
+expect_maintenance_preparation video-media-metadata-v1
 expect_bridge_build
 expect_maintenance_rejected 'requires planned infrastructure SHA' --prepare-maintenance
 expect_maintenance_rejected 'requires planned deployment protocol' --prepare-maintenance \

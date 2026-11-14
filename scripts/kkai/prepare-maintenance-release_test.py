@@ -131,9 +131,17 @@ class MaintenanceReleaseTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
     def test_rc49_preparation_binds_expansion_and_preserves_same_application_archive(self):
+        self.assert_expansion_preparation("rc49-expansion-v1", "rc49-online-preparation", [2, 3])
+
+    def test_media_preparation_binds_both_expansions_and_transition_console_contract(self):
+        self.assert_expansion_preparation(
+            "video-media-metadata-v1", "video-media-metadata-preparation", [3, 4],
+        )
+
+    def assert_expansion_preparation(self, protocol, purpose, api_contracts):
         metadata = json.loads(self.metadata.read_text())
-        metadata["release_purpose"] = "rc49-online-preparation"
-        self.console["api_contracts"] = [2, 3]
+        metadata["release_purpose"] = purpose
+        self.console["api_contracts"] = api_contracts
         metadata["console_contract"] = self.console
         archive_path = self.root / metadata["archive"]
         with tarfile.open(archive_path) as archive:
@@ -151,15 +159,15 @@ class MaintenanceReleaseTests(unittest.TestCase):
         self.local_image["Config"] = config["config"]
         metadata["archive_sha256"] = maintenance.digest_file(archive_path)
         self.metadata.write_text(json.dumps(metadata))
-        self.schema = copy.deepcopy(maintenance.MAINTENANCE_PROFILES["rc49-expansion-v1"][1])
-        plan = maintenance.release_plan(self.metadata, "3" * 40, "rc49-expansion-v1")
-        self.assertEqual(plan["purpose"], "rc49-online-preparation")
+        self.schema = copy.deepcopy(maintenance.MAINTENANCE_PROFILES[protocol][1])
+        plan = maintenance.release_plan(self.metadata, "3" * 40, protocol)
+        self.assertEqual(plan["purpose"], purpose)
         self.assertEqual(plan["schema_contract"]["runtime_max_version"], 21)
         self.assertEqual(plan["archive_sha256"], metadata["archive_sha256"])
         self.assertEqual(plan["schema_contract"]["required_expansions"], self.schema["required_expansions"])
-        del self.schema["required_expansions"]
+        self.schema["required_expansions"].pop(next(reversed(self.schema["required_expansions"])))
         with self.assertRaisesRegex(ValueError, "binary schema contract"):
-            maintenance.release_plan(self.metadata, "3" * 40, "rc49-expansion-v1")
+            maintenance.release_plan(self.metadata, "3" * 40, protocol)
 
     def test_online_preparation_binds_bridge_and_both_supported_prefixes(self):
         metadata = json.loads(self.metadata.read_text())

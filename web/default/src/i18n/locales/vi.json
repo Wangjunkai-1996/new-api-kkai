@@ -8412,6 +8412,7 @@
     "This route is used only by channel management to query the upstream balance.": "Route này chỉ được quản lý kênh dùng để truy vấn số dư thượng nguồn.",
     "This rule does not have include_rule_name enabled, so its cache cannot be cleared by rule": "Quy tắc này chưa bật include_rule_name nên không thể xóa bộ nhớ đệm theo quy tắc",
     "This rule shares its cache and cannot be cleared separately.": "Quy tắc này dùng chung bộ nhớ đệm nên không thể xóa riêng.",
+    "This sample uses the legacy format. Create a new sample to keep it available to existing pages.": "Mẫu này sử dụng định dạng cũ. Hãy tạo mẫu mới và giữ lại mẫu gốc để các trang hiện có tiếp tục sử dụng.",
     "This server cannot create a guided API key yet. Please retry later.": "Máy chủ này chưa hỗ trợ tạo khóa API qua hướng dẫn. Vui lòng thử lại sau.",
     "This session will lose access immediately and must sign in again.": "Phiên này sẽ mất quyền truy cập ngay lập tức và phải đăng nhập lại.",
     "This site already has a domain. Each site can have only one domain.": "Trang web này đã có tên miền. Mỗi trang web chỉ được cấp một tên miền.",

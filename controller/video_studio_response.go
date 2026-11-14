@@ -50,6 +50,8 @@ func videoStudioErrorStatus(err error) (int, string) {
 	case errors.Is(err, service.ErrVideoStudioQuoteMismatch),
 		errors.Is(err, service.ErrVideoStudioQuoteExpired):
 		return http.StatusConflict, "quote_stale"
+	case errors.Is(err, service.ErrVideoSampleRequiresCopy):
+		return http.StatusConflict, "video_sample_requires_copy"
 	case
 		errors.Is(err, service.ErrInvalidVideoModelSpec),
 		errors.Is(err, service.ErrInvalidVideoSample),

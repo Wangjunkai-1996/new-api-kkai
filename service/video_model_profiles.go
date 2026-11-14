@@ -269,14 +269,22 @@ func UpdateVideoModelProfile(ctx context.Context, db *gorm.DB, id int64, input V
 				return ErrVideoModelAbilityUnavailable
 			}
 		}
-		if updated.Specification != specificationJSON && normalized.Specification.Version <= updated.SpecificationVersion {
-			return fmt.Errorf("%w: specification changes require a higher version", ErrInvalidVideoModelSpec)
-		}
 		previousSpecification, _, err := decodeVideoModelProfile(updated)
 		if err != nil {
 			return err
 		}
+		previousJSON, err := common.Marshal(previousSpecification)
+		if err != nil {
+			return err
+		}
+		if string(previousJSON) != specificationJSON && normalized.Specification.Version <= updated.SpecificationVersion {
+			return fmt.Errorf("%w: specification changes require a higher version", ErrInvalidVideoModelSpec)
+		}
 		if err := validatePublishedSamplesAgainstSpec(tx, id, previousSpecification, normalized.Specification); err != nil {
+			return err
+		}
+		specificationJSON, err = preserveVideoModelAPI3Snapshot(updated, specificationJSON)
+		if err != nil {
 			return err
 		}
 		updates := map[string]any{
@@ -357,8 +365,11 @@ func normalizeVideoModelProfileInput(input VideoModelProfileInput) (VideoModelPr
 
 func validateEnabledVideoReferencePolicy(spec VideoModelSpec) error {
 	if containsVideoMode(spec.Modes, VideoModeReferenceToVideo) || containsVideoMode(spec.Modes, VideoModeFirstFrameToVideo) || containsVideoMode(spec.Modes, VideoModeFirstLastFrame) {
-		if spec.ReferencePolicy == nil || spec.ReferencePolicy.MaxTotalCount == nil || *spec.ReferencePolicy.MaxTotalCount <= 0 {
-			return fmt.Errorf("%w: enabled reference modes require a verified max_total_count", ErrInvalidVideoModelSpec)
+		if spec.ReferencePolicy == nil {
+			return fmt.Errorf("%w: enabled reference modes require a reference policy", ErrInvalidVideoModelSpec)
+		}
+		if spec.ReferencePolicy.MaxTotalCount == nil && spec.ReferencePolicy.Image == nil && spec.ReferencePolicy.Video == nil && spec.ReferencePolicy.Audio == nil {
+			return fmt.Errorf("%w: enabled reference modes require per-media limits when no aggregate limit is documented", ErrInvalidVideoModelSpec)
 		}
 	}
 	return nil

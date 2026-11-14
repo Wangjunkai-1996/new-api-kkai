@@ -22,6 +22,7 @@ var (
 )
 
 type Setting struct {
+	MultimodalEnabled     bool   `json:"multimodal_enabled"`
 	AccessMode            string `json:"access_mode"`
 	ArchiveEnqueueEnabled bool   `json:"archive_enqueue_enabled"`
 	WorkerEnabled         bool   `json:"worker_enabled"`
@@ -59,6 +60,7 @@ type R2Config struct {
 }
 
 var videoStudioSetting = Setting{
+	MultimodalEnabled:     false,
 	AccessMode:            AccessModeOff,
 	ArchiveEnqueueEnabled: false,
 	WorkerEnabled:         false,

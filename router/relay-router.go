@@ -71,7 +71,7 @@ func SetRelayRouter(router *gin.Engine) {
 	videoStudioPlaygroundRouter := router.Group("/pg")
 	videoStudioPlaygroundRouter.Use(middleware.RouteTag("relay"))
 	videoStudioPlaygroundRouter.Use(middleware.SystemPerformanceCheck())
-	videoStudioPlaygroundRouter.Use(middleware.UserAuth(), middleware.VideoStudioAccess())
+	videoStudioPlaygroundRouter.Use(middleware.UserAuth(), middleware.VideoStudioAccess(), controller.VideoStudioAPIContract)
 	videoStudioPlaygroundRouter.Use(controller.PrepareVideoStudioTaskRequest, middleware.KKAIPolicyKeyCooldown(), middleware.Distribute())
 	{
 		videoStudioPlaygroundRouter.POST("/videos/quote", controller.QuoteVideoStudioTask)

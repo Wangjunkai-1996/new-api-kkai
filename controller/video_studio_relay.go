@@ -28,7 +28,12 @@ const videoStudioIdempotencyReservationContextKey = "video_studio_idempotency_re
 
 func PrepareVideoStudioTaskRequest(c *gin.Context) {
 	var request service.VideoStudioSubmissionRequest
-	if err := unmarshalVideoStudioBodyReusable(c, &request); err != nil {
+	request.LegacyAPI3 = service.IsVideoStudioAPI3(c.Request.Context())
+	decodeBody := unmarshalVideoStudioBodyReusable
+	if request.LegacyAPI3 {
+		decodeBody = common.UnmarshalBodyReusable
+	}
+	if err := decodeBody(c, &request); err != nil {
 		respondVideoStudioError(c, service.ErrInvalidVideoStudioSubmission)
 		c.Abort()
 		return
@@ -153,7 +158,7 @@ func QuoteVideoStudioTask(c *gin.Context) {
 func SubmitVideoStudioTask(c *gin.Context) {
 	normalized, ok := videoStudioNormalizedSubmission(c)
 	if !ok || service.ValidateVideoStudioSubmitRequest(service.VideoStudioSubmissionRequest{
-		TokenID: normalized.TokenID, SpecificationVersion: normalized.SpecificationVersion,
+		LegacyAPI3: normalized.LegacyAPI3, TokenID: normalized.TokenID, SpecificationVersion: normalized.SpecificationVersion,
 		MaxQuota:  normalized.MaxQuota,
 		QuoteHash: normalized.QuoteHash, QuoteExpiresAt: normalized.QuoteExpiresAt,
 	}) != nil {

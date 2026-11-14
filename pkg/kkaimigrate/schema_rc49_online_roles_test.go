@@ -38,6 +38,7 @@ func TestRC49OnlineMigratorDefaultGrantsAllowRuntimeAndReadonlyObservation(t *te
 		"ALTER TABLE tokens OWNER TO " + migrator,
 		"ALTER TABLE quota_data OWNER TO " + migrator,
 		"ALTER TABLE audit_logs OWNER TO " + migrator,
+		"ALTER TABLE kkai_video_assets OWNER TO " + migrator,
 	} {
 		require.NoError(t, db.Exec(statement).Error)
 	}
@@ -53,6 +54,8 @@ func TestRC49OnlineMigratorDefaultGrantsAllowRuntimeAndReadonlyObservation(t *te
 	}
 	ctx := context.Background()
 	_, err := ApplyRC49OnlineExpansion(ctx, connections[migrator], Options{Offline: true})
+	require.NoError(t, err)
+	_, err = ApplyVideoMediaMetadataExpand(ctx, connections[migrator], Options{Offline: true})
 	require.NoError(t, err)
 	for _, role := range []string{application, observer} {
 		connection := connections[role]
@@ -75,7 +78,7 @@ func TestRC49OnlineMigratorDefaultGrantsAllowRuntimeAndReadonlyObservation(t *te
 		require.NoError(t, CheckRC49LogSchema(ctx, connection))
 		observation, err := Observe(ctx, connection)
 		require.NoError(t, err)
-		assert.Equal(t, map[string]string{RC49OnlineExpansion: RC49OnlineExpansionDigest()}, observation.Expansions)
+		assert.Equal(t, map[string]string{RC49OnlineExpansion: RC49OnlineExpansionDigest(), VideoMediaMetadataExpansion: VideoMediaMetadataExpansionDigest()}, observation.Expansions)
 	}
 	var readonly string
 	require.NoError(t, connections[observer].Raw("SHOW transaction_read_only").Scan(&readonly).Error)

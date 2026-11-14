@@ -16,6 +16,9 @@ import (
 const videoStudioQuoteTTL = 5 * time.Minute
 
 func VideoStudioIdempotencyFingerprint(request VideoStudioSubmissionRequest) (string, error) {
+	if request.LegacyAPI3 {
+		return VideoStudioIdempotencyFingerprintAPI3(request)
+	}
 	type referenceFingerprint struct {
 		AssetID  int64  `json:"asset_id"`
 		Role     string `json:"role"`

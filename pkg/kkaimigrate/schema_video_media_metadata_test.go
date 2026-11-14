@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -81,6 +82,44 @@ func TestVideoMediaMetadataExpansionDatabaseCompatibility(t *testing.T) {
 			require.NoError(t, CheckVideoMediaMetadataExpansion(context.Background(), db))
 		})
 	}
+}
+
+func TestVideoMediaMetadataPostgresPreservesOldWritesAndNeverQueuesTraffic(t *testing.T) {
+	db := newVideoMediaMetadataExpansionDB(t, DialectPostgres)
+	ctx := context.Background()
+	_, err := ApplyRC49OnlineExpansion(ctx, db, Options{Offline: true})
+	require.NoError(t, err)
+	var before []AppliedMigration
+	require.NoError(t, db.Order("version").Find(&before).Error)
+	require.NoError(t, db.Table("kkai_video_assets").Create(map[string]any{
+		"id": 9001, "scope": "user", "kind": "reference", "state": "ready",
+		"object_key": "local-media-expansion/old.png", "archive_source_url": "",
+		"mime_type": "image/png", "created_at": 1, "updated_at": 1,
+	}).Error)
+	holder := db.Begin()
+	require.NoError(t, holder.Error)
+	t.Cleanup(func() { _ = holder.Rollback().Error })
+	require.NoError(t, holder.Exec("LOCK TABLE kkai_video_assets IN ACCESS SHARE MODE").Error)
+	_, err = ApplyVideoMediaMetadataExpand(ctx, db, Options{Offline: true})
+	var lockErr *pgconn.PgError
+	require.ErrorAs(t, err, &lockErr)
+	assert.Equal(t, "55P03", lockErr.Code, "NOWAIT rejects contention without queuing an exclusive lock")
+	require.NoError(t, holder.Rollback().Error)
+	assert.False(t, db.Migrator().HasColumn("kkai_video_assets", "media_metadata"))
+	_, err = ApplyVideoMediaMetadataExpand(ctx, db, Options{Offline: true})
+	require.NoError(t, err)
+	require.NoError(t, CheckRequired(ctx, db))
+	var metadata *string
+	require.NoError(t, db.Table("kkai_video_assets").Select("media_metadata").Where("id = ?", 9001).Scan(&metadata).Error)
+	assert.Nil(t, metadata, "existing assets do not acquire fabricated inspection evidence")
+	require.NoError(t, db.Table("kkai_video_assets").Where("id = ?", 9001).Update("media_metadata", `{"version":1}`).Error)
+	require.NoError(t, db.Table("kkai_video_assets").Where("id = ?", 9001).Update("updated_at", 2).Error)
+	require.NoError(t, db.Table("kkai_video_assets").Select("media_metadata").Where("id = ?", 9001).Scan(&metadata).Error)
+	require.NotNil(t, metadata)
+	assert.Equal(t, `{"version":1}`, *metadata, "old-column updates preserve new inspection evidence")
+	var after []AppliedMigration
+	require.NoError(t, db.Order("version").Find(&after).Error)
+	assert.Equal(t, before, after)
 }
 
 func TestVideoMediaMetadataObservationRequiresVerifiedReceiptAndPhysicalColumn(t *testing.T) {

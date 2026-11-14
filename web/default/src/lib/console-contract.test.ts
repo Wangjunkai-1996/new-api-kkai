@@ -16,6 +16,7 @@ describe('console API compatibility', () => {
         'reseller_sites',
         'reseller_group_pricing',
         'manual_invoice_requests',
+        'video_studio_multimodal',
       ],
     })
     expect(supportsConsole(contract)).toBe(true)
@@ -49,6 +50,7 @@ describe('console API compatibility', () => {
             'reseller_sites',
             'reseller_group_pricing',
             'manual_invoice_requests',
+            'video_studio_multimodal',
           ],
         })
       )
@@ -84,9 +86,28 @@ describe('console API compatibility', () => {
           'reseller_sites',
           'reseller_group_pricing',
           'manual_invoice_requests',
+          'video_studio_multimodal',
         ],
       })
     ).toBe(true)
+  })
+
+  it('rejects API 4 without the required multimodal Studio contract', () => {
+    expect(
+      supportsConsole({
+        format_version: 1,
+        api_contracts: [4],
+        capabilities: [
+          'dashboard_jwt',
+          'scoped_access_tokens',
+          'task_plugins',
+          'studio_media_urls',
+          'reseller_sites',
+          'reseller_group_pricing',
+          'manual_invoice_requests',
+        ],
+      })
+    ).toBe(false)
   })
 
   it('rejects the previous backend even when its API version and membership capability match', () => {
@@ -119,6 +140,7 @@ describe('console API compatibility', () => {
           'studio_media_urls',
           'reseller_sites',
           'manual_invoice_requests',
+          'video_studio_multimodal',
         ],
       })
     ).toBe(false)
@@ -139,6 +161,7 @@ describe('console API compatibility', () => {
             'reseller_sites',
             'reseller_group_pricing',
             'manual_invoice_requests',
+            'video_studio_multimodal',
           ],
         })
       ).toBe(false)

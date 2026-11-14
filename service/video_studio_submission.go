@@ -50,12 +50,14 @@ func videoStudioValidationError(code string, status int, message string) error {
 }
 
 type VideoStudioReferenceAssetInput struct {
-	AssetID  int64  `json:"asset_id"`
-	Role     string `json:"role"`
-	Position *int   `json:"position"`
+	requestKey string
+	AssetID    int64  `json:"asset_id"`
+	Role       string `json:"role"`
+	Position   *int   `json:"position"`
 }
 
 type VideoStudioSubmissionRequest struct {
+	LegacyAPI3           bool                             `json:"-"`
 	TokenID              int                              `json:"token_id"`
 	Model                string                           `json:"model"`
 	SpecificationVersion int                              `json:"specification_version"`
@@ -71,6 +73,7 @@ type VideoStudioSubmissionRequest struct {
 }
 
 type NormalizedVideoStudioSubmission struct {
+	LegacyAPI3           bool
 	UserID               int
 	TokenID              int
 	ProfileID            int64
@@ -107,6 +110,9 @@ type VideoStudioQuote struct {
 }
 
 func ValidateVideoStudioSubmitRequest(request VideoStudioSubmissionRequest) error {
+	if request.LegacyAPI3 {
+		return ValidateVideoStudioSubmitRequestAPI3(request)
+	}
 	request.QuoteHash = strings.ToLower(strings.TrimSpace(request.QuoteHash))
 	if request.TokenID <= 0 || request.SpecificationVersion <= 0 || request.MaxQuota == nil || *request.MaxQuota < 0 || request.QuoteHash == "" ||
 		!validVideoQuoteHash(request.QuoteHash) || request.QuoteExpiresAt <= 0 {
@@ -122,6 +128,9 @@ func NormalizeVideoStudioSubmission(
 	userID int,
 	request VideoStudioSubmissionRequest,
 ) (*NormalizedVideoStudioSubmission, error) {
+	if request.LegacyAPI3 {
+		return NormalizeVideoStudioSubmissionAPI3(ctx, db, store, userID, request)
+	}
 	if db == nil || store == nil || userID <= 0 {
 		return nil, ErrInvalidVideoStudioSubmission
 	}
@@ -191,6 +200,9 @@ func NormalizeVideoStudioSubmission(
 }
 
 func ApplyVideoStudioEffectiveGroup(normalized *NormalizedVideoStudioSubmission, group string) error {
+	if normalized != nil && normalized.LegacyAPI3 {
+		return ApplyVideoStudioEffectiveGroupAPI3(normalized, group)
+	}
 	if normalized == nil || strings.TrimSpace(normalized.Model) == "" || normalized.SpecificationVersion <= 0 {
 		return ErrInvalidVideoStudioSubmission
 	}
@@ -281,11 +293,12 @@ func normalizeVideoReferences(
 	}
 	policy := specification.ReferencePolicy
 	if len(inputs) > 0 {
-		if policy == nil || policy.MaxTotalCount == nil || *policy.MaxTotalCount <= 0 {
+		maxTotal, ok := videoReferenceMaxTotalCount(policy)
+		if !ok {
 			return nil, videoStudioValidationError("video_model_capability_unavailable", 503, "reference capabilities are not available")
 		}
-		if len(inputs) > *policy.MaxTotalCount {
-			return nil, videoReferenceLimitError("", nil, "max_total_count", len(inputs), *policy.MaxTotalCount)
+		if len(inputs) > maxTotal {
+			return nil, videoReferenceLimitError("", nil, "max_total_count", len(inputs), maxTotal)
 		}
 	}
 	assets := make(map[int64]model.KKAIVideoAsset, len(inputs))
@@ -328,14 +341,15 @@ func validateVideoReferenceAssets(spec VideoModelSpec, mode string, parameters m
 		return []NormalizedVideoReferenceAsset{}, nil
 	}
 	policy := spec.ReferencePolicy
-	if policy == nil || policy.MaxTotalCount == nil || *policy.MaxTotalCount <= 0 {
+	maxTotal, ok := videoReferenceMaxTotalCount(policy)
+	if !ok {
 		return nil, videoStudioValidationError("video_model_capability_unavailable", 503, "reference capabilities are not available")
 	}
 	if len(inputs) == 0 {
 		return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "reference assets are required")
 	}
-	if len(inputs) > *policy.MaxTotalCount {
-		return nil, videoReferenceLimitError("", nil, "max_total_count", len(inputs), *policy.MaxTotalCount)
+	if len(inputs) > maxTotal {
+		return nil, videoReferenceLimitError("", nil, "max_total_count", len(inputs), maxTotal)
 	}
 	counts := map[string]int{}
 	positions := map[string]map[int]bool{}
@@ -467,6 +481,22 @@ func videoReferenceLimitError(role string, input *VideoStudioReferenceAssetInput
 		issue.AssetID, issue.Position = input.AssetID, input.Position
 	}
 	return &VideoStudioValidationError{Code: "video_reference_limit_exceeded", StatusCode: 400, Message: "a reference exceeds the model limits", Issues: []VideoStudioValidationIssue{issue}}
+}
+
+func videoReferenceMaxTotalCount(policy *VideoReferencePolicy) (int, bool) {
+	if policy == nil {
+		return 0, false
+	}
+	if policy.MaxTotalCount != nil {
+		return *policy.MaxTotalCount, *policy.MaxTotalCount > 0
+	}
+	total := 0
+	for _, media := range []*VideoReferenceMediaPolicy{policy.Image, policy.Video, policy.Audio} {
+		if media != nil {
+			total += media.MaxCount
+		}
+	}
+	return total, total > 0
 }
 
 func videoReferenceMIMEAllowed(mimeType string, allowed []string) bool {

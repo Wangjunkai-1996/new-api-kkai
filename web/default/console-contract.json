@@ -7,6 +7,7 @@
     "studio_media_urls",
     "reseller_sites",
     "reseller_group_pricing",
-    "manual_invoice_requests"
+    "manual_invoice_requests",
+    "video_studio_multimodal"
   ]
 }

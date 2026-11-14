@@ -638,6 +638,14 @@ export function VideoSampleAdmin() {
       const responseError = isAxiosError<VideoStudioApiError>(error)
         ? error.response?.data
         : undefined
+      if (responseError?.code === 'video_sample_requires_copy') {
+        form.setError('root', {
+          message: t(
+            'This sample uses the legacy format. Create a new sample to keep it available to existing pages.'
+          ),
+        })
+        return
+      }
       const message =
         responseError?.message ||
         (error instanceof Error

@@ -21,6 +21,7 @@ var (
 	ErrInvalidVideoSample        = errors.New("invalid video sample")
 	ErrVideoSampleDataCorrupt    = errors.New("video sample data is corrupt")
 	ErrVideoSampleNotPublishable = errors.New("video sample assets are not ready for publishing")
+	ErrVideoSampleRequiresCopy   = errors.New("legacy video samples cannot be updated with the new format; create a new sample")
 )
 
 type VideoSampleInput struct {
@@ -242,6 +243,9 @@ func UpdateVideoSample(ctx context.Context, db *gorm.DB, id int64, adminUserID i
 				return ErrVideoSampleNotFound
 			}
 			return err
+		}
+		if _, err := decodeVideoSampleReferenceSnapshots(existing.ReferenceAssetIDs, nil); err != nil {
+			return ErrVideoSampleRequiresCopy
 		}
 		previousAssetIDs, err := videoSampleAssetIDs(existing)
 		if err != nil {

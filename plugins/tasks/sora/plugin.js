@@ -129,12 +129,17 @@ function specialSeedanceRequest(req, model, capabilityModel) {
   if (req.metadata !== undefined && (!req.metadata || typeof req.metadata !== "object" || Array.isArray(req.metadata)))
     throw new Error("metadata must be an object");
   const metadata = req.metadata || {};
-  const parameterKeys = ["duration", "seconds", "ratio", "resolution", "generate_audio", "reference_assets"];
+  const legacyKeys = ["reference_image", "reference_video", "input_reference", "image", "images"];
+  const legacyReferences = legacyKeys.some(function (key) { return hasOwn(req, key) || hasOwn(metadata, key); });
+  if (legacyReferences && hasOwn(metadata, "reference_assets")) throw new Error("API3 and API4 references cannot be mixed");
+  const referenceKeys = legacyReferences ? legacyKeys : ["reference_assets"];
+  const parameterKeys = ["duration", "seconds", "ratio", "resolution", "generate_audio"].concat(referenceKeys);
   for (const key of Object.keys(metadata))
     if (!parameterKeys.includes(key)) throw new Error("unsupported Seedance metadata parameter: " + key);
   for (const key of Object.keys(req))
-    if (!["model", "prompt", "mode", "group", "metadata", "duration", "seconds", "ratio", "resolution", "generate_audio"].includes(key))
+    if (!["model", "prompt", "mode", "group", "metadata", "duration", "seconds", "ratio", "resolution", "generate_audio"].concat(legacyReferences ? legacyKeys : []).includes(key))
       throw new Error("unsupported Seedance request field: " + key);
+  if (legacyReferences) return specialSeedanceRequestAPI3(req, model, capabilityModel);
   const result = { model: model, prompt: req.prompt, duration: specialSeedanceDuration(req, capabilityModel) };
   const copyFromRequest = function (key) {
     if (hasOwn(req, key) && hasOwn(metadata, key) && req[key] !== metadata[key]) throw new Error(key + " fields must match");
@@ -185,6 +190,39 @@ function specialSeedanceRequest(req, model, capabilityModel) {
 
   for (const key of ["reference_image", "reference_video", "reference_audio", "input_reference", "image", "images"])
     if (hasOwn(req, key) || hasOwn(metadata, key)) throw new Error("legacy reference field is unsupported: " + key);
+
+  return result;
+}
+
+function specialSeedanceRequestAPI3(req, model, capabilityModel) {
+  const metadata = req && req.metadata && typeof req.metadata === "object" && !Array.isArray(req.metadata) ? req.metadata : {};
+  const result = { model: model, prompt: req.prompt, duration: specialSeedanceDuration(req, capabilityModel) };
+  const copyFromRequest = function (key) {
+    if (hasOwn(req, key) && req[key] !== undefined && req[key] !== null && req[key] !== "") return req[key];
+    if (hasOwn(metadata, key)) return metadata[key];
+    return undefined;
+  };
+
+  ["ratio", "resolution", "reference_video", "generate_audio"].forEach(function (key) {
+    const value = copyFromRequest(key);
+    if (value !== undefined && value !== null && value !== "") result[key] = value;
+  });
+
+  // Studio duplicates one reference under compatibility aliases. Accept those
+  // copies, but never silently discard an additional or conflicting image.
+  let referenceImage = "";
+  for (const source of [req, metadata]) {
+    if (source.images !== undefined && (!Array.isArray(source.images) || source.images.length > 1))
+      throw new Error("Seedance accepts at most one reference image");
+    for (const value of [source.reference_image, source.input_reference, source.image].concat(source.images || [])) {
+      if (value === undefined || value === null || value === "") continue;
+      if (typeof value !== "string") throw new Error("reference image must be a string");
+      const image = value.trim();
+      if (referenceImage && image && referenceImage !== image) throw new Error("reference image fields must match");
+      if (image) referenceImage = image;
+    }
+  }
+  if (referenceImage) result.reference_image = referenceImage;
 
   return result;
 }

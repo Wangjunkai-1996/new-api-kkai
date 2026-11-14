@@ -8412,6 +8412,7 @@
     "This route is used only by channel management to query the upstream balance.": "此路由仅供渠道管理查询上游余额。",
     "This rule does not have include_rule_name enabled, so its cache cannot be cleared by rule": "该规则未启用 include_rule_name，无法按规则清空缓存",
     "This rule shares its cache and cannot be cleared separately.": "此规则使用共享缓存，无法单独清空。",
+    "This sample uses the legacy format. Create a new sample to keep it available to existing pages.": "此样例使用旧格式。请新建样例，保留原样例供现有页面使用。",
     "This server cannot create a guided API key yet. Please retry later.": "当前服务暂不支持引导式创建 API Key，请稍后重试。",
     "This session will lose access immediately and must sign in again.": "此会话将立即失去访问权限，并且必须重新登录。",
     "This site already has a domain. Each site can have only one domain.": "此站点已有域名，每个站点只能分配一个域名。",

@@ -111,7 +111,13 @@ func CreateVideoAssetUpload(
 			return nil, ErrInvalidVideoAssetUpload
 		}
 		maxBytes = uploadLimits.ReferenceVideoMaxBytes
+		if IsVideoStudioAPI3(ctx) {
+			maxBytes = uploadLimits.ArchiveMaxBytes
+		}
 	case model.VideoUploadPurposeReferenceAudio:
+		if IsVideoStudioAPI3(ctx) {
+			return nil, ErrInvalidVideoAssetUpload
+		}
 		if !isSupportedAudioMIME(request.MIMEType) {
 			return nil, ErrInvalidVideoAssetUpload
 		}

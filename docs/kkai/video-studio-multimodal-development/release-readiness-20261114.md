@@ -1,6 +1,28 @@
 # 多模态视频工作室：发布前审查与阻断
 
-日期：2026-11-14。用户已授权应用提交、推送和蓝绿上线。本记录区分应用代码交付与尚未满足的生产发布条件；没有构建、stage、promote 或执行生产数据库变更。
+日期：2026-11-14。用户已授权应用提交、推送和蓝绿上线。本记录区分应用代码交付与生产发布条件；初次记录时没有构建、stage、promote 或执行生产数据库变更。
+
+## 后续授权与审查进展
+
+用户随后授权完成必要的配套发布操作，约束为不影响线上用户；并明确接手上线后的真实上传、生成和结算业务测试。代理不将这些业务 E2E 记为通过。下面原始阻断记录保留审查历史，最新实现以本节及 `api3-rollout-compatibility.md` 为准。
+
+- 新创作页面仍只有一套流程；发布过渡后端已保留相邻 API3 的实际行为，同时提供 API4。持久开关默认关闭，激活新前端前须使 active、writer 和 rollback 全部支持新协议。
+- API4 不得原地转换旧样片，返回 `409 video_sample_requires_copy`；API3 样片写入保留冻结能力版本。定向回归验证旧记录、引用和 outbox 不变，新格式可另建。
+- Linux 真实迁移二进制隔离演练已验证过期 proof、可写 proof mount 拒绝、只读 proof 成功、扩展回执和物理列一致、canonical ledger 不变、迁移角色关闭。证据：`.local-releases/video-media-20261114/cli-proof-result.json`。这是本地证据，不是生产迁移完成。
+- 外置适配器源码已定位到 `/Users/tokk/Documents/Codex/2026-07-22/ni-ka/seedance-special-adapter`。实际生产旧二进制与本地新二进制的 11 个既有型号均通过新任务 ID 查询及下载回退验证；旧标量请求的上游路径和 JSON 全等，显式 `generate_audio:false` 保留。未发布型号的创建请求拒绝，未调用付费供应商。
+- 配套 infra 新增受控扩展和独立适配器切换入口。上线前仍须完成 mandatory policy、精确控制器安装、备份与扩展、正式产物验证、完整灰度、前端激活及发布后观察。
+
+本轮追加验证：
+
+```sh
+bash scripts/kkai/build-manual-release_test.sh
+bash scripts/kkai/deploy-manual-release_test.sh
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/kkai/prepare-maintenance-release_test.py
+GOTOOLCHAIN=local go test -modfile=/tmp/new-api-kkai-go-test.mod ./service ./controller -run '^(TestVideoStudioAPI3SamplesRetainSnapshotVersionAndRequireAPI4Copy|TestVideoStudioMultimodalErrorsHaveStableHTTPContract|Test.*VideoSample)' -count=1 -timeout=120s
+git diff --check
+```
+
+以上通过；准备脚本 13 项通过。前端视频与契约范围 30 文件/293 项通过，旧样片错误提示补充的 9 项及 TypeScript 检查通过。应用全仓测试未运行。
 
 ## 本轮审查修复
 

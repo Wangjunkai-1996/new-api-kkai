@@ -70,7 +70,7 @@ func registerImageStudioAPIRoutes(apiRouter *gin.RouterGroup) {
 
 func registerVideoStudioAPIRoutes(apiRouter *gin.RouterGroup) {
 	videoStudio := apiRouter.Group("/video-studio")
-	videoStudio.Use(middleware.UserAuth(), middleware.VideoStudioAccess())
+	videoStudio.Use(middleware.UserAuth(), middleware.VideoStudioAccess(), controller.VideoStudioAPIContract)
 	{
 		videoStudio.GET("/models", controller.ListVideoStudioModels)
 		videoStudio.GET("/token", controller.GetVideoStudioTokenStatus)
@@ -98,7 +98,7 @@ func registerVideoStudioAPIRoutes(apiRouter *gin.RouterGroup) {
 	}
 
 	adminVideoStudio := apiRouter.Group("/admin/video-studio")
-	adminVideoStudio.Use(middleware.AdminAuth())
+	adminVideoStudio.Use(middleware.AdminAuth(), controller.VideoStudioAPIContract)
 	{
 		adminVideoStudio.GET("/model-candidates", controller.AdminListVideoStudioModelCandidates)
 		adminVideoStudio.GET("/model-profiles", controller.AdminListVideoStudioModelProfiles)

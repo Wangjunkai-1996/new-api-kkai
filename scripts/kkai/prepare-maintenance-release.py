@@ -59,6 +59,8 @@ MAINTENANCE_PROFILES = {
     "tenant-online-v1": ("tenant-online-preparation", TENANT_ONLINE_SCHEMA_CONTRACT),
     "rc49-expansion-v1": ("rc49-online-preparation", json.loads(
         Path(__file__).with_name("rc49-expansion-contract.json").read_text())),
+    "video-media-metadata-v1": ("video-media-metadata-preparation", json.loads(
+        Path(__file__).with_name("video-media-metadata-contract.json").read_text())),
 }
 REQUIRED_CAPABILITIES = {
     "dashboard_jwt", "scoped_access_tokens", "task_plugins", "studio_media_urls",
@@ -101,7 +103,7 @@ def release_plan(metadata_path, planned_infra_sha, planned_protocol):
     if planned_protocol not in MAINTENANCE_PROFILES:
         raise ValueError("unsupported planned maintenance protocol")
     purpose, expected_schema = MAINTENANCE_PROFILES[planned_protocol]
-    online = planned_protocol in {"tenant-online-v1", "rc49-expansion-v1"}
+    online = planned_protocol in {"tenant-online-v1", "rc49-expansion-v1", "video-media-metadata-v1"}
     build_profile = "bridge" if planned_protocol == "tenant-online-v1" else "feature"
     release_purpose = purpose if online else "maintenance-preparation"
     if metadata_path.is_symlink() or not metadata_path.is_file():
@@ -142,8 +144,12 @@ def release_plan(metadata_path, planned_infra_sha, planned_protocol):
             or labels.get("io.kkrich.frontend-mode") != "external"):
         raise ValueError("archive image identity does not match release metadata")
     console = json.loads(labels["io.kkrich.console-contract"])
+    expected_api_contracts = {
+        "rc49-expansion-v1": [2, 3],
+        "video-media-metadata-v1": [3, 4],
+    }.get(planned_protocol, [2])
     if (console != metadata.get("console_contract") or console.get("format_version") != 1
-            or console.get("api_contracts") != ([2, 3] if planned_protocol == "rc49-expansion-v1" else [2])
+            or console.get("api_contracts") != expected_api_contracts
             or not REQUIRED_CAPABILITIES.issubset(console.get("capabilities", []))):
         raise ValueError("maintenance release requires the exact reviewed console API declaration")
     source_tree = run("git", "-C", str(ROOT), "rev-parse", f"{source}^{{tree}}")
@@ -215,7 +221,7 @@ def main():
     parser.add_argument("--planned-deployment-protocol", required=True)
     args = parser.parse_args()
     metadata_path = args.metadata.absolute()
-    online = args.planned_deployment_protocol in {"tenant-online-v1", "rc49-expansion-v1"}
+    online = args.planned_deployment_protocol in {"tenant-online-v1", "rc49-expansion-v1", "video-media-metadata-v1"}
     plan_path = metadata_path.with_suffix(".online.json" if online else ".maintenance.json")
     if args.action == "create" and (plan_path.exists() or plan_path.is_symlink()):
         raise ValueError("maintenance plan already exists; verify or reuse it, never overwrite")
@@ -226,7 +232,11 @@ def main():
         plan_path.chmod(0o444)
     elif plan_path.is_symlink() or json.loads(plan_path.read_text()) != expected:
         raise ValueError("maintenance plan no longer matches the release or planned infrastructure")
-    prefix = "RC49_ONLINE" if args.planned_deployment_protocol == "rc49-expansion-v1" else "TENANT_ONLINE" if online else "MAINTENANCE"
+    prefix = {
+        "rc49-expansion-v1": "RC49_ONLINE",
+        "tenant-online-v1": "TENANT_ONLINE",
+        "video-media-metadata-v1": "VIDEO_MEDIA_METADATA",
+    }.get(args.planned_deployment_protocol, "MAINTENANCE")
     print(f"{prefix}_RELEASE_PLAN={plan_path}")
     print(f"{prefix}_RELEASE_PLAN_SHA256={digest_file(plan_path)}")
     print(f"{prefix}_RELEASE_RESULT=prepared-only")

@@ -705,7 +705,9 @@ func (pipeline *VideoAssetPipeline) copyObjectToTemporaryFile(ctx context.Contex
 		case isSupportedReferenceMIME(mediaType):
 			maxBytes = video_studio_setting.Get().MaxReferenceBytes
 		case isSupportedVideoMIME(mediaType):
-			maxBytes = video_studio_setting.Get().UploadLimits().ReferenceVideoMaxBytes
+			// Pending API3 uploads retain the old server safety bound; API4 upload
+			// reservations and submit validation enforce the tighter model limit.
+			maxBytes = video_studio_setting.Get().MaxArchivedVideoBytes
 		case isSupportedAudioMIME(mediaType):
 			maxBytes = video_studio_setting.Get().UploadLimits().AudioMaxBytes
 		default:

@@ -188,7 +188,8 @@ if [[ "${prepare_online}" == true ]]; then
   case "${planned_deployment_protocol}:${schema_contract}" in
     tenant-online-v1:bridge) online_release_purpose=tenant-online-preparation ;;
     rc49-expansion-v1:feature) online_release_purpose=rc49-online-preparation ;;
-    *) die "online preparation requires tenant-online-v1 bridge or rc49-expansion-v1 feature" ;;
+    video-media-metadata-v1:feature) online_release_purpose=video-media-metadata-preparation ;;
+    *) die "online preparation requires tenant-online-v1 bridge, rc49-expansion-v1 feature or video-media-metadata-v1 feature" ;;
   esac
   command -v python3 >/dev/null || die "missing python3"
 elif [[ "${prepare_maintenance}" == true ]]; then

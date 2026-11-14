@@ -8412,6 +8412,7 @@
     "This route is used only by channel management to query the upstream balance.": "Этот маршрут используется только управлением каналами для запроса баланса поставщика.",
     "This rule does not have include_rule_name enabled, so its cache cannot be cleared by rule": "Для этого правила не включён include_rule_name, поэтому его кэш нельзя очистить по правилу",
     "This rule shares its cache and cannot be cleared separately.": "Это правило использует общий кэш, который нельзя очистить отдельно.",
+    "This sample uses the legacy format. Create a new sample to keep it available to existing pages.": "Этот пример использует старый формат. Создайте новый пример, чтобы сохранить исходный для существующих страниц.",
     "This server cannot create a guided API key yet. Please retry later.": "Этот сервер пока не поддерживает создание ключа API через мастер настройки. Повторите попытку позже.",
     "This session will lose access immediately and must sign in again.": "Этот сеанс немедленно потеряет доступ, и потребуется повторный вход.",
     "This site already has a domain. Each site can have only one domain.": "У этого сайта уже есть домен. Каждому сайту можно назначить только один домен.",

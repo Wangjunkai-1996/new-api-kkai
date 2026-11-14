@@ -459,6 +459,8 @@ test_online_stage_requires_explicit_action_and_verified_plan() {
   local protocol=${1:-tenant-online-v1} action=--stage-online purpose=tenant-online-preparation profile=bridge
   if [[ ${protocol} == rc49-expansion-v1 ]]; then
     action=--stage-rc49 purpose=rc49-online-preparation profile=feature
+  elif [[ ${protocol} == video-media-metadata-v1 ]]; then
+    action=--stage-video-media-metadata purpose=video-media-metadata-preparation profile=feature
   fi
   local online_metadata="${test_root}/online.json" output verify_line preflight_line
   jq --arg purpose "${purpose}" --arg profile "${profile}" '.release_purpose = $purpose | .schema_contract = $profile | .frontend_mode = "external"' \
@@ -987,6 +989,7 @@ test_invalid_schema_contract_prevents_remote_calls
 test_maintenance_preparation_prevents_remote_calls
 test_online_stage_requires_explicit_action_and_verified_plan
 test_online_stage_requires_explicit_action_and_verified_plan rc49-expansion-v1
+test_online_stage_requires_explicit_action_and_verified_plan video-media-metadata-v1
 test_invalid_frontend_mode_prevents_remote_calls
 test_preflight_output_must_match_contract
 test_preflight_protocol_must_match_contract

@@ -22,6 +22,7 @@ const contract = {
     'reseller_sites',
     'reseller_group_pricing',
     'manual_invoice_requests',
+    'video_studio_multimodal',
   ],
 }
 let queryClient: QueryClient
@@ -111,7 +112,11 @@ describe('useConsoleContract', () => {
     expect(result.current.required).toBe(true)
   })
 
-  it.each(['reseller_sites', 'reseller_group_pricing'])(
+  it.each([
+    'reseller_sites',
+    'reseller_group_pricing',
+    'video_studio_multimodal',
+  ])(
     'blocks independent delivery against a backend without %s',
     async (missingCapability) => {
       vi.stubEnv('VITE_KKAI_FRONTEND_DELIVERY', 'independent')

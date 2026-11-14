@@ -59,6 +59,10 @@ type ApiEnvelope<T> = {
   data?: T
 }
 
+const videoStudioRequestConfig = {
+  headers: { 'X-KKAI-Console-API': '4' },
+}
+
 const unwrapVideoStudioResponse = <T>(payload: T | ApiEnvelope<T>): T => {
   if (
     payload &&
@@ -78,6 +82,7 @@ export const getVideoModels = async (
   tokenId: number
 ): Promise<VideoModelProfile[]> => {
   const response = await api.get('/api/video-studio/models', {
+    ...videoStudioRequestConfig,
     params: { token_id: tokenId },
     disableDuplicate: true,
     skipErrorHandler: true,
@@ -90,6 +95,7 @@ export const getVideoSamples = async (
   filters: VideoSampleFilters
 ): Promise<CursorPage<VideoSample>> => {
   const response = await api.get('/api/video-studio/samples', {
+    ...videoStudioRequestConfig,
     params: { ...filters, token_id: tokenId },
     disableDuplicate: true,
     skipErrorHandler: true,
@@ -102,6 +108,7 @@ export const getVideoSample = async (
   tokenId: number
 ): Promise<VideoSample> => {
   const response = await api.get(`/api/video-studio/samples/${id}`, {
+    ...videoStudioRequestConfig,
     params: { token_id: tokenId },
     disableDuplicate: true,
     skipErrorHandler: true,
@@ -112,6 +119,7 @@ export const getVideoSample = async (
 export const getVideoTokenCapability =
   async (): Promise<VideoTokenCapability> => {
     const response = await api.get('/api/video-studio/token', {
+      ...videoStudioRequestConfig,
       disableDuplicate: true,
       skipErrorHandler: true,
     })
@@ -124,7 +132,7 @@ export const createVideoToken = async (): Promise<VideoTokenCreateResult> => {
   const response = await api.post(
     '/api/video-studio/token',
     {},
-    { skipErrorHandler: true }
+    { ...videoStudioRequestConfig, skipErrorHandler: true }
   )
   return videoTokenCreateResultSchema.parse(
     unwrapVideoStudioResponse<unknown>(response.data)
@@ -135,6 +143,7 @@ export const quoteVideoGeneration = async (
   request: VideoQuoteRequest
 ): Promise<VideoQuote> => {
   const response = await api.post('/pg/videos/quote', request, {
+    ...videoStudioRequestConfig,
     skipErrorHandler: true,
   })
   return videoQuoteSchema.parse(
@@ -150,7 +159,10 @@ export const createVideoGeneration = async (
   const identity = getVideoSubmissionIdentity()
   const transport = getAdapter(api.defaults.adapter)
   const response = await api.post('/pg/videos', request, {
-    headers: { 'Idempotency-Key': idempotencyKey },
+    headers: {
+      ...videoStudioRequestConfig.headers,
+      'Idempotency-Key': idempotencyKey,
+    },
     skipErrorHandler: true,
     skipAuthRefresh: true,
     // Axios request interceptors are asynchronous. Recheck at the actual transport boundary.
@@ -171,6 +183,7 @@ export const getVideoGenerations = async (
   filters: VideoGenerationFilters
 ): Promise<CursorPage<VideoGeneration>> => {
   const response = await api.get('/api/video-studio/generations', {
+    ...videoStudioRequestConfig,
     params: filters,
     disableDuplicate: true,
     skipErrorHandler: true,
@@ -183,6 +196,7 @@ export const getVideoGeneration = async (
   options: { silent?: boolean } = {}
 ): Promise<VideoGeneration> => {
   const response = await api.get(`/api/video-studio/generations/${id}`, {
+    ...videoStudioRequestConfig,
     disableDuplicate: true,
     skipErrorHandler: options.silent,
   })
@@ -191,6 +205,7 @@ export const getVideoGeneration = async (
 
 export const deleteVideoGeneration = async (id: number): Promise<void> => {
   await api.delete(`/api/video-studio/generations/${id}`, {
+    ...videoStudioRequestConfig,
     skipErrorHandler: true,
   })
 }
@@ -203,6 +218,7 @@ export const createVideoUpload = async (
     ? '/api/admin/video-studio/uploads'
     : '/api/video-studio/uploads'
   const response = await api.post(path, request, {
+    ...videoStudioRequestConfig,
     skipErrorHandler: true,
   })
   return unwrapVideoStudioResponse<VideoUploadReservation>(response.data)
@@ -218,6 +234,7 @@ export const completeVideoUpload = async (
     ? `/api/admin/video-studio/uploads/${id}/complete`
     : `/api/video-studio/uploads/${id}/complete`
   const response = await api.post(path, request, {
+    ...videoStudioRequestConfig,
     signal,
     skipErrorHandler: true,
   })
@@ -237,6 +254,7 @@ export const signVideoUploadPart = async (
     path,
     {},
     {
+      ...videoStudioRequestConfig,
       signal,
       skipErrorHandler: true,
     }
@@ -253,6 +271,7 @@ export const listVideoUploadParts = async (
     ? `/api/admin/video-studio/uploads/${id}/parts`
     : `/api/video-studio/uploads/${id}/parts`
   const response = await api.get(path, {
+    ...videoStudioRequestConfig,
     signal,
     disableDuplicate: true,
     skipErrorHandler: true,
@@ -272,6 +291,7 @@ export const abortVideoUpload = async (
     ? `/api/admin/video-studio/uploads/${id}`
     : `/api/video-studio/uploads/${id}`
   await api.delete(path, {
+    ...videoStudioRequestConfig,
     signal,
     skipErrorHandler: true,
   })
@@ -285,6 +305,7 @@ export const getVideoUpload = async (
     ? `/api/admin/video-studio/uploads/${id}`
     : `/api/video-studio/uploads/${id}`
   const response = await api.get(path, {
+    ...videoStudioRequestConfig,
     disableDuplicate: true,
     skipErrorHandler: true,
   })
@@ -299,6 +320,7 @@ export const getVideoAsset = async (
     ? `/api/admin/video-studio/assets/${id}`
     : `/api/video-studio/assets/${id}`
   const response = await api.get(path, {
+    ...videoStudioRequestConfig,
     disableDuplicate: true,
     skipErrorHandler: true,
   })
@@ -307,6 +329,7 @@ export const getVideoAsset = async (
 
 export const deleteVideoAsset = async (id: number): Promise<void> => {
   await api.delete(`/api/video-studio/assets/${id}`, {
+    ...videoStudioRequestConfig,
     skipErrorHandler: true,
   })
 }
@@ -320,7 +343,10 @@ export const getVideoAssetContentUrl = (
 }
 
 export const getAdminVideoModels = async (): Promise<VideoModelProfile[]> => {
-  const response = await api.get('/api/admin/video-studio/model-profiles')
+  const response = await api.get(
+    '/api/admin/video-studio/model-profiles',
+    videoStudioRequestConfig
+  )
   return unwrapVideoStudioResponse<VideoModelProfile[]>(response.data)
 }
 
@@ -332,14 +358,21 @@ export const getVideoSubmissionByKey = async (
   generation_id?: number
 }> => {
   const response = await api.get('/api/video-studio/submissions/by-key', {
-    headers: { 'Idempotency-Key': idempotencyKey },
+    disableDuplicate: true,
+    headers: {
+      ...videoStudioRequestConfig.headers,
+      'Idempotency-Key': idempotencyKey,
+    },
     skipErrorHandler: true,
   })
   return unwrapVideoStudioResponse(response.data)
 }
 
 export const getAdminVideoModelCandidates = async (): Promise<string[]> => {
-  const response = await api.get('/api/admin/video-studio/model-candidates')
+  const response = await api.get(
+    '/api/admin/video-studio/model-candidates',
+    videoStudioRequestConfig
+  )
   return unwrapVideoStudioResponse<string[]>(response.data)
 }
 
@@ -349,7 +382,7 @@ export const createAdminVideoModel = async (
   const response = await api.post(
     '/api/admin/video-studio/model-profiles',
     input,
-    { skipErrorHandler: true }
+    { ...videoStudioRequestConfig, skipErrorHandler: true }
   )
   return unwrapVideoStudioResponse<VideoModelProfile>(response.data)
 }
@@ -361,19 +394,23 @@ export const updateAdminVideoModel = async (
   const response = await api.put(
     `/api/admin/video-studio/model-profiles/${id}`,
     input,
-    { skipErrorHandler: true }
+    { ...videoStudioRequestConfig, skipErrorHandler: true }
   )
   return unwrapVideoStudioResponse<VideoModelProfile>(response.data)
 }
 
 export const deleteAdminVideoModel = async (id: number): Promise<void> => {
-  await api.delete(`/api/admin/video-studio/model-profiles/${id}`)
+  await api.delete(
+    `/api/admin/video-studio/model-profiles/${id}`,
+    videoStudioRequestConfig
+  )
 }
 
 export const getAdminVideoSamples = async (
   filters: VideoSampleFilters
 ): Promise<CursorPage<VideoSample>> => {
   const response = await api.get('/api/admin/video-studio/samples', {
+    ...videoStudioRequestConfig,
     params: filters,
     disableDuplicate: true,
   })
@@ -382,6 +419,7 @@ export const getAdminVideoSamples = async (
 
 export const getAdminVideoSample = async (id: number): Promise<VideoSample> => {
   const response = await api.get(`/api/admin/video-studio/samples/${id}`, {
+    ...videoStudioRequestConfig,
     disableDuplicate: true,
   })
   return unwrapVideoStudioResponse<VideoSample>(response.data)
@@ -391,6 +429,7 @@ export const createAdminVideoSample = async (
   input: VideoSampleInput
 ): Promise<VideoSample> => {
   const response = await api.post('/api/admin/video-studio/samples', input, {
+    ...videoStudioRequestConfig,
     skipErrorHandler: true,
   })
   return unwrapVideoStudioResponse<VideoSample>(response.data)
@@ -404,6 +443,7 @@ export const updateAdminVideoSample = async (
     `/api/admin/video-studio/samples/${id}`,
     input,
     {
+      ...videoStudioRequestConfig,
       skipErrorHandler: true,
     }
   )
@@ -411,5 +451,8 @@ export const updateAdminVideoSample = async (
 }
 
 export const deleteAdminVideoSample = async (id: number): Promise<void> => {
-  await api.delete(`/api/admin/video-studio/samples/${id}`)
+  await api.delete(
+    `/api/admin/video-studio/samples/${id}`,
+    videoStudioRequestConfig
+  )
 }

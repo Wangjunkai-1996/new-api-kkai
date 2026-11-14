@@ -8412,6 +8412,7 @@
     "This route is used only by channel management to query the upstream balance.": "Cette route sert uniquement à la gestion du canal pour consulter le solde amont.",
     "This rule does not have include_rule_name enabled, so its cache cannot be cleared by rule": "Cette règle n'a pas include_rule_name activé ; son cache ne peut donc pas être vidé par règle",
     "This rule shares its cache and cannot be cleared separately.": "Cette règle utilise un cache partagé qui ne peut pas être vidé séparément.",
+    "This sample uses the legacy format. Create a new sample to keep it available to existing pages.": "Cet exemple utilise l’ancien format. Créez un nouvel exemple pour conserver l’original sur les pages existantes.",
     "This server cannot create a guided API key yet. Please retry later.": "Ce serveur ne permet pas encore de créer une clé API avec la configuration guidée. Veuillez réessayer plus tard.",
     "This session will lose access immediately and must sign in again.": "Cette session perdra immédiatement l’accès et devra se reconnecter.",
     "This site already has a domain. Each site can have only one domain.": "Ce site a déjà un domaine. Un seul domaine est autorisé par site.",

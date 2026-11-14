@@ -8412,6 +8412,7 @@
     "This route is used only by channel management to query the upstream balance.": "This route is used only by channel management to query the upstream balance.",
     "This rule does not have include_rule_name enabled, so its cache cannot be cleared by rule": "This rule does not have include_rule_name enabled, so its cache cannot be cleared by rule",
     "This rule shares its cache and cannot be cleared separately.": "This rule shares its cache and cannot be cleared separately.",
+    "This sample uses the legacy format. Create a new sample to keep it available to existing pages.": "This sample uses the legacy format. Create a new sample to keep it available to existing pages.",
     "This server cannot create a guided API key yet. Please retry later.": "This server cannot create a guided API key yet. Please retry later.",
     "This session will lose access immediately and must sign in again.": "This session will lose access immediately and must sign in again.",
     "This site already has a domain. Each site can have only one domain.": "This site already has a domain. Each site can have only one domain.",

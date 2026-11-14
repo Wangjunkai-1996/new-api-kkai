@@ -10,11 +10,12 @@ import (
 func TestConsoleContract(t *testing.T) {
 	contract := ConsoleContract()
 	require.Equal(t, 1, contract.FormatVersion)
-	// Contract 4 requires the multimodal Studio request and response contract.
-	// Older Studio clients are incompatible and must fail the release gate.
-	require.Equal(t, []int{4}, contract.APIContracts)
+	// Contract 3 retains the frozen Studio facade for existing tabs during
+	// rollout and rollback; contract 4 adds the multimodal Studio protocol.
+	require.Equal(t, []int{3, 4}, contract.APIContracts)
 	assert.Contains(t, contract.Capabilities, "token_group_inline")
 	assert.Contains(t, contract.Capabilities, "video_sample_categories")
+	assert.Contains(t, contract.Capabilities, "video_studio_multimodal")
 	assert.Contains(t, contract.Capabilities, "membership_ratio_quotes")
 	assert.Contains(t, contract.Capabilities, "reseller_sites")
 	assert.Contains(t, contract.Capabilities, "reseller_group_pricing")
@@ -22,5 +23,5 @@ func TestConsoleContract(t *testing.T) {
 	assert.Contains(t, contract.Capabilities, "token_create_result_id")
 	// Callers cannot mutate subsequent status/CLI declarations.
 	contract.APIContracts[0] = 99
-	assert.Equal(t, []int{4}, ConsoleContract().APIContracts)
+	assert.Equal(t, []int{3, 4}, ConsoleContract().APIContracts)
 }

@@ -177,6 +177,7 @@ func TestVideoStudioMultimodalErrorsHaveStableHTTPContract(t *testing.T) {
 		wantStatus int
 		wantCode   string
 	}{
+		{service.ErrVideoSampleRequiresCopy, http.StatusConflict, "video_sample_requires_copy"},
 		{service.ErrIdempotencyConflict, http.StatusConflict, "video_idempotency_conflict"},
 		{service.ErrIdempotencyInProgress, http.StatusConflict, "video_submission_pending"},
 		{service.ErrVideoStudioQuoteExpired, http.StatusConflict, "quote_stale"},

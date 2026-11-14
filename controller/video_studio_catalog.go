@@ -12,6 +12,10 @@ import (
 )
 
 func ListVideoStudioModels(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		ListVideoStudioModelsAPI3(c)
+		return
+	}
 	tokenID, err := videoStudioCatalogTokenID(c)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -28,6 +32,10 @@ func ListVideoStudioModels(c *gin.Context) {
 }
 
 func ListVideoStudioSamples(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		ListVideoStudioSamplesAPI3(c)
+		return
+	}
 	tokenID, err := videoStudioCatalogTokenID(c)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -56,6 +64,10 @@ func ListVideoStudioSamples(c *gin.Context) {
 }
 
 func GetVideoStudioSample(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		GetVideoStudioSampleAPI3(c)
+		return
+	}
 	id, err := videoStudioID(c)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -94,6 +106,10 @@ func videoStudioCatalogTokenID(c *gin.Context) (int, error) {
 }
 
 func AdminListVideoStudioModelProfiles(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		AdminListVideoStudioModelProfilesAPI3(c)
+		return
+	}
 	profiles, err := service.ListVideoModelProfiles(c.Request.Context(), model.DB, true)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -103,6 +119,10 @@ func AdminListVideoStudioModelProfiles(c *gin.Context) {
 }
 
 func AdminListVideoStudioModelCandidates(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		AdminListVideoStudioModelCandidatesAPI3(c)
+		return
+	}
 	candidates, err := service.ListVideoModelCandidates(c.Request.Context(), model.DB)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -112,6 +132,10 @@ func AdminListVideoStudioModelCandidates(c *gin.Context) {
 }
 
 func AdminGetVideoStudioModelProfile(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		AdminGetVideoStudioModelProfileAPI3(c)
+		return
+	}
 	id, err := videoStudioID(c)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -126,6 +150,10 @@ func AdminGetVideoStudioModelProfile(c *gin.Context) {
 }
 
 func AdminCreateVideoStudioModelProfile(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		AdminCreateVideoStudioModelProfileAPI3(c)
+		return
+	}
 	var input service.VideoModelProfileInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		respondVideoStudioError(c, service.ErrInvalidVideoModelSpec)
@@ -140,6 +168,10 @@ func AdminCreateVideoStudioModelProfile(c *gin.Context) {
 }
 
 func AdminUpdateVideoStudioModelProfile(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		AdminUpdateVideoStudioModelProfileAPI3(c)
+		return
+	}
 	id, err := videoStudioID(c)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -159,6 +191,10 @@ func AdminUpdateVideoStudioModelProfile(c *gin.Context) {
 }
 
 func AdminDeleteVideoStudioModelProfile(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		AdminDeleteVideoStudioModelProfileAPI3(c)
+		return
+	}
 	id, err := videoStudioID(c)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -172,6 +208,10 @@ func AdminDeleteVideoStudioModelProfile(c *gin.Context) {
 }
 
 func AdminListVideoStudioSamples(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		AdminListVideoStudioSamplesAPI3(c)
+		return
+	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	page, err := service.ListVideoSamples(
 		c.Request.Context(), model.DB, c.Query("model"), c.Query("category"), c.Query("cursor"), limit, true, nil,
@@ -184,6 +224,10 @@ func AdminListVideoStudioSamples(c *gin.Context) {
 }
 
 func AdminGetVideoStudioSample(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		AdminGetVideoStudioSampleAPI3(c)
+		return
+	}
 	id, err := videoStudioID(c)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -198,6 +242,10 @@ func AdminGetVideoStudioSample(c *gin.Context) {
 }
 
 func AdminCreateVideoStudioSample(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		AdminCreateVideoStudioSampleAPI3(c)
+		return
+	}
 	var input service.VideoSampleInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		respondVideoStudioError(c, service.ErrInvalidVideoSample)
@@ -212,6 +260,10 @@ func AdminCreateVideoStudioSample(c *gin.Context) {
 }
 
 func AdminUpdateVideoStudioSample(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		AdminUpdateVideoStudioSampleAPI3(c)
+		return
+	}
 	id, err := videoStudioID(c)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -231,6 +283,10 @@ func AdminUpdateVideoStudioSample(c *gin.Context) {
 }
 
 func AdminDeleteVideoStudioSample(c *gin.Context) {
+	if service.IsVideoStudioAPI3(c.Request.Context()) {
+		AdminDeleteVideoStudioSampleAPI3(c)
+		return
+	}
 	id, err := videoStudioID(c)
 	if err != nil {
 		respondVideoStudioError(c, err)

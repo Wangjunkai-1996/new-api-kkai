@@ -156,7 +156,9 @@ func TestSoraSpecialSeedanceProjection(t *testing.T) {
 		{name: "malformed metadata is rejected", request: map[string]any{"prompt": "x", "metadata": []any{}}},
 		{name: "conflicting audio fields are rejected", request: map[string]any{"prompt": "x", "generate_audio": false, "metadata": map[string]any{"generate_audio": true}}},
 		{name: "too long for 2.0", request: map[string]any{"prompt": "x", "duration": 16}},
-		{name: "legacy reference fields", request: map[string]any{"prompt": "x", "images": []any{"a"}}},
+		{name: "legacy and new references cannot mix", request: map[string]any{"prompt": "x", "images": []any{"a"}, "metadata": map[string]any{"reference_assets": []any{}}}},
+		{name: "forged compatibility marker is rejected", request: map[string]any{"prompt": "x", "reference_image": "a", "metadata": map[string]any{"studio_api_contract": 3}}},
+		{name: "scalar audio is not an old contract field", request: map[string]any{"prompt": "x", "reference_image": "a", "reference_audio": "b"}},
 		{name: "invalid ordered reference", request: map[string]any{"prompt": "x", "metadata": map[string]any{"reference_assets": []any{map[string]any{"role": "reference_image", "position": -1, "url": "a"}}}}},
 		{name: "reference positions must start at zero", request: map[string]any{"prompt": "x", "metadata": map[string]any{"reference_assets": []any{map[string]any{"role": "reference_image", "position": 1, "url": "a"}}}}},
 		{name: "reference URL must be a string", request: map[string]any{"prompt": "x", "metadata": map[string]any{"reference_assets": []any{map[string]any{"role": "reference_image", "position": 0, "url": map[string]any{"url": "a"}}}}}},
@@ -188,4 +190,48 @@ func TestSoraSpecialSeedanceProjection(t *testing.T) {
 		})
 		require.ErrorContains(t, callErr, "request body rejected")
 	})
+}
+
+func TestSoraSpecialSeedanceAPI3PreservesScalarUpstreamContract(t *testing.T) {
+	source, err := builtinplugins.Source("sora")
+	require.NoError(t, err)
+	plugin, err := jsplugin.NewRegistry().RegisterFactory(source, jsplugin.Options{Key: "sora"})
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name, model   string
+		request, want map[string]any
+	}{
+		{
+			name:    "old Studio duplicated image aliases stay one scalar",
+			model:   "sd_2.0_special_720p",
+			request: map[string]any{"prompt": "move", "mode": "image_to_video", "group": "video-studio", "images": []any{"https://example.invalid/ref.jpg"}, "image": "https://example.invalid/ref.jpg", "duration": 5, "metadata": map[string]any{"duration": 5, "reference_image": "https://example.invalid/ref.jpg", "generate_audio": false}},
+			want:    map[string]any{"model": "sd_2.0_special_720p", "prompt": "move", "duration": float64(5), "reference_image": "https://example.invalid/ref.jpg", "generate_audio": false},
+		},
+		{
+			name:    "old public video request keeps scalar video",
+			model:   "sd_2.5_special_720p_with_video_ref",
+			request: map[string]any{"prompt": "move", "duration": 8, "reference_video": "https://example.invalid/ref.mp4", "ratio": "16:9"},
+			want:    map[string]any{"model": "sd_2.5_special_720p_with_video_ref", "prompt": "move", "duration": float64(8), "reference_video": "https://example.invalid/ref.mp4", "ratio": "16:9"},
+		},
+		{
+			name:    "installed seedance 2.5 alias keeps scalar image",
+			model:   "seedance-2.5",
+			request: map[string]any{"prompt": "move", "input_reference": "https://example.invalid/ref.jpg"},
+			want:    map[string]any{"model": "seedance-2.5", "prompt": "move", "duration": float64(4), "reference_image": "https://example.invalid/ref.jpg"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value, err := plugin.Engine.Call(t.Context(), "buildSubmitRequest", map[string]any{"baseUrl": "https://adapter.invalid", "apiKey": "secret", "model": test.model, "upstreamModel": test.model, "requestBody": test.request, "action": "image_to_video", "files": []any{}})
+			require.NoError(t, err)
+			encoded, err := common.Marshal(value)
+			require.NoError(t, err)
+			var descriptor struct {
+				URL  string         `json:"url"`
+				Body map[string]any `json:"body"`
+			}
+			require.NoError(t, common.Unmarshal(encoded, &descriptor))
+			assert.Equal(t, "https://adapter.invalid/v1/videos", descriptor.URL)
+			assert.Equal(t, test.want, descriptor.Body)
+		})
+	}
 }
