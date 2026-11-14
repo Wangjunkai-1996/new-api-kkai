@@ -19,7 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import { webcrypto } from 'node:crypto'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { useAuthStore } from '@/stores/auth-store'
@@ -28,6 +35,7 @@ import { useVideoStudioDraftStore } from '@/stores/video-studio-draft-store'
 import type { VideoTokenGateState } from '../hooks/use-video-token-gate'
 import type {
   CreateVideoRequest,
+  VideoAsset,
   VideoModelProfile,
   VideoQuoteRequest,
   VideoSample,
@@ -91,6 +99,96 @@ const samples: VideoSample[] = models.map((profile) => ({
   created_at: 1,
   updated_at: 1,
 }))
+
+const referenceAsset: VideoAsset = {
+  id: 81,
+  scope: 'catalog',
+  kind: 'reference',
+  state: 'ready',
+  original_filename: 'product.png',
+  mime_type: 'image/png',
+  size_bytes: 1024,
+  width: 512,
+  height: 512,
+  duration_seconds: 0,
+  codec: '',
+  content_url: 'https://media.example/product.png',
+  created_at: 1,
+  updated_at: 1,
+}
+
+const referenceModel: VideoModelProfile = {
+  ...models[0],
+  specification_version: 2,
+  specification: {
+    version: 2,
+    modes: ['text_to_video', 'reference_to_video'],
+    parameters: [
+      {
+        key: 'duration',
+        label: 'Duration',
+        control: 'number',
+        required: true,
+        min: 4,
+        max: 12,
+        step: 1,
+      },
+      {
+        key: 'camera_motion',
+        label: 'Camera motion',
+        control: 'select',
+        required: true,
+        modes: ['reference_to_video'],
+        options: [{ label: 'Orbit', value: 'orbit' }],
+      },
+      {
+        key: 'text_style',
+        label: 'Text style',
+        control: 'select',
+        required: true,
+        modes: ['text_to_video'],
+        options: [{ label: 'Cinematic', value: 'cinematic' }],
+      },
+    ],
+    reference_policy: {
+      max_total_count: 3,
+      requires_visual: true,
+      requires_video: false,
+      audio_requires_generate_audio: false,
+      image: {
+        allowed_mime_types: ['image/png'],
+        max_count: 3,
+        max_size_bytes: 20_971_520,
+        min_width: 301,
+        max_width: 5999,
+        min_height: 301,
+        max_height: 5999,
+        min_aspect_ratio_exclusive: 0.4,
+        max_aspect_ratio_exclusive: 2.5,
+      },
+    },
+  },
+  default_parameters: {
+    duration: 5,
+    camera_motion: 'orbit',
+    text_style: 'cinematic',
+  },
+}
+
+const referenceSample: VideoSample = {
+  ...samples[0],
+  mode: 'reference_to_video',
+  model_version: 2,
+  parameters: { duration: 10, camera_motion: 'orbit' },
+  reference_assets: [
+    {
+      asset_id: referenceAsset.id,
+      role: 'reference_image',
+      position: 0,
+      asset: referenceAsset,
+    },
+  ],
+}
 
 const videoTokenGate: VideoTokenGateState = {
   access: {
@@ -632,4 +730,245 @@ test('expired quote responses show an explicit refresh action and never loop or 
   expect(screen.getByText('videoStudio.quoteUnavailable')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Refresh quote' })).toBeEnabled()
   expect(apiMocks.createVideoGeneration).not.toHaveBeenCalled()
+})
+
+test('mode parameter changes require confirmation and cancel preserves the complete draft', async () => {
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={[referenceModel]}
+        sample={referenceSample}
+        videoTokenGate={videoTokenGate}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  const original = useVideoStudioDraftStore.getState().draft
+  expect(original).toMatchObject({
+    model_profile_id: referenceModel.id,
+    mode: 'reference_to_video',
+    parameters: { duration: 10, camera_motion: 'orbit' },
+    references: [expect.objectContaining({ asset_id: 81, included: true })],
+  })
+  apiMocks.quoteVideoGeneration.mockClear()
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Options for product.png' })
+  )
+  fireEvent.click(
+    screen.getByRole('menuitem', { name: 'Exclude from this generation' })
+  )
+  const dialog = screen.getByRole('alertdialog', {
+    name: 'Apply parameter changes?',
+  })
+  expect(dialog).toHaveTextContent(
+    'This change requires the following parameter updates. Review them before continuing.'
+  )
+  expect(dialog).toHaveTextContent(/Camera motion.*Orbit → Not used/)
+  expect(dialog).toHaveTextContent(/Text style.*Not set → Cinematic/)
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  expect(apiMocks.quoteVideoGeneration).not.toHaveBeenCalled()
+  expect(useVideoStudioDraftStore.getState().draft).toEqual(original)
+
+  await act(async () =>
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Keep editing' })
+    )
+  )
+  expect(useVideoStudioDraftStore.getState().draft).toEqual(original)
+  expect(
+    screen.getByRole('combobox', { name: 'videoStudio.model' })
+  ).toHaveValue(String(referenceModel.id))
+  expect(
+    screen.getByRole('button', { name: 'Options for product.png' })
+  ).toBeInTheDocument()
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Options for product.png' })
+  )
+  fireEvent.click(
+    screen.getByRole('menuitem', { name: 'Exclude from this generation' })
+  )
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }))
+  )
+  expect(useVideoStudioDraftStore.getState().draft).toMatchObject({
+    model_profile_id: referenceModel.id,
+    mode: 'text_to_video',
+    parameters: { duration: 10, text_style: 'cinematic' },
+    references: [expect.objectContaining({ asset_id: 81, included: false })],
+  })
+  expect(
+    useVideoStudioDraftStore.getState().draft?.parameters
+  ).not.toHaveProperty('camera_motion')
+  expect(apiMocks.quoteVideoGeneration).not.toHaveBeenCalled()
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(apiMocks.quoteVideoGeneration).toHaveBeenCalledExactlyOnceWith({
+    token_id: 17,
+    model: referenceModel.model,
+    specification_version: 2,
+    mode: 'text_to_video',
+    prompt: referenceSample.prompt,
+    parameters: { duration: 10, text_style: 'cinematic' },
+    reference_assets: [],
+    sample_id: referenceSample.id,
+  })
+})
+
+test('model parameter changes show concrete replacements and do not reprice until accepted', async () => {
+  const nextModel: VideoModelProfile = {
+    ...referenceModel,
+    ...models[1],
+    specification_version: 2,
+    specification: {
+      ...referenceModel.specification,
+      parameters: [
+        {
+          key: 'duration',
+          label: 'Duration',
+          control: 'number',
+          required: true,
+          min: 4,
+          max: 8,
+          step: 1,
+        },
+        {
+          key: 'camera_motion',
+          label: 'Camera motion',
+          control: 'select',
+          required: true,
+          options: [{ label: 'Static', value: 'static' }],
+        },
+      ],
+    },
+    default_parameters: { duration: 6, camera_motion: 'static' },
+  }
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={[referenceModel, nextModel]}
+        sample={referenceSample}
+        videoTokenGate={videoTokenGate}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  const original = useVideoStudioDraftStore.getState().draft
+  apiMocks.quoteVideoGeneration.mockClear()
+
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'videoStudio.model' }),
+    { target: { value: String(nextModel.id) } }
+  )
+  const dialog = screen.getByRole('alertdialog', {
+    name: 'Apply parameter changes?',
+  })
+  expect(dialog).toHaveTextContent(/Duration.*10 → 6/)
+  expect(dialog).toHaveTextContent(/Camera motion.*Orbit → Static/)
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  expect(apiMocks.quoteVideoGeneration).not.toHaveBeenCalled()
+  expect(useVideoStudioDraftStore.getState().draft).toEqual(original)
+  await act(async () =>
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Keep editing' })
+    )
+  )
+  expect(useVideoStudioDraftStore.getState().draft).toEqual(original)
+  expect(
+    screen.getByRole('combobox', { name: 'videoStudio.model' })
+  ).toHaveValue(String(referenceModel.id))
+
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'videoStudio.model' }),
+    { target: { value: String(nextModel.id) } }
+  )
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }))
+  )
+  expect(useVideoStudioDraftStore.getState().draft).toMatchObject({
+    model_profile_id: nextModel.id,
+    mode: 'reference_to_video',
+    prompt: referenceSample.prompt,
+    parameters: { duration: 6, camera_motion: 'static' },
+    references: original?.references,
+  })
+  expect(apiMocks.quoteVideoGeneration).not.toHaveBeenCalled()
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(apiMocks.quoteVideoGeneration).toHaveBeenCalledExactlyOnceWith({
+    token_id: 17,
+    model: nextModel.model,
+    specification_version: 2,
+    mode: 'reference_to_video',
+    prompt: referenceSample.prompt,
+    parameters: { duration: 6, camera_motion: 'static' },
+    reference_assets: [{ asset_id: 81, role: 'reference_image', position: 0 }],
+    sample_id: undefined,
+  })
+})
+
+test('model and mode changes without parameter differences apply directly and retain references', async () => {
+  const commonModel: VideoModelProfile = {
+    ...referenceModel,
+    specification: {
+      ...referenceModel.specification,
+      parameters: [referenceModel.specification.parameters[0]],
+    },
+    default_parameters: { duration: 5 },
+  }
+  const nextModel = {
+    ...commonModel,
+    id: models[1].id,
+    model: models[1].model,
+    display_name: models[1].display_name,
+  }
+  const sample = { ...referenceSample, parameters: { duration: 10 } }
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={[commonModel, nextModel]}
+        sample={sample}
+        videoTokenGate={videoTokenGate}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  const references = useVideoStudioDraftStore.getState().draft?.references
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'videoStudio.model' }),
+    { target: { value: String(nextModel.id) } }
+  )
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(useVideoStudioDraftStore.getState().draft).toMatchObject({
+    model_profile_id: nextModel.id,
+    parameters: { duration: 10 },
+    references,
+  })
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Options for product.png' })
+  )
+  fireEvent.click(
+    screen.getByRole('menuitem', { name: 'Exclude from this generation' })
+  )
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(useVideoStudioDraftStore.getState().draft).toMatchObject({
+    model_profile_id: nextModel.id,
+    mode: 'text_to_video',
+    parameters: { duration: 10 },
+    references: [expect.objectContaining({ asset_id: 81, included: false })],
+  })
+  fireEvent.click(screen.getByText('Not used in this generation (1)'))
+  fireEvent.click(screen.getByRole('button', { name: 'Restore reference' }))
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(useVideoStudioDraftStore.getState().draft).toMatchObject({
+    model_profile_id: nextModel.id,
+    mode: 'reference_to_video',
+    parameters: { duration: 10 },
+    references,
+  })
 })

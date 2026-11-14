@@ -53,6 +53,9 @@ import { useVideoSubmission } from '../hooks/use-video-submission'
 import type { VideoTokenGateState } from '../hooks/use-video-token-gate'
 import { useVideoQuote, useVideoReferenceAssetHydration } from '../queries'
 import {
+  getVideoModelPreset,
+  VIDEO_PARAMETER_LABEL_KEYS,
+  VIDEO_PARAMETER_OPTION_LABEL_KEYS,
   VIDEO_PROMPT_MAX_LENGTH,
   validateComposerForProfile,
   videoComposerSchema,
@@ -62,6 +65,7 @@ import type {
   VideoComposerValues,
   VideoGeneration,
   VideoModelProfile,
+  VideoParameterValue,
   VideoSample,
   VideoStudioApiError,
   VideoSubmissionReceipt,
@@ -109,6 +113,7 @@ export function VideoComposer(props: VideoComposerProps) {
   const [appliedSampleId, setAppliedSampleId] = useState<number>()
   const [pendingChange, setPendingChange] = useState<{
     apply: () => void
+    parameters?: { key: string; label: string; before: string; after: string }[]
   } | null>(null)
   const [invalidQuoteKey, setInvalidQuoteKey] = useState<string | null>(null)
   const initializedRef = useRef(false)
@@ -325,26 +330,96 @@ export function VideoComposer(props: VideoComposerProps) {
     blockAndRecheck(getVideoTokenErrorKind(error?.code))
   }, [gate, quoteQuery.error, quoteQuery.isError])
 
+  const parameterValueLabel = (
+    profile: VideoModelProfile | undefined,
+    key: string,
+    value: VideoParameterValue
+  ): string => {
+    if (typeof value === 'boolean') return value ? t('Enabled') : t('Disabled')
+    const control = profile?.specification.parameters.find(
+      (parameter) => parameter.key === key
+    )
+    let label = String(value)
+    if (control?.control === 'select' || control?.control === 'segmented') {
+      label =
+        control.options.find((option) => option.value === value)?.label || label
+    }
+    const labelKey =
+      profile && getVideoModelPreset(profile.model)
+        ? VIDEO_PARAMETER_OPTION_LABEL_KEYS[key]?.[String(value)]
+        : undefined
+    return labelKey ? t(labelKey, { defaultValue: label }) : label
+  }
+  const changeSettings = (
+    profile: VideoModelProfile,
+    next: VideoComposerValues
+  ) => {
+    const current = form.getValues()
+    const parameters = getVideoParametersForMode(
+      profile,
+      next.mode,
+      current.parameters
+    )
+    const changes = [
+      ...new Set([
+        ...Object.keys(current.parameters),
+        ...Object.keys(parameters),
+      ]),
+    ]
+      .filter((key) => current.parameters[key] !== parameters[key])
+      .map((key) => {
+        const control =
+          profile.specification.parameters.find((item) => item.key === key) ??
+          selectedProfile?.specification.parameters.find(
+            (item) => item.key === key
+          )
+        const label = control?.label ?? key
+        const labelKey = getVideoModelPreset(profile.model)
+          ? VIDEO_PARAMETER_LABEL_KEYS[key]
+          : undefined
+        return {
+          key,
+          label: labelKey ? t(labelKey, { defaultValue: label }) : label,
+          before:
+            current.parameters[key] === undefined
+              ? t('Not set')
+              : parameterValueLabel(
+                  selectedProfile,
+                  key,
+                  current.parameters[key]
+                ),
+          after:
+            parameters[key] === undefined
+              ? t('Not used')
+              : parameterValueLabel(profile, key, parameters[key]),
+        }
+      })
+    const apply = () => {
+      form.reset({ ...next, parameters })
+      if (current.model_profile_id !== next.model_profile_id) {
+        setAppliedSampleId(undefined)
+      }
+      setSubmitError(null)
+    }
+    if (changes.length > 0) setPendingChange({ apply, parameters: changes })
+    else apply()
+  }
   const changeReferences = (next: VideoComposerReference[]) => {
+    const current = form.getValues()
     const mode = getVideoComposerMode(next)
+    if (selectedProfile && mode !== current.mode) {
+      changeSettings(selectedProfile, { ...current, references: next, mode })
+      return
+    }
     form.setValue('references', next, {
       shouldDirty: true,
       shouldValidate: true,
     })
-    form.setValue('mode', mode, { shouldValidate: true })
   }
   const changeModel = (id: number) => {
     const profile = props.models.find((item) => item.id === id)
     if (!profile) return
-    const current = form.getValues()
-    const parameters = getVideoParametersForMode(
-      profile,
-      current.mode,
-      current.parameters
-    )
-    form.reset({ ...current, model_profile_id: id, parameters })
-    setAppliedSampleId(undefined)
-    setSubmitError(null)
+    changeSettings(profile, { ...form.getValues(), model_profile_id: id })
   }
   const clear = () => {
     if (!selectedProfile) return
@@ -581,14 +656,35 @@ export function VideoComposer(props: VideoComposerProps) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t('Replace current settings?')}
+              {pendingChange?.parameters
+                ? t('Apply parameter changes?')
+                : t('Replace current settings?')}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t(
-                'This change may replace your prompt, parameters, or reference media. Your pending submissions remain protected.'
-              )}
+              {pendingChange?.parameters
+                ? t(
+                    'This change requires the following parameter updates. Review them before continuing.'
+                  )
+                : t(
+                    'This change may replace your prompt, parameters, or reference media. Your pending submissions remain protected.'
+                  )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {pendingChange?.parameters && (
+            <dl className='max-h-60 space-y-3 overflow-y-auto text-sm'>
+              {pendingChange.parameters.map((parameter) => (
+                <div
+                  key={parameter.key}
+                  className='flex items-baseline justify-between gap-4'
+                >
+                  <dt className='font-medium'>{parameter.label}</dt>
+                  <dd className='text-muted-foreground text-right break-words'>
+                    {parameter.before} → {parameter.after}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel autoFocus>{t('Keep editing')}</AlertDialogCancel>
             <Button
@@ -598,7 +694,9 @@ export function VideoComposer(props: VideoComposerProps) {
                 setPendingChange(null)
               }}
             >
-              {t('Replace settings')}
+              {pendingChange?.parameters
+                ? t('Apply changes')
+                : t('Replace settings')}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

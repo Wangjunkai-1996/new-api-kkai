@@ -12,7 +12,7 @@ import { useConsoleContract } from './use-console-contract'
 
 const contract = {
   format_version: 1,
-  api_contracts: [2, 3],
+  api_contracts: [4],
   capabilities: [
     'dashboard_jwt',
     'scoped_access_tokens',
@@ -77,7 +77,7 @@ describe('useConsoleContract', () => {
     const apiGet = vi.spyOn(api, 'get').mockResolvedValue({
       data: {
         success: true,
-        data: { console_contract: { ...contract, api_contracts: [2] } },
+        data: { console_contract: { ...contract, api_contracts: [3] } },
       },
     })
     const { result } = renderHook(() => useConsoleContract(), {
@@ -90,7 +90,7 @@ describe('useConsoleContract', () => {
       queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY })
     )
     await waitFor(() => expect(result.current.compatible).toBe(false))
-    expect(result.current.contract?.api_contracts).toEqual([2])
+    expect(result.current.contract?.api_contracts).toEqual([3])
     expect(apiGet).toHaveBeenCalledExactlyOnceWith('/api/status')
   })
 
@@ -128,7 +128,7 @@ describe('useConsoleContract', () => {
       })
       await waitFor(() => expect(result.current.loading).toBe(false))
       expect(result.current.required).toBe(true)
-      expect(result.current.contract?.api_contracts).toEqual([2, 3])
+      expect(result.current.contract?.api_contracts).toEqual([4])
       expect(result.current.contract?.capabilities).not.toContain(
         missingCapability
       )

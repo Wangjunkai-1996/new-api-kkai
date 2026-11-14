@@ -10,9 +10,9 @@ import (
 func TestConsoleContract(t *testing.T) {
 	contract := ConsoleContract()
 	require.Equal(t, 1, contract.FormatVersion)
-	// Contract 3 requires the video-works projection; contract 2 stays supported
-	// while the previous frontend serves during the backend rollout.
-	require.Equal(t, []int{2, 3}, contract.APIContracts)
+	// Contract 4 requires the multimodal Studio request and response contract.
+	// Older Studio clients are incompatible and must fail the release gate.
+	require.Equal(t, []int{4}, contract.APIContracts)
 	assert.Contains(t, contract.Capabilities, "token_group_inline")
 	assert.Contains(t, contract.Capabilities, "video_sample_categories")
 	assert.Contains(t, contract.Capabilities, "membership_ratio_quotes")
@@ -22,5 +22,5 @@ func TestConsoleContract(t *testing.T) {
 	assert.Contains(t, contract.Capabilities, "token_create_result_id")
 	// Callers cannot mutate subsequent status/CLI declarations.
 	contract.APIContracts[0] = 99
-	assert.Equal(t, []int{2, 3}, ConsoleContract().APIContracts)
+	assert.Equal(t, []int{4}, ConsoleContract().APIContracts)
 }
