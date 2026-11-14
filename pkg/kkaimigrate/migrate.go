@@ -377,7 +377,10 @@ func CheckRequired(ctx context.Context, db *gorm.DB) error {
 		return err
 	}
 	if isTenantOnlineLedger(state.currentVersion) && state.currentVersion >= RuntimeMinVersion && state.currentVersion <= RuntimeMaxVersion {
-		return CheckRC49OnlineExpansion(ctx, db)
+		if err := CheckRC49OnlineExpansion(ctx, db); err != nil {
+			return err
+		}
+		return CheckVideoMediaMetadataExpansion(ctx, db)
 	}
 	if RuntimeMinVersion == MembershipSchemaVersion && state.currentVersion == MembershipSchemaVersion {
 		return CheckTenantOnlineExpansion(ctx, db)

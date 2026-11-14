@@ -17,7 +17,7 @@ func TestContractForDialectRequiresRC49Schema(t *testing.T) {
 	assert.Equal(t, MigrationKindNone, contract.MigrationKind)
 	assert.Equal(t, contract.MigrationSetDigest, contract.CompatiblePrefixes["21"])
 	assert.Len(t, contract.CompatiblePrefixes, 1, "canonical21 remains the only accepted ledger")
-	assert.Equal(t, map[string]string{RC49OnlineExpansion: RC49OnlineExpansionDigest()}, contract.RequiredExpansions)
+	assert.Equal(t, map[string]string{RC49OnlineExpansion: RC49OnlineExpansionDigest(), VideoMediaMetadataExpansion: VideoMediaMetadataExpansionDigest()}, contract.RequiredExpansions)
 	for _, dialect := range []string{DialectSQLite, DialectMySQL} {
 		_, err := ContractForDialect(dialect)
 		require.Error(t, err)

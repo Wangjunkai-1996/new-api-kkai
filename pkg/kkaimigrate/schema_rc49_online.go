@@ -48,6 +48,10 @@ func ValidateRC49OnlineRuntimeContract(contract SchemaContract) error {
 	if reflect.DeepEqual(contract, expected) {
 		return nil
 	}
+	delete(expected.RequiredExpansions, VideoMediaMetadataExpansion)
+	if reflect.DeepEqual(contract, expected) {
+		return nil
+	}
 	prefixes, err := compatiblePrefixDigests(DialectPostgres, 14, 21)
 	if err != nil {
 		return err

@@ -51,6 +51,7 @@ const bundle: AuthBundle = {
 const request: CreateVideoRequest = {
   token_id: 17,
   model: 'video',
+  specification_version: 1,
   mode: 'text_to_video',
   prompt: 'A quiet scene',
   parameters: {},

@@ -99,5 +99,14 @@ func Observe(ctx context.Context, db *gorm.DB) (*Observation, error) {
 		}
 		result.Expansions = map[string]string{RC49OnlineExpansion: RC49OnlineExpansionDigest()}
 	}
+	if db.Migrator().HasTable(&videoMediaMetadataReceipt{}) {
+		if err := CheckVideoMediaMetadataExpansion(ctx, db); err != nil {
+			return nil, err
+		}
+		if result.Expansions == nil {
+			result.Expansions = map[string]string{}
+		}
+		result.Expansions[VideoMediaMetadataExpansion] = VideoMediaMetadataExpansionDigest()
+	}
 	return result, nil
 }

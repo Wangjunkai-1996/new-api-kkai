@@ -23,6 +23,6 @@ func TestDescribeContractJSONRequiresTenantSchema(t *testing.T) {
 	assert.EqualValues(t, 21, result.MigrationTargetVersion)
 	assert.Equal(t, result.MigrationSetDigest, result.CompatiblePrefixes["21"])
 	assert.Len(t, result.CompatiblePrefixes, 1)
-	assert.Equal(t, map[string]string{kkaimigrate.RC49OnlineExpansion: kkaimigrate.RC49OnlineExpansionDigest()}, result.RequiredExpansions)
+	assert.Equal(t, map[string]string{kkaimigrate.RC49OnlineExpansion: kkaimigrate.RC49OnlineExpansionDigest(), kkaimigrate.VideoMediaMetadataExpansion: kkaimigrate.VideoMediaMetadataExpansionDigest()}, result.RequiredExpansions)
 	assert.Equal(t, common.SchemaManagementMode, result.SchemaManagement)
 }

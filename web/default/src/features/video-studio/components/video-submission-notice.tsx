@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { AlertCircle, ArrowUpRight } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth-store'
 import { useVideoStudioSubmissionStore } from '@/stores/video-studio-submission-store'
 
+import { getVideoSubmissionByKey } from '../api'
 import type { VideoGeneration } from '../types'
 
 type VideoSubmissionNoticeProps = {
@@ -44,6 +45,28 @@ export function VideoSubmissionNotice(props: VideoSubmissionNoticeProps) {
   const confirmGenerations = useVideoStudioSubmissionStore(
     (state) => state.confirmGenerations
   )
+  const [checkingKey, setCheckingKey] = useState<string | null>(null)
+  const [lookupMessage, setLookupMessage] = useState<string | null>(null)
+  const checkSubmission = async (operationId: string) => {
+    setCheckingKey(operationId)
+    setLookupMessage(null)
+    try {
+      const receipt = await getVideoSubmissionByKey(operationId)
+      if (useAuthStore.getState().auth.user?.id !== userId) return
+      if (receipt.status === 'accepted' && receipt.task_id) {
+        useVideoStudioSubmissionStore
+          .getState()
+          .resolve(userId, operationId, receipt.task_id, receipt.generation_id)
+        props.onInspectTask(receipt.task_id)
+      } else {
+        setLookupMessage(t('videoStudio.submissionStillUncertain'))
+      }
+    } catch {
+      setLookupMessage(t('videoStudio.submissionLookupFailed'))
+    } finally {
+      setCheckingKey(null)
+    }
+  }
 
   useEffect(() => {
     hydrate(userId)
@@ -110,6 +133,14 @@ export function VideoSubmissionNotice(props: VideoSubmissionNoticeProps) {
               </p>
             )}
           </div>
+          <Button
+            type='button'
+            variant='outline'
+            disabled={checkingKey !== null}
+            onClick={() => void checkSubmission(record.operationId)}
+          >
+            {t('videoStudio.checkSubmission')}
+          </Button>
           {record.taskId && (
             <Button
               type='button'
@@ -124,6 +155,11 @@ export function VideoSubmissionNotice(props: VideoSubmissionNoticeProps) {
           )}
         </div>
       ))}
+      {lookupMessage && (
+        <p className='video-studio-notice-row' role='status'>
+          {lookupMessage}
+        </p>
+      )}
     </section>
   )
 }

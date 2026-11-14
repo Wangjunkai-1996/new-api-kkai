@@ -17,37 +17,45 @@ const videoStudioQuoteTTL = 5 * time.Minute
 
 func VideoStudioIdempotencyFingerprint(request VideoStudioSubmissionRequest) (string, error) {
 	type referenceFingerprint struct {
-		AssetID int64  `json:"asset_id"`
-		Role    string `json:"role"`
+		AssetID  int64  `json:"asset_id"`
+		Role     string `json:"role"`
+		Position *int   `json:"position"`
 	}
 	references := make([]referenceFingerprint, 0, len(request.ReferenceAssets))
 	for _, reference := range request.ReferenceAssets {
 		references = append(references, referenceFingerprint{
-			AssetID: reference.AssetID,
-			Role:    strings.TrimSpace(reference.Role),
+			AssetID: reference.AssetID, Role: strings.TrimSpace(reference.Role), Position: reference.Position,
 		})
 	}
-	sort.Slice(references, func(left int, right int) bool {
-		if references[left].Role == references[right].Role {
-			return references[left].AssetID < references[right].AssetID
+	sort.SliceStable(references, func(left int, right int) bool {
+		if references[left].Role != references[right].Role {
+			return referenceRoleOrder(references[left].Role) < referenceRoleOrder(references[right].Role)
 		}
-		return references[left].Role < references[right].Role
+		lp, rp := -1, -1
+		if references[left].Position != nil {
+			lp = *references[left].Position
+		}
+		if references[right].Position != nil {
+			rp = *references[right].Position
+		}
+		return lp < rp
 	})
 	parameters := request.Parameters
 	if parameters == nil {
 		parameters = map[string]any{}
 	}
 	canonical := struct {
-		TokenID    int                    `json:"token_id"`
-		Model      string                 `json:"model"`
-		Group      string                 `json:"group"`
-		Mode       string                 `json:"mode"`
-		Prompt     string                 `json:"prompt"`
-		Parameters map[string]any         `json:"parameters"`
-		References []referenceFingerprint `json:"references"`
-		SampleID   *int64                 `json:"sample_id,omitempty"`
+		TokenID              int                    `json:"token_id"`
+		SpecificationVersion int                    `json:"specification_version"`
+		Model                string                 `json:"model"`
+		Group                string                 `json:"group"`
+		Mode                 string                 `json:"mode"`
+		Prompt               string                 `json:"prompt"`
+		Parameters           map[string]any         `json:"parameters"`
+		References           []referenceFingerprint `json:"references"`
+		SampleID             *int64                 `json:"sample_id,omitempty"`
 	}{
-		TokenID: request.TokenID, Model: strings.TrimSpace(request.Model), Group: strings.TrimSpace(request.Group),
+		TokenID: request.TokenID, SpecificationVersion: request.SpecificationVersion, Model: strings.TrimSpace(request.Model), Group: strings.TrimSpace(request.Group),
 		Mode: strings.TrimSpace(request.Mode), Prompt: strings.TrimSpace(request.Prompt),
 		Parameters: parameters, References: references, SampleID: request.SampleID,
 	}

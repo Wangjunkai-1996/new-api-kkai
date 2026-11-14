@@ -69,6 +69,7 @@ const videoWorkspaceQueryKeys = (userId: number, tokenId: number) => {
   const quoteRequest: VideoQuoteRequest = {
     token_id: tokenId,
     model: 'video-model',
+    specification_version: 1,
     mode: 'text_to_video',
     prompt: 'test',
     parameters: {},

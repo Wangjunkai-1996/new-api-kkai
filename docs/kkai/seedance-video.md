@@ -1,14 +1,20 @@
 # Seedance 视频生成 API（2.0 / 2.5 特价版）
 
-本文覆盖 KKRICH 当前已接入的 Seedance 2.0 和 2.5 特价版，包含模型选择、参数、
+本文记录 KKRICH Seedance 2.0 和 2.5 特价版的本地新建协议、模型选择、参数、
 提交、查询、下载、错误处理和完整代码示例。价格、分组倍率和最终扣费以控制台及
 使用日志为准，不在本文重复维护。
 
-本文所有可直接调用的接口均属于 KKRICH 公共 API，统一使用
-`https://api.kkrich.ltd`。示例中的素材 URL 是客户自行托管的公开文件地址，不是 API
-地址。
+> **新建协议状态（待验收）**：本地 Seedance relay 新建请求统一使用
+> `metadata.reference_assets` 结构，由本地插件投影为供应商所需的
+> `reference_images`、`reference_videos`、`reference_audios`、`first_image` 和
+> `last_image`。外置 adapter 尚在验收，本文的新建示例用于本地协议对照，不表示
+> 该新建链路已经上线。认证、查询和下载章节仍按现有公共接口说明。
 
-> 适用版本：Seedance 2.0 / 2.5 特价版。协议核验日期：2026-08-25。
+认证、查询和下载章节的公共接口统一使用 `https://api.kkrich.ltd`。新建章节的请求体
+是本地 Seedance relay 协议对照，不能据此判断外置 adapter 已经部署。示例中的素材 URL
+是客户自行托管的公开文件地址，不是 API 地址。
+
+> 适用版本：Seedance 2.0 / 2.5 特价版。本地新协议对齐日期：2026-11-14；非生产核验记录。
 
 > **模型名和地址必须以本站为准**：上游/供应商文档中的模型标识不是客户请求
 > `model` 值，本站只接受 `/v1/models` 返回的客户模型名。当前 2.5 正式名称为
@@ -16,9 +22,8 @@
 > `sd_2.5_special_1080p_with_video_ref`；已有 `seedance-2.5` 继续兼容。不要把上游 API 地址、路径、鉴权方式或模型 ID
 > 带到本站调用中。
 
-> **2.0 协议说明**：2.0 特价版的服务端协议已切换到 v2 适配，但本站客户模型名、
-> 请求字段、本站接口地址和鉴权方式均不变。客户仍按本文示例调用，不需要拼接任何
-> 内部或渠道地址。
+> **协议范围**：2.0 与 2.5 新建流程均采用下方统一参考物结构，旧标量参考字段不再兼容。
+> 本地实现与外置 adapter 的验收状态见本页提示。
 
 ## 1. 适用范围
 
@@ -26,7 +31,8 @@ KKRICH 的视频接口是异步任务接口：提交请求只负责创建任务�
 ID 并轮询，任务成功后再下载视频。任务和视频内容都按 Bearer Token 对应的用户
 隔离；查询和下载都必须携带任务所属用户的有效 Token，建议始终复用提交任务的 Token。
 
-公开接口有两套响应形状。下面的路径都要拼接到本文的 Base URL：
+查询和下载有两套公共响应形状。下面的路径都要拼接到本文的 Base URL；新建请求仍以
+本地协议为准，外置 adapter 待验收：
 
 | 用途 | 提交 | 查询 | 下载 |
 | --- | --- | --- | --- |
@@ -81,26 +87,25 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 ### Seedance 2.0 特价版
 
-所有 2.0 模型的时长为 **4-15 秒整数**，支持文生视频。没有 `_with_video_ref`
-后缀的模型支持通过 `reference_image` 做图生视频；带后缀的模型要求
-`reference_video`，用于视频参考生成。以上是当前 Seedance 特价适配器的模型级校验，
-不是其他视频模型的通用规则。
+所有 2.0 模型的时长为 **4-15 秒整数**。没有 `_with_video_ref` 后缀的模型支持文生
+或图片参考；带后缀的模型要求 `metadata.reference_assets` 包含 `reference_video` 角色。
+新建素材组合和数量以已验收的模型能力为准，不是其他视频模型的通用规则。
 
-带 `_with_video_ref` 后缀的模型至少要提供 `reference_video`；如业务需要，也可以再
-提供一个 `reference_image`，但图片和视频都必须通过素材 URL/资产校验。
+带 `_with_video_ref` 后缀的模型至少要提供一个 `reference_video` 角色；其他受支持的
+参考角色可按模型能力组合，所有素材都必须通过素材 URL/资产校验。
 
 | 模型 | 输出分辨率 | 参考方式 |
 | --- | --- | --- |
-| `sd_2.0_fast_special_720p` | 720p | 文生 / `reference_image` |
-| `sd_2.0_special_720p` | 720p | 文生 / `reference_image` |
-| `sd_2.0_special_1080p` | 1080p | 文生 / `reference_image` |
-| `sd_2.0_special_2k` | 2k | 文生 / `reference_image` |
-| `sd_2.0_special_4k` | 4k | 文生 / `reference_image` |
-| `sd_2.0_fast_special_720p_with_video_ref` | 720p | 必须 `reference_video`；可选 `reference_image` |
-| `sd_2.0_special_720p_with_video_ref` | 720p | 必须 `reference_video`；可选 `reference_image` |
-| `sd_2.0_special_1080p_with_video_ref` | 1080p | 必须 `reference_video`；可选 `reference_image` |
-| `sd_2.0_special_2k_with_video_ref` | 2k | 必须 `reference_video`；可选 `reference_image` |
-| `sd_2.0_special_4k_with_video_ref` | 4k | 必须 `reference_video`；可选 `reference_image` |
+| `sd_2.0_fast_special_720p` | 720p | 文生 / 图片参考 |
+| `sd_2.0_special_720p` | 720p | 文生 / 图片参考 |
+| `sd_2.0_special_1080p` | 1080p | 文生 / 图片参考 |
+| `sd_2.0_special_2k` | 2k | 文生 / 图片参考 |
+| `sd_2.0_special_4k` | 4k | 文生 / 图片参考 |
+| `sd_2.0_fast_special_720p_with_video_ref` | 720p | 必须 `reference_video` 角色；其他角色按模型能力 |
+| `sd_2.0_special_720p_with_video_ref` | 720p | 必须 `reference_video` 角色；其他角色按模型能力 |
+| `sd_2.0_special_1080p_with_video_ref` | 1080p | 必须 `reference_video` 角色；其他角色按模型能力 |
+| `sd_2.0_special_2k_with_video_ref` | 2k | 必须 `reference_video` 角色；其他角色按模型能力 |
+| `sd_2.0_special_4k_with_video_ref` | 4k | 必须 `reference_video` 角色；其他角色按模型能力 |
 
 2.0 支持以下 `ratio`：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
 `generate_audio` 接受 `true` 或 `false`；客户端应显式传值，避免依赖缺省行为。分辨率
@@ -112,20 +117,20 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 | 模型 | 输出分辨率 | 参考方式 |
 | --- | --- | --- |
-| `sd_2.5_special_720p` | 720p | 文生 / 单图参考 |
-| `sd_2.5_special_1080p` | 1080p | 文生 / 单图参考 |
-| `sd_2.5_special_720p_with_video_ref` | 720p | 必须单个视频参考；可选单图参考 |
-| `sd_2.5_special_1080p_with_video_ref` | 1080p | 必须单个视频参考；可选单图参考 |
-| `seedance-2.5` | 720p | 旧客户兼容别名；文生 / 单图参考 |
+| `sd_2.5_special_720p` | 720p | 文生 / 图片参考 |
+| `sd_2.5_special_1080p` | 1080p | 文生 / 图片参考 |
+| `sd_2.5_special_720p_with_video_ref` | 720p | 必须视频参考；其他角色按模型能力 |
+| `sd_2.5_special_1080p_with_video_ref` | 1080p | 必须视频参考；其他角色按模型能力 |
+| `seedance-2.5` | 720p | 旧客户兼容别名；文生 / 图片参考 |
 
 模型是否对当前 Token 可见，仍以本站 `/v1/models` 返回结果为准；如果控制台没有显示
 某个名称，就不能调用它。
 
 - 时长：4-30 秒整数。
 - `ratio`：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
-- 普通正式名称（不带 `_with_video_ref` 后缀）：使用一个公开 HTTPS 或有效 `assetId://` 的
-  `reference_image`；不支持 `reference_video`。
-- `_with_video_ref` 正式名称：必须使用一个 `reference_video`，也可以附带一个图片参考。
+- 普通正式名称（不带 `_with_video_ref` 后缀）：在 `metadata.reference_assets` 中使用图片等受支持角色。
+- `_with_video_ref` 正式名称：`metadata.reference_assets` 必须包含 `reference_video` 角色。
+- 图片、视频、音频及首尾帧的具体组合和数量以已验收的模型能力为准。
 - `generate_audio` 接受 `true` 或 `false`；为避免依赖缺省行为，客户端应显式传值。
 
 ## 4. 请求字段
@@ -138,9 +143,9 @@ curl "https://api.kkrich.ltd/v1/models" \
 | `seconds` | integer 或整数字符串 | 否 | 4-15 | 4-30 | 兼容字段；缺失、空值、`0` 或 `1-3` 按 `4` 处理并按 `4` 计费。 |
 | `ratio` | string | 否 | 7 种 | 7 种 | 默认 `16:9`；支持 `16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。 |
 | `resolution` | string | 否 | 由模型决定 | 按模型名为 `720p` 或 `1080p` | 2.0 分辨率由模型名决定；2.5 必须匹配所选模型名。 |
-| `reference_image` | string | 否 | 图生时使用 | 普通名称单图参考；视频参考名称可选 | 只能传一个图片引用；推荐使用公开 HTTPS URL。 |
-| `input_reference` | string | 否 | 兼容别名 | 兼容别名 | 与 `reference_image` 互斥；新代码优先使用 `reference_image`。 |
-| `reference_video` | string | 条件 | `_with_video_ref` 必填 | `_with_video_ref` 名称必填；普通名称禁止 | 只能给支持视频参考的模型使用。 |
+| `mode` | string | 否 | 本地新建模式 | 本地新建模式 | `text_to_video`、`reference_to_video`、`first_frame_to_video`、`first_last_frame`；不使用旧 `image_to_video`。 |
+| `metadata` | object | 否 | 本地协议元数据 | 见下方 `reference_assets` 说明 | 新建流程的参考物统一放在此对象内。 |
+| `metadata.reference_assets` | object[] | 条件 | 统一参考物列表 | 统一参考物列表 | 每项含 `role`、`position`、`url`，本地插件投影为供应商字段；外置 adapter 待验收。 |
 | `generate_audio` | boolean | 否 | 支持 | 支持 | 显式传 `true` 或 `false`，不要依赖缺省值。 |
 
 `duration` 和 `seconds` 都可以省略；缺失、`null`、空字符串、`0` 和 `1-3` 会由本站
@@ -152,15 +157,22 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 参考素材规则：
 
-- 一个请求最多一个图片参考，`reference_image` 与 `input_reference` 不能同时出现。客户端只
-  发送单个字段，不要自行改成 `reference_images[]`；服务端适配器会按内部协议投影。
+- 新建请求只使用 `metadata.reference_assets`；每项形如
+  `{ "role": "reference_image", "position": 0, "url": "https://..." }`。
+  `role` 可为 `reference_image`、`reference_video`、`reference_audio`、`first_frame` 或 `last_frame`。
+- 同一 `role` 的 `position` 必须从 `0` 连续递增。`reference_image`、`reference_video`、
+  `reference_audio` 按位置投影为供应商数组；`first_frame` 和 `last_frame` 各投影为一个
+  `first_image` 或 `last_image`。
+- 首帧、首尾帧和多模态参考的组合约束以当前模型 profile 为准；不要把旧标量字段改名后
+  混入新协议。
 - 公开 URL 必须使用 HTTPS 443 端口；不能带用户名密码、fragment、base64、`data:` 或
   本地路径。本站安全策略还会拒绝指向私网/保留地址或解析出混合公私网地址的域名。
 - 2.0 和 2.5 可以使用公开 HTTPS URL；也可以引用平台已经签发且处于可用状态的
   `assetId://<asset_id>`。这些是参考素材地址/资产 ID，不是本站 API 地址；本文公共协议不
   提供创建资产 ID 的上传接口，普通 API 客户应使用公开 HTTPS URL。视频参考遵循同样的规则。
-- 不要发送 `reference_images[]`、`aspect_ratio`、`width`、`height`、`fps`、`seed`、
-  `n`、`size`、`metadata`、`content`、`tools` 等本文未列出的字段；严格的 Seedance
+- 不要发送 `reference_image`、`reference_video`、`reference_audio`、`input_reference`、
+  `reference_images[]`、`reference_videos[]`、`reference_audios[]`、`aspect_ratio`、
+  `width`、`height`、`fps`、`seed`、`n`、`size`、`content`、`tools` 等旧或未列出的字段；严格的 Seedance
   适配器会拒绝未知字段，其他通用适配器也不保证透传结果。
 
 其他平台或渠道页面中的模型名和字段不属于本站公共请求协议；本站只接受本文列出的
@@ -172,8 +184,9 @@ curl "https://api.kkrich.ltd/v1/models" \
 | --- | --- | --- |
 | 2.5 模型名称 | 本站四个 `sd_2.5_special_*` 正式名称及兼容别名 | 客户模型名以本站 `/v1/models` 为准；不要发送上游模型 ID。 |
 | `aspect_ratio` | `ratio` | 只发送本站枚举值。 |
-| `reference_images[]` | 单个 `reference_image` 或 `input_reference` | 两个别名不能同时传。 |
-| 多个视频/音频参考、首帧/尾帧、`seed`、`tools` | 不支持 | 不要改名后强行透传。 |
+| `reference_images[]`、`reference_videos[]`、`reference_audios[]` | `metadata.reference_assets[]` | 客户请求使用统一的 role/position/url；adapter 负责投影。 |
+| `first_image`、`last_image` | `metadata.reference_assets[]` 的 `first_frame`、`last_frame` | 仅由 adapter 生成供应商字段。 |
+| `seed`、`tools` | 不支持 | 不要改名后强行透传。 |
 | 渠道专用任务提交/查询路径 | 本文列出的本站 `/v1/...` 路径 | 客户只请求 `api.kkrich.ltd`。 |
 
 素材 URL 由客户自行托管。下文的 `your-public-host.example` 仅用于参考素材占位，不能作为
@@ -183,7 +196,7 @@ KKRICH API Base URL，也不需要向该域名发送 API 请求；所有 API 请
 本站公共接口没有可依赖的幂等键。不要把 `Idempotency-Key` 当成去重保证；提交超时或
 收到 `task_submission_unknown` 时只保存任务上下文并 GET 查询，不能自动重发 POST。
 
-## 5. 最小可运行示例
+## 5. 本地新建协议示例（待验收）
 
 ### 2.0 文生视频
 
@@ -211,7 +224,15 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
     "prompt": "保持主体和动作节奏，改成电影感冷色调，无文字",
     "duration": 8,
     "ratio": "9:16",
-    "reference_video": "https://your-public-host.example/reference.mp4"
+    "metadata": {
+      "reference_assets": [
+        {
+          "role": "reference_video",
+          "position": 0,
+          "url": "https://your-public-host.example/reference.mp4"
+        }
+      ]
+    }
   }'
 ```
 
@@ -226,7 +247,15 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
     "prompt": "保持原图主体和构图，让树叶随风摆动，镜头缓慢推进，无文字",
     "duration": 6,
     "ratio": "16:9",
-    "reference_image": "https://your-public-host.example/reference.jpg"
+    "metadata": {
+      "reference_assets": [
+        {
+          "role": "reference_image",
+          "position": 0,
+          "url": "https://your-public-host.example/reference.jpg"
+        }
+      ]
+    }
   }'
 ```
 
@@ -258,7 +287,15 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
     "duration": 6,
     "ratio": "1:1",
     "resolution": "720p",
-    "reference_image": "https://your-public-host.example/reference.jpg",
+    "metadata": {
+      "reference_assets": [
+        {
+          "role": "reference_image",
+          "position": 0,
+          "url": "https://your-public-host.example/reference.jpg"
+        }
+      ]
+    },
     "generate_audio": false
   }'
 ```
@@ -281,7 +318,8 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 
 ### 2.5 视频参考
 
-带 `_with_video_ref` 后缀的正式名称必须提供一个 `reference_video`。下面以 720p 为例；使用
+带 `_with_video_ref` 后缀的正式名称必须在 `metadata.reference_assets` 中提供一个
+`reference_video` 角色。下面以 720p 为例；使用
 1080p 时将模型和 `resolution` 一起改为 `sd_2.5_special_1080p_with_video_ref` 与
 `1080p`。
 
@@ -291,14 +329,49 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "sd_2.5_special_720p_with_video_ref",
+    "mode": "reference_to_video",
     "prompt": "保持主体动作节奏，改为原创电影感冷色调，无文字、无 Logo",
     "duration": 8,
     "ratio": "9:16",
     "resolution": "720p",
-    "reference_video": "https://your-public-host.example/reference.mp4",
+    "metadata": {
+      "reference_assets": [
+        {
+          "role": "reference_video",
+          "position": 0,
+          "url": "https://your-public-host.example/reference.mp4"
+        }
+      ]
+    },
     "generate_audio": true
   }'
 ```
+
+### 2.5 多模态参考（图片、视频和音频）
+
+以下只展示本地新协议的参考物结构；实际可用的角色组合由模型 profile 决定，外置
+adapter 验收通过前不要把它当作生产成功示例：
+
+```json
+{
+  "model": "sd_2.5_special_720p_with_video_ref",
+  "mode": "reference_to_video",
+  "prompt": "保持人物、动作和声音氛围，生成原创电影感片段",
+  "duration": 8,
+  "metadata": {
+    "reference_assets": [
+      {"role": "reference_image", "position": 0, "url": "https://your-public-host.example/subject.jpg"},
+      {"role": "reference_video", "position": 0, "url": "https://your-public-host.example/motion.mp4"},
+      {"role": "reference_audio", "position": 0, "url": "https://your-public-host.example/voice.mp3"}
+    ]
+  },
+  "generate_audio": true
+}
+```
+
+`reference_audio` 不能脱离图片或视频单独提交。首帧或首尾帧场景使用
+`mode: "first_frame_to_video"` 或 `mode: "first_last_frame"`，并将素材角色写成
+`first_frame` / `last_frame`；adapter 会分别输出 `first_image` / `last_image`。
 
 ## 6. 提交响应与任务 ID
 
@@ -678,8 +751,8 @@ if (!downloaded) {
 2. `duration`/`seconds` 可省略，缺失、空值、`0` 或 `1-3` 会按 4 秒处理并按 4 秒计费；负数、小数和超出模型上限的值会被拒绝。客户端仍建议显式传入 4-15（2.0）或 4-30（2.5）的整数；两者同传时，`null`、空字符串和 `0` 视为未提供，两个非空且非 `0` 的值规范化后必须相等。
 3. `ratio` 使用本站支持的 7 个枚举值之一。
 4. 2.5 普通名称的 `resolution` 与模型分别为 `720p`/`1080p`；视频参考名称同样要匹配分辨率。
-5. 2.0 视频参考模型和 2.5 `_with_video_ref` 正式名称带一个 `reference_video`；普通 2.5 名称只使用 `reference_image`。
-6. 2.5 的图片/视频素材是公开 HTTPS URL 或有效 `assetId://` 引用，并显式发送布尔值 `generate_audio`。
+5. 参考物只放在 `metadata.reference_assets`；同角色位置连续，组合符合模型能力，外置 adapter 已完成对应场景验收。
+6. 参考素材是公开 HTTPS URL 或有效 `assetId://` 引用，并显式发送布尔值 `generate_audio`。
 7. 已准备记录本次调用时间、模型和客户端追踪 ID，方便提交结果不确定时支持排查。
 
 任务处理中：

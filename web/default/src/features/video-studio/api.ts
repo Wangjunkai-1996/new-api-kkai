@@ -324,6 +324,20 @@ export const getAdminVideoModels = async (): Promise<VideoModelProfile[]> => {
   return unwrapVideoStudioResponse<VideoModelProfile[]>(response.data)
 }
 
+export const getVideoSubmissionByKey = async (
+  idempotencyKey: string
+): Promise<{
+  status: 'accepted' | 'pending' | 'not_found'
+  task_id?: string
+  generation_id?: number
+}> => {
+  const response = await api.get('/api/video-studio/submissions/by-key', {
+    headers: { 'Idempotency-Key': idempotencyKey },
+    skipErrorHandler: true,
+  })
+  return unwrapVideoStudioResponse(response.data)
+}
+
 export const getAdminVideoModelCandidates = async (): Promise<string[]> => {
   const response = await api.get('/api/admin/video-studio/model-candidates')
   return unwrapVideoStudioResponse<string[]>(response.data)

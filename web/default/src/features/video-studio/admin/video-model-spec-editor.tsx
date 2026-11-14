@@ -31,7 +31,6 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 
 import {
-  getVideoModelPreset,
   VIDEO_PARAMETER_LABEL_KEYS,
   VIDEO_PARAMETER_OPTION_LABEL_KEYS,
   type VideoModelProfileFormValues,
@@ -144,7 +143,11 @@ export function VideoModelSpecEditor() {
   const form = useFormContext<VideoModelProfileFormValues>()
   const modelName = useWatch({ control: form.control, name: 'model' })
   const parameters = useWatch({ control: form.control, name: 'parameters' })
-  const preset = getVideoModelPreset(modelName)
+  const modes = useWatch({ control: form.control, name: 'modes' })
+  const referencePolicy = useWatch({
+    control: form.control,
+    name: 'reference_policy',
+  })
 
   if (!modelName) {
     return (
@@ -156,17 +159,11 @@ export function VideoModelSpecEditor() {
     )
   }
 
-  if (!preset) {
-    return (
-      <div className='border-t pt-4'>
-        <p className='text-destructive text-sm' role='alert'>
-          {t('videoStudio.admin.modelPresetUnavailable')}
-        </p>
-      </div>
-    )
-  }
-
-  const referenceRole = preset.specification.reference_inputs?.[0]?.role
+  const supportedReferences = [
+    referencePolicy?.image && t('videoStudio.admin.referenceType.image'),
+    referencePolicy?.video && t('videoStudio.admin.referenceType.video'),
+    referencePolicy?.audio && t('videoStudio.admin.referenceType.audio'),
+  ].filter((value): value is string => Boolean(value))
 
   return (
     <div className='space-y-5 border-t pt-4'>
@@ -175,29 +172,38 @@ export function VideoModelSpecEditor() {
           <span className='text-muted-foreground text-sm'>
             {t('videoStudio.admin.outputResolution')}
           </span>
-          <span className='text-sm font-medium'>{preset.resolution}</span>
+            <span className='text-sm font-medium'>
+              {t('videoStudio.admin.serviceDefined')}
+            </span>
         </div>
         <div className='flex items-center justify-between gap-3 py-3'>
           <span className='text-muted-foreground text-sm'>
             {t('videoStudio.admin.modes')}
           </span>
           <span className='text-right text-sm font-medium'>
-            {preset.specification.modes
+            {modes
               .map((mode) => t(VIDEO_MODE_LABEL_KEYS[mode]))
               .join(' / ')}
           </span>
         </div>
-        {referenceRole && (
+        {supportedReferences.length > 0 && (
           <div className='flex items-center justify-between gap-3 py-3'>
             <span className='text-muted-foreground text-sm'>
               {t('videoStudio.admin.referenceType')}
             </span>
+            <span className='text-right text-sm font-medium'>
+              {supportedReferences.join(' / ')}
+            </span>
+          </div>
+        )}
+        {referencePolicy && (
+          <div className='flex items-center justify-between gap-3 py-3'>
+            <span className='text-muted-foreground text-sm'>
+              {t('videoStudio.admin.referenceTotalLimit')}
+            </span>
             <span className='text-sm font-medium'>
-              {t(
-                referenceRole === 'reference_video'
-                  ? 'videoStudio.admin.referenceType.video'
-                  : 'videoStudio.admin.referenceType.image'
-              )}
+              {referencePolicy.max_total_count ??
+                t('videoStudio.admin.referenceTotalLimitUnknown')}
             </span>
           </div>
         )}

@@ -75,6 +75,7 @@ import {
 } from '../schemas'
 import type {
   VideoAsset,
+  VideoComposerReference,
   VideoGenerationMode,
   VideoSample,
   VideoStudioApiError,
@@ -82,9 +83,7 @@ import type {
 import {
   getSampleReferenceAssets,
   getSampleVideoAsset,
-  getVideoReferenceRoles,
   VIDEO_MODE_LABEL_KEYS,
-  VIDEO_REFERENCE_ROLE_LABEL_KEYS,
 } from '../video-domain'
 import {
   VIDEO_SAMPLE_CATEGORIES,
@@ -92,6 +91,42 @@ import {
   type VideoSampleCategory,
 } from '../video-sample-categories'
 import { VideoAdminWorkspace } from './video-admin-workspace'
+import { validateVideoReferenceMedia } from '../video-reference-validation'
+
+const referenceMimeKind = (asset: VideoAsset): 'image' | 'video' | 'audio' => {
+  if (asset.mime_type.startsWith('audio/')) return 'audio'
+  if (asset.mime_type.startsWith('video/')) return 'video'
+  return 'image'
+}
+
+const buildReferenceBindings = (
+  assets: VideoAsset[],
+  mode: VideoGenerationMode
+): VideoSampleFormValues['reference_assets'] => {
+  const bindings: VideoSampleFormValues['reference_assets'] = []
+  for (const kind of ['image', 'video', 'audio'] as const) {
+    let role: VideoSampleFormValues['reference_assets'][number]['role']
+    if (kind === 'image') role = 'reference_image'
+    else if (kind === 'video') role = 'reference_video'
+    else role = 'reference_audio'
+    assets
+      .filter((asset) => referenceMimeKind(asset) === kind)
+      .forEach((asset, position) => {
+        if (kind === 'image' && mode === 'first_frame_to_video') {
+          bindings.push({ asset_id: asset.id, role: 'first_frame', position })
+        } else if (kind === 'image' && mode === 'first_last_frame') {
+          bindings.push({
+            asset_id: asset.id,
+            role: position === 0 ? 'first_frame' : 'last_frame',
+            position: Math.max(0, position - 1),
+          })
+        } else {
+          bindings.push({ asset_id: asset.id, role, position })
+        }
+      })
+  }
+  return bindings
+}
 
 export function VideoSampleAdmin() {
   const { t } = useTranslation()
@@ -104,6 +139,7 @@ export function VideoSampleAdmin() {
   const [selected, setSelected] = useState<VideoSample | null>(null)
   const [videoAssets, setVideoAssets] = useState<VideoAsset[]>([])
   const [referenceAssets, setReferenceAssets] = useState<VideoAsset[]>([])
+  const [missingReferences, setMissingReferences] = useState<VideoSampleFormValues['reference_assets']>([])
   const [deleteOpen, setDeleteOpen] = useState(false)
   const initializedSampleIdRef = useRef<number | null | undefined>(undefined)
   const initializedSampleProfileIdRef = useRef(0)
@@ -177,6 +213,9 @@ export function VideoSampleAdmin() {
     setReferenceAssets(
       selected ? getSampleReferenceAssets(selected, profile) : []
     )
+    setMissingReferences(
+      (selected?.reference_assets ?? []).filter((reference) => !reference.asset) as VideoSampleFormValues['reference_assets']
+    )
   }, [form, modelsQuery.data, modelsQuery.isPending, selected])
 
   useEffect(() => {
@@ -212,24 +251,20 @@ export function VideoSampleAdmin() {
 
   useEffect(() => {
     form.setValue(
-      'reference_asset_ids',
-      referenceAssets.map((asset) => asset.id),
-      { shouldValidate: form.formState.submitCount > 0 }
+      'reference_assets',
+      [...buildReferenceBindings(referenceAssets, selectedMode), ...missingReferences],
+      {
+      shouldValidate: form.formState.submitCount > 0,
+      }
     )
-  }, [form, form.formState.submitCount, referenceAssets])
+  }, [form, form.formState.submitCount, referenceAssets, selectedMode, missingReferences])
 
   const availableModes = useMemo<VideoGenerationMode[]>(
     () => selectedProfile?.specification.modes ?? [],
     [selectedProfile?.specification.modes]
   )
-  const referenceRoles = selectedProfile
-    ? getVideoReferenceRoles(selectedProfile, selectedMode)
-    : []
-  const referenceLimit = referenceRoles.length
-  const referenceLabels = referenceRoles.map((role) =>
-    t(VIDEO_REFERENCE_ROLE_LABEL_KEYS[role])
-  )
-  const usesVideoReference = referenceRoles.includes('reference_video')
+  const referencePolicy = selectedProfile?.specification.reference_policy
+  const referenceLimit = referencePolicy?.max_total_count ?? 0
   const unsupportedVideoDuration =
     selectedProfile && sampleVideoAsset?.state === 'ready'
       ? getUnsupportedVideoSampleDuration(selectedProfile, sampleVideoAsset)
@@ -238,9 +273,36 @@ export function VideoSampleAdmin() {
     videoAssets.length === 1 &&
     sampleVideoAsset?.state === 'ready' &&
     sampleVideoAssetHasMetadata
+  const referenceBindings = buildReferenceBindings(referenceAssets, selectedMode)
+  const composerReferences: VideoComposerReference[] = referenceAssets.flatMap((asset) => {
+    const binding = buildReferenceBindings([asset], selectedMode)[0]
+    return binding
+      ? [{
+          client_id: `sample-${asset.id}`,
+          asset_id: asset.id,
+          role: binding.role,
+          position: binding.position,
+          included: true,
+          asset,
+        }]
+      : []
+  })
+  const referenceMediaError = selectedProfile && selectedMode === 'reference_to_video'
+    ? validateVideoReferenceMedia(composerReferences, selectedProfile)
+    : null
   const referenceAssetsReady =
-    referenceAssets.length === referenceLimit &&
-    referenceAssets.every((asset) => asset.state === 'ready')
+    missingReferences.length === 0 &&
+    referenceBindings.length <= referenceLimit &&
+    referenceAssets.every((asset) => asset.state === 'ready') &&
+    referenceMediaError === null &&
+    (selectedMode === 'text_to_video' ||
+      !referencePolicy?.requires_visual ||
+      referenceBindings.some(
+        (binding) =>
+          binding.role === 'reference_image' || binding.role === 'reference_video'
+      )) &&
+    (!referencePolicy?.requires_video ||
+      referenceBindings.some((binding) => binding.role === 'reference_video'))
   const assetsInspected = videoAssetReady && referenceAssetsReady
   const assetsReady = assetsInspected && unsupportedVideoDuration === undefined
   const samplePrepared = Boolean(
@@ -282,26 +344,6 @@ export function VideoSampleAdmin() {
       form.clearErrors('video_asset_id')
     }
   }, [form, unsupportedVideoDuration])
-
-  useEffect(() => {
-    if (!selectedProfile) return
-    if (!selectedProfile.specification.modes.includes(selectedMode)) {
-      const normalized = buildVideoSampleProfileState(
-        selectedProfile,
-        undefined,
-        form.getValues('parameters')
-      )
-      form.setValue('mode', normalized.mode, { shouldValidate: true })
-      form.setValue('parameters', normalized.parameters, {
-        shouldValidate: true,
-      })
-      form.setValue('reference_asset_ids', [], { shouldValidate: true })
-      // oxlint-disable-next-line react/set-state-in-effect -- Keep selected media consistent with the asynchronously loaded model limits.
-      setReferenceAssets([])
-      return
-    }
-    setReferenceAssets((assets) => assets.slice(0, referenceLimit))
-  }, [form, referenceLimit, selectedMode, selectedProfile])
 
   useEffect(() => {
     if (selected || sampleVideoAsset?.state !== 'ready') return
@@ -375,6 +417,7 @@ export function VideoSampleAdmin() {
     form.reset(createVideoSampleFormValues())
     setVideoAssets([])
     setReferenceAssets([])
+    setMissingReferences([])
   }
 
   const changeVideoAssets = (assets: VideoAsset[]) => {
@@ -392,11 +435,6 @@ export function VideoSampleAdmin() {
   }
 
   const changeReferenceAssets = (assets: VideoAsset[]) => {
-    form.setValue(
-      'reference_asset_ids',
-      assets.map((asset) => asset.id),
-      { shouldValidate: form.formState.submitCount > 0 }
-    )
     setReferenceAssets(assets)
   }
 
@@ -411,8 +449,7 @@ export function VideoSampleAdmin() {
       })
       form.setValue('mode', 'text_to_video', { shouldDirty: true })
       form.setValue('parameters', {}, { shouldDirty: true })
-      form.setValue('reference_asset_ids', [], { shouldDirty: true })
-      setReferenceAssets([])
+      form.setValue('reference_assets', buildReferenceBindings(referenceAssets, 'text_to_video'), { shouldDirty: true })
       return
     }
 
@@ -433,11 +470,10 @@ export function VideoSampleAdmin() {
       shouldDirty: true,
       shouldValidate: true,
     })
-    form.setValue('reference_asset_ids', [], {
+    form.setValue('reference_assets', buildReferenceBindings(referenceAssets, next.mode), {
       shouldDirty: true,
       shouldValidate: true,
     })
-    setReferenceAssets([])
   }
 
   const changeMode = (mode: VideoGenerationMode) => {
@@ -455,17 +491,22 @@ export function VideoSampleAdmin() {
       shouldDirty: true,
       shouldValidate: true,
     })
-    form.setValue('reference_asset_ids', [], {
+    form.setValue('reference_assets', buildReferenceBindings(referenceAssets, next.mode), {
       shouldDirty: true,
       shouldValidate: true,
     })
-    setReferenceAssets([])
   }
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => form.handleSubmit(async (values) => {
     if (!selectedProfile) {
       form.setError('model_profile_id', {
         message: 'videoStudio.validation.modelRequired',
+      })
+      return
+    }
+    if (missingReferences.length > 0) {
+      form.setError('reference_assets', {
+        message: 'videoStudio.validation.referenceUnavailable',
       })
       return
     }
@@ -490,31 +531,59 @@ export function VideoSampleAdmin() {
       })
       return
     }
-    const referenceAssetIds = referenceAssets.map((asset) => asset.id)
+    const referenceBindings = buildReferenceBindings(referenceAssets, values.mode)
+    if (values.mode === 'text_to_video' && referenceBindings.length > 0) {
+      form.setError('reference_assets', {
+        message: 'videoStudio.validation.textModeHasReferences',
+      })
+      return
+    }
+    if (
+      selectedProfile.specification.reference_policy?.max_total_count != null &&
+      referenceBindings.length >
+        selectedProfile.specification.reference_policy.max_total_count
+    ) {
+      form.setError('reference_assets', {
+        message: 'videoStudio.validation.referenceLimitExceeded',
+      })
+      return
+    }
     const normalized = buildVideoSampleProfileState(
       selectedProfile,
       values.mode,
       values.parameters,
-      referenceAssetIds
+      referenceBindings as VideoSampleFormValues['reference_assets']
     )
-    const expectedReferenceRoles = getVideoReferenceRoles(
-      selectedProfile,
-      normalized.mode
-    )
-    if (referenceAssetIds.length !== expectedReferenceRoles.length) {
-      let message = 'videoStudio.validation.imageRequired'
-      if (expectedReferenceRoles.length === 2) {
-        message = 'videoStudio.validation.twoFramesRequired'
-      } else if (expectedReferenceRoles.includes('reference_video')) {
-        message = 'videoStudio.validation.videoRequired'
-      }
-      form.setError('reference_asset_ids', {
-        message,
+    if (
+      values.mode === 'first_frame_to_video' &&
+      referenceBindings.filter((binding) => binding.role === 'first_frame').length !== 1
+    ) {
+      form.setError('reference_assets', {
+        message: 'videoStudio.validation.imageRequired',
       })
       return
     }
+    if (
+      values.mode === 'first_last_frame' &&
+      (referenceBindings.filter((binding) => binding.role === 'first_frame').length !== 1 ||
+        referenceBindings.filter((binding) => binding.role === 'last_frame').length !== 1)
+    ) {
+      form.setError('reference_assets', {
+        message: 'videoStudio.validation.twoFramesRequired',
+      })
+      return
+    }
+    if (referenceMediaError) {
+      form.setError('reference_assets', { message: referenceMediaError })
+      return
+    }
+    if (values.mode !== 'text_to_video' && selectedProfile.specification.reference_policy?.requires_visual &&
+      !referenceBindings.some((binding) => binding.role === 'reference_image' || binding.role === 'reference_video')) {
+      form.setError('reference_assets', { message: 'videoStudio.validation.imageRequired' })
+      return
+    }
     if (referenceAssets.some((asset) => asset.state !== 'ready')) {
-      form.setError('reference_asset_ids', {
+      form.setError('reference_assets', {
         message: 'videoStudio.admin.waitForAssets',
       })
       return
@@ -533,7 +602,7 @@ export function VideoSampleAdmin() {
       model_profile_id: selectedProfile.id,
       mode: normalized.mode,
       parameters,
-      reference_asset_ids: referenceAssetIds,
+      reference_assets: referenceBindings as VideoSampleFormValues['reference_assets'],
       video_asset_id: sampleVideoAsset.id,
       status: videoReplaced ? 'draft' : values.status,
     }
@@ -889,38 +958,77 @@ export function VideoSampleAdmin() {
               </FormItem>
             )}
           />
+          {missingReferences.length > 0 && (
+            <div className='space-y-2' role='alert'>
+              <p className='text-destructive text-sm'>
+                {t('videoStudio.referenceUnavailable')}
+              </p>
+              {missingReferences.map((reference) => (
+                <div key={`${reference.role}-${reference.position}-${reference.asset_id}`} className='flex items-center justify-between gap-2 rounded-md border px-3 py-2'>
+                  <span className='text-muted-foreground text-sm'>#{reference.asset_id}</span>
+                  <Button type='button' size='sm' variant='outline' onClick={() => setMissingReferences((references) => references.filter((item) => item !== reference))}>
+                    {t('videoStudio.removeReference')}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
           {referenceLimit > 0 && (
             <div className='space-y-2'>
               <span className='text-sm font-medium'>
-                {t(
-                  usesVideoReference
-                    ? 'videoStudio.admin.referenceVideo'
-                    : 'videoStudio.admin.referenceImages'
-                )}
+                {t('videoStudio.admin.references')}
               </span>
-              <VideoAssetUploader
-                key={`${selected?.id ?? 'new'}-${selectedProfileId}-${selectedMode}-${referenceLimit}-${usesVideoReference ? 'video' : 'image'}`}
-                assets={referenceAssets}
-                onAssetsChange={changeReferenceAssets}
-                purpose={usesVideoReference ? 'reference_video' : 'reference'}
-                maxFiles={referenceLimit}
-                accept={
-                  usesVideoReference
-                    ? ['video/mp4', 'video/webm', 'video/quicktime']
-                    : ['image/jpeg', 'image/png', 'image/webp']
-                }
-                label={t(
-                  usesVideoReference
-                    ? 'videoStudio.addVideo'
-                    : 'videoStudio.addImage'
-                )}
-                assetLabels={referenceLabels}
-                compact
-                adminUpload
-              />
-              {form.formState.errors.reference_asset_ids?.message && (
+              {referencePolicy?.image && (
+                <VideoAssetUploader
+                  key={`${selected?.id ?? 'new'}-ref-image`}
+                  assets={referenceAssets.filter((asset) => referenceMimeKind(asset) === 'image')}
+                  onAssetsChange={(assets) => changeReferenceAssets([
+                    ...referenceAssets.filter((asset) => referenceMimeKind(asset) !== 'image'),
+                    ...assets,
+                  ])}
+                  purpose='reference'
+                  maxFiles={referencePolicy.image.max_count}
+                  accept={referencePolicy.image.allowed_mime_types}
+                  label={t('videoStudio.admin.referenceImages')}
+                  compact
+                  adminUpload
+                />
+              )}
+              {referencePolicy?.video && (
+                <VideoAssetUploader
+                  key={`${selected?.id ?? 'new'}-ref-video`}
+                  assets={referenceAssets.filter((asset) => referenceMimeKind(asset) === 'video')}
+                  onAssetsChange={(assets) => changeReferenceAssets([
+                    ...referenceAssets.filter((asset) => referenceMimeKind(asset) !== 'video'),
+                    ...assets,
+                  ])}
+                  purpose='reference_video'
+                  maxFiles={referencePolicy.video.max_count}
+                  accept={referencePolicy.video.allowed_mime_types}
+                  label={t('videoStudio.admin.referenceVideo')}
+                  compact
+                  adminUpload
+                />
+              )}
+              {referencePolicy?.audio && (
+                <VideoAssetUploader
+                  key={`${selected?.id ?? 'new'}-ref-audio`}
+                  assets={referenceAssets.filter((asset) => referenceMimeKind(asset) === 'audio')}
+                  onAssetsChange={(assets) => changeReferenceAssets([
+                    ...referenceAssets.filter((asset) => referenceMimeKind(asset) !== 'audio'),
+                    ...assets,
+                  ])}
+                  purpose='reference_audio'
+                  maxFiles={referencePolicy.audio.max_count}
+                  accept={referencePolicy.audio.allowed_mime_types}
+                  label={t('videoStudio.admin.referenceAudio')}
+                  compact
+                  adminUpload
+                />
+              )}
+              {form.formState.errors.reference_assets?.message && (
                 <p className='text-destructive text-xs' role='alert'>
-                  {t(form.formState.errors.reference_asset_ids.message)}
+                  {t(form.formState.errors.reference_assets.message)}
                 </p>
               )}
             </div>

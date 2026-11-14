@@ -75,9 +75,9 @@ const draft = (
   referenceAssetIds: number[]
 ): VideoComposerValues => ({
   model_profile_id: 1,
-  mode: 'image_to_video',
+  mode: 'reference_to_video',
   prompt,
-  reference_asset_ids: referenceAssetIds,
+  references: referenceAssetIds.map((asset_id, position) => ({client_id: String(asset_id), asset_id, position, role: 'reference_image', included: true})),
   parameters: { duration: 5 },
 })
 
@@ -150,7 +150,7 @@ describe('Video Studio draft user isolation', () => {
     assert.deepEqual(useVideoStudioDraftStore.getState().uploadResumes, [])
   })
 
-  test('discards the ownerless legacy draft instead of assigning it to a user', () => {
+  test('leaves the ownerless legacy namespace untouched and does not reuse it', () => {
     const legacyDraft = draft('owner is unknown', [401])
     storage.setItem(
       'video-studio-draft',
@@ -165,7 +165,7 @@ describe('Video Studio draft user isolation', () => {
 
     useAuthStore.getState().auth.setUser(user(44))
 
-    assert.equal(storage.getItem('video-studio-draft'), null)
+    assert.notEqual(storage.getItem('video-studio-draft'), null)
     assert.equal(useVideoStudioDraftStore.getState().draft, null)
     assert.deepEqual(useVideoStudioDraftStore.getState().uploadResumes, [])
   })

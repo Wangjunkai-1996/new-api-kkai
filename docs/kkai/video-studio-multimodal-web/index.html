@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>视频工作室 · 多模态创作设计 | KKAI · new-api</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="design.css">
+</head>
+<body>
+  <header class="global-header">
+    <div class="brand"><span class="brand-mark">K</span><b>KKAI</b><span class="brand-divider"></span><span class="brand-sub">创作工作台</span></div>
+    <nav class="global-nav" aria-label="平台导航"><button data-info="控制台">控制台</button><button data-info="模型广场">模型广场</button><button data-info="文档">文档</button></nav>
+    <div class="global-actions"><span class="preview-label"><span></span>设计预览 · 示例素材</span><button id="themeToggle" class="icon-button" aria-label="切换浅色主题"><i data-icon="sun"></i></button><button class="icon-button" data-info="通知" aria-label="通知"><i data-icon="bell"></i></button><button class="avatar" data-info="个人账户" aria-label="个人账户">K</button></div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="nav-label">创作空间</div>
+      <button class="side-item" data-info="游乐场"><i data-icon="flask"></i><span>游乐场</span></button>
+      <button class="side-item active" aria-current="page"><i data-icon="film"></i><span>视频工作室</span><span class="side-dot"></span></button>
+      <button class="side-item" data-info="图片工作室"><i data-icon="image"></i><span>图片工作室</span></button>
+      <div class="nav-label section-label">管理</div>
+      <button class="side-item" data-info="数据概览"><i data-icon="chart"></i><span>数据概览</span></button>
+      <button class="side-item" data-info="API 密钥"><i data-icon="key"></i><span>API 密钥</span></button>
+      <button class="side-item" data-info="使用日志"><i data-icon="history"></i><span>使用日志</span></button>
+      <button class="side-item" data-info="钱包"><i data-icon="wallet"></i><span>钱包</span></button>
+      <div class="sidebar-bottom"><button class="side-item" data-info="创作指南"><i data-icon="help"></i><span>创作指南</span><i data-icon="arrow-up-right"></i></button><div class="attribution">Powered by new-api<br><span>QuantumNous</span></div></div>
+    </aside>
+
+    <main>
+      <div class="page-heading"><div><div class="eyebrow">VIDEO STUDIO</div><h1>视频工作室<span></span></h1></div><div class="heading-actions"><span>让想象，有声有色。</span><button id="newDraft" class="button secondary"><i data-icon="plus"></i>新建创作</button></div></div>
+      <div class="studio-nav"><nav aria-label="工作室导航"><button class="selected" aria-current="page"><i data-icon="sparkles"></i>创作</button><button data-info="作品库"><i data-icon="folder"></i>作品库</button><button data-info="任务"><i data-icon="list"></i>任务<span class="count-badge" id="taskCount">2</span></button></nav><span class="autosave"><i data-icon="check"></i>草稿已保存<span class="desktop-only">在本次预览中</span></span></div>
+
+      <div class="workspace">
+        <section class="composer panel" aria-label="视频生成配置">
+          <div class="panel-heading"><h2><i data-icon="sparkles"></i>创作视频</h2><span class="subtle">从素材开始，也可以只写描述</span></div>
+
+          <div class="model-field"><div class="model-icon"><i data-icon="layers"></i></div><div class="model-select-wrap"><label for="modelSelect">生成模型</label><select id="modelSelect"><option value="sd25video">Seedance 2.5 · 视频参考</option><option value="sd20video">Seedance 2.0 · 视频参考</option><option value="sd25image">Seedance 2.5 · 图片参考</option></select></div><span class="model-badge">特价版</span></div>
+          <div class="model-capability"><i data-icon="check-circle"></i><span id="capabilityText">支持图片、视频、音频组合参考</span><button id="limitsButton" aria-label="查看模型素材限制"><i data-icon="info"></i></button></div>
+
+          <div class="reference-section">
+            <div class="field-heading"><label>参考素材 <span id="refCount" class="small-count">3</span></label><button id="addMedia" class="text-button"><i data-icon="plus"></i>添加素材</button></div>
+            <div class="reference-list" id="referenceList" aria-label="本次参考素材"></div>
+            <div class="reference-summary" id="referenceSummary"></div>
+            <div id="referenceIssue" class="inline-issue" role="alert" hidden></div>
+            <div id="excludedBar" class="excluded-bar" hidden></div>
+            <div id="undoBar" class="undo-bar" hidden><span id="undoText"></span><button id="undoRemove" class="text-button">撤销</button></div>
+          </div>
+
+          <div class="prompt-section"><div class="field-heading"><label for="prompt">画面描述</label><span class="subtle" id="promptCount"></span></div><div class="prompt-wrap"><textarea id="prompt" rows="4" placeholder="描述主体、动作、镜头和声音，或说明你希望怎样使用参考素材…">保持图片中骑行者的形象，参考视频中的运镜节奏。镜头跟随她穿过雨后的沿海城市，路面倒映着霓虹，配合音频中的城市氛围，呈现自然、电影感的画面。</textarea><div class="prompt-tools"><span><i data-icon="lightbulb"></i>说清每份素材的用途，效果更可控</span><button id="clearPrompt" aria-label="清空画面描述"><i data-icon="eraser"></i></button></div></div></div>
+
+          <div class="output-section"><div class="field-heading"><label>输出设置</label><span class="subtle">参考素材不会改变输出时长</span></div><div class="output-grid"><label>画幅<select id="ratio"><option value="16:9">▭　16:9</option><option value="9:16">▯　9:16</option><option value="1:1">□　1:1</option></select></label><label>分辨率<select id="resolution"><option>720p</option><option>1080p</option></select></label><label>时长<select id="duration"><option value="5">5 秒</option><option value="8" selected>8 秒</option><option value="10">10 秒</option><option value="15">15 秒</option><option value="30">30 秒</option></select></label></div><div class="sound-row"><div><i data-icon="volume"></i><span>视频声音</span><span class="subtle">生成画面的配套音轨</span></div><label class="switch"><input id="sound" type="checkbox" checked aria-label="生成视频声音"><span></span></label></div></div>
+
+          <div class="submit-area"><div class="price-line"><span>预计费用<button id="priceHelp" aria-label="查看费用说明"><i data-icon="info"></i></button></span><strong id="price">生成前询价 <span>／次</span></strong></div><div id="submissionIssue" class="submission-issue" role="status"></div><button id="generate" class="button primary generate"><i data-icon="sparkles"></i><span>生成视频</span><i data-icon="arrow-right"></i></button><p class="submit-note">设计预览，不上传素材、不创建真实任务或扣费</p></div>
+        </section>
+
+        <section class="result-column" aria-label="生成结果与近期任务">
+          <article class="result-panel panel"><div class="result-header"><div><span class="eyebrow">YOUR CREATION</span><h2 id="resultTitle">雨后，沿海城市</h2></div><span id="resultStatus" class="status ready"><span></span>已完成 · 示例</span></div>
+            <div class="result-stage" id="resultStage"><img id="resultImage" src="../video-studio-redesign/assets/city-ride-cinematic.webp" alt="电影感骑行画面：雨后城市与海湾中的红衣骑行者"><span class="stage-chip"><i data-icon="film"></i><span id="stageSpec">16:9 · 720p</span></span><button id="previewImage" class="play-button" aria-label="预览示例画面"><i data-icon="play"></i></button><div class="stage-caption"><span>静帧示例</span><button id="expandImage" aria-label="放大示例画面"><i data-icon="maximize"></i></button></div><div id="taskStage" class="task-stage" hidden></div></div>
+            <div class="result-details"><div class="result-meta"><strong id="resultModel">Seedance 2.5</strong><span id="resultMeta">8 秒 <b>·</b> 720p <b>·</b> 含声音 <b>·</b> 今天 14:28</span></div><div class="result-actions"><button id="reuseSettings" class="button secondary"><i data-icon="rotate"></i>复用设置</button><button id="downloadResult" class="button secondary icon-button" aria-label="下载示例画面"><i data-icon="download"></i></button><button id="resultMore" class="button secondary icon-button" aria-label="查看作品详情"><i data-icon="more"></i></button></div></div>
+            <div class="result-references"><span>本次使用</span><span><i data-icon="image"></i>1 张图片</span><span><i data-icon="film"></i>1 个视频</span><span><i data-icon="audio"></i>1 段音频</span></div>
+          </article>
+
+          <div class="recent-heading"><h2>近期创作 <span id="recentCount">3</span></h2><button class="text-button" data-info="全部任务">全部任务<i data-icon="arrow-right"></i></button></div>
+          <div class="recent-grid" id="recentGrid">
+            <button class="recent-card current" data-task="city" aria-pressed="true"><div class="recent-image"><img src="../video-studio-redesign/assets/city-ride-cinematic.webp" alt="雨后沿海城市作品缩略图"><span class="time-tag">00:08</span><span class="recent-check"><i data-icon="check"></i></span></div><div class="recent-body"><strong>雨后，沿海城市</strong><span>Seedance 2.5 <span class="status-text success">已完成</span></span></div></button>
+            <button class="recent-card" data-task="ocean" aria-pressed="false"><div class="recent-image processing"><img src="../video-works/assets/demo/ocean.webp" alt="海上之门作品参考画面"><span class="task-cover"><i data-icon="loader"></i>正在生成</span></div><div class="recent-body"><strong>日落时的海上之门</strong><span>Seedance 2.5 <span class="status-text">生成中</span></span></div></button>
+            <button class="recent-card" data-task="coupe" aria-pressed="false"><div class="recent-image queued"><img src="../video-works/assets/demo/coupe.webp" alt="汽车作品参考画面"><span class="task-cover"><i data-icon="clock"></i>等待生成</span></div><div class="recent-body"><strong>暮色中的汽车短片</strong><span>Seedance 2.0 <span class="status-text muted">排队中</span></span></div></button>
+          </div>
+
+          <div class="inspiration"><div class="inspiration-symbol"><i data-icon="wand"></i></div><div><strong>下一幕，从一个灵感开始</strong><p>产品展示、镜头运动、声音氛围，试试不同的素材组合。</p></div><button id="inspirationButton" class="button secondary">试用样片<i data-icon="arrow-up-right"></i></button></div>
+          <div class="workspace-footer"><span>图片定义主体 · 视频参考运动 · 音频传递氛围</span><span>KKAI STUDIO</span></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="addDialog" aria-labelledby="addTitle"><div class="dialog-heading"><div><span class="eyebrow">REFERENCE MEDIA</span><h2 id="addTitle">添加参考素材</h2></div><button data-close="addDialog" class="icon-button" aria-label="关闭"><i data-icon="x"></i></button></div><p class="dialog-intro">选择一种素材，体验组合参考。以下文件仅用于设计预览。</p><div class="add-options"><button data-add="image"><i data-icon="image"></i><strong>图片</strong><span>主体、场景与视觉风格</span><small>JPG / PNG / WebP</small></button><button data-add="video"><i data-icon="film"></i><strong>视频</strong><span>动作、构图与镜头运动</span><small>MP4 / MOV</small></button><button data-add="audio"><i data-icon="audio"></i><strong>音频</strong><span>声音、节奏与氛围</span><small>MP3 / WAV</small></button></div><div class="dialog-note"><i data-icon="info"></i>参考音频需要搭配图片或视频。素材限制由所选模型决定。</div></dialog>
+  <dialog id="imageDialog" class="image-dialog" aria-labelledby="imageTitle"><div class="dialog-heading"><h2 id="imageTitle">画面预览</h2><button data-close="imageDialog" class="icon-button" aria-label="关闭预览"><i data-icon="x"></i></button></div><img id="dialogImage" src="../video-studio-redesign/assets/city-ride-cinematic.webp" alt="作品静帧预览"><p>设计稿使用静帧示例；正式页面在此播放生成的视频。</p></dialog>
+  <dialog id="messageDialog" aria-labelledby="messageTitle"><div class="dialog-heading"><h2 id="messageTitle"></h2><button data-close="messageDialog" class="icon-button" aria-label="关闭"><i data-icon="x"></i></button></div><div id="messageBody" class="message-body"></div><div id="messageActions" class="dialog-actions"></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="icons.js"></script>
+  <script src="design.js"></script>
+</body>
+</html>

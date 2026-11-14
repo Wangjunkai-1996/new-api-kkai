@@ -41,11 +41,30 @@ func TestCreateVideoAssetUploadAcceptsUserVideoReferences(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, model.VideoAssetScopeUser, upload.Asset.Scope)
 	require.Equal(t, model.VideoAssetKindReference, upload.Asset.Kind)
-	require.Equal(t, upload.UploadLimits.ArchiveMaxBytes, upload.MaxSizeBytes)
+	require.Equal(t, upload.UploadLimits.ReferenceVideoMaxBytes, upload.MaxSizeBytes)
 
 	_, err = CreateVideoAssetUpload(context.Background(), db, store, 7, false, VideoAssetUploadRequest{
 		Purpose: model.VideoUploadPurposeReferenceVideo, Filename: "reference.png",
 		MIMEType: "image/png", SizeBytes: 1024,
+	})
+	require.ErrorIs(t, err, ErrInvalidVideoAssetUpload)
+}
+
+func TestCreateVideoAssetUploadAcceptsUserAudioReferencesWithAudioLimit(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	store := newMemoryVideoAssetStore()
+	upload, err := CreateVideoAssetUpload(context.Background(), db, store, 7, false, VideoAssetUploadRequest{
+		Purpose: model.VideoUploadPurposeReferenceAudio, Filename: "reference.mp3",
+		MIMEType: "audio/mpeg", SizeBytes: 1024,
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.VideoAssetKindReference, upload.Asset.Kind)
+	require.Equal(t, upload.UploadLimits.AudioMaxBytes, upload.MaxSizeBytes)
+	require.Less(t, upload.MaxSizeBytes, upload.UploadLimits.ArchiveMaxBytes)
+
+	_, err = CreateVideoAssetUpload(context.Background(), db, store, 7, false, VideoAssetUploadRequest{
+		Purpose: model.VideoUploadPurposeReferenceAudio, Filename: "reference.aac",
+		MIMEType: "audio/aac", SizeBytes: 1024,
 	})
 	require.ErrorIs(t, err, ErrInvalidVideoAssetUpload)
 }

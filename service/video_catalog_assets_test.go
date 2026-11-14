@@ -19,11 +19,9 @@ func seedVideoCatalogLifecycle(t *testing.T) (*gorm.DB, model.KKAIVideoModelProf
 	now := time.Now().Unix()
 	specification, err := common.Marshal(VideoModelSpec{
 		Version: 1,
-		Modes:   []string{VideoModeFirstLastFrame},
-		ReferenceInputs: []VideoReferenceInputSpec{
-			{Role: model.VideoTaskAssetRoleFirstFrame, RequestKey: "first_frame", Required: true},
-			{Role: model.VideoTaskAssetRoleLastFrame, RequestKey: "last_frame", Required: true},
-		},
+		Modes:   []string{VideoModeReferenceToVideo},
+		ReferencePolicy: &VideoReferencePolicy{MaxTotalCount: intPointer(2), RequiresVisual: true,
+			Image: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"image/jpeg"}, MaxCount: 2, MaxSizeBytes: 2_000_000, MinWidth: 1, MaxWidth: 8192, MinHeight: 1, MaxHeight: 8192, MinAspectRatioExclusive: .1, MaxAspectRatioExclusive: 10}},
 	})
 	require.NoError(t, err)
 	profile := model.KKAIVideoModelProfile{
@@ -51,6 +49,9 @@ func seedVideoCatalogLifecycle(t *testing.T) (*gorm.DB, model.KKAIVideoModelProf
 		{OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, ObjectKey: "users/7/new-last.jpg", MIMEType: "image/jpeg", CreatedAt: now, UpdatedAt: now},
 	}
 	for index := range assets {
+		if assets[index].Kind == model.VideoAssetKindReference {
+			assets[index].Width, assets[index].Height, assets[index].SizeBytes, assets[index].MediaMetadata = 1280, 720, 100, `{"inspection_version":1,"container":"jpeg"}`
+		}
 		require.NoError(t, db.Create(&assets[index]).Error)
 	}
 	return db, profile, assets
@@ -64,7 +65,7 @@ func videoCatalogLifecycleInput(
 ) VideoSampleInput {
 	return VideoSampleInput{
 		ModelProfileID: profileID, Title: "Lifecycle sample", Prompt: "A controlled camera move",
-		Mode: VideoModeFirstLastFrame, Parameters: map[string]any{}, ReferenceAssetIDs: referenceAssetIDs,
+		Mode: VideoModeReferenceToVideo, Parameters: map[string]any{}, ReferenceAssets: []VideoStudioReferenceAssetInput{{AssetID: referenceAssetIDs[0], Role: model.VideoTaskAssetRoleReferenceImage, Position: intPointer(0)}, {AssetID: referenceAssetIDs[1], Role: model.VideoTaskAssetRoleReferenceImage, Position: intPointer(1)}},
 		VideoAssetID: videoAssetID, AspectRatio: 16.0 / 9.0, Category: model.VideoSampleCategoryOther,
 		Status: status,
 	}

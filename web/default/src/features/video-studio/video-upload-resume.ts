@@ -25,7 +25,8 @@ import type {
 } from './types'
 
 export const VIDEO_REFERENCE_FALLBACK_MAX_BYTES = 20 * 1024 * 1024
-export const VIDEO_REFERENCE_VIDEO_FALLBACK_MAX_BYTES = 1024 * 1024 * 1024
+export const VIDEO_REFERENCE_VIDEO_FALLBACK_MAX_BYTES = 49_999_999
+export const VIDEO_REFERENCE_AUDIO_FALLBACK_MAX_BYTES = 14_999_999
 export const VIDEO_ADMIN_SAMPLE_FALLBACK_MAX_BYTES = 1024 * 1024 * 1024
 
 export type VideoUploadFingerprint = {
@@ -66,7 +67,9 @@ export const getVideoUploadMaxBytes = (
 ): number => {
   let serverLimit = limits?.reference_max_bytes
   if (purpose === 'reference_video') {
-    serverLimit = limits?.archive_max_bytes
+    serverLimit = limits?.reference_video_max_bytes
+  } else if (purpose === 'reference_audio') {
+    serverLimit = limits?.audio_max_bytes
   } else if (admin && purpose === 'sample') {
     serverLimit = limits?.sample_max_bytes
   }
@@ -74,16 +77,13 @@ export const getVideoUploadMaxBytes = (
   if (purpose === 'reference_video') {
     return VIDEO_REFERENCE_VIDEO_FALLBACK_MAX_BYTES
   }
+  if (purpose === 'reference_audio') {
+    return VIDEO_REFERENCE_AUDIO_FALLBACK_MAX_BYTES
+  }
   return admin && purpose === 'sample'
     ? VIDEO_ADMIN_SAMPLE_FALLBACK_MAX_BYTES
     : VIDEO_REFERENCE_FALLBACK_MAX_BYTES
 }
-
-export const shouldDeleteVideoAssetOnRemove = (
-  asset: VideoAsset,
-  adminUpload: boolean
-): boolean =>
-  !adminUpload && asset.scope === 'user' && asset.kind === 'reference'
 
 export const getVideoUploadFingerprint = (
   file: VideoUploadFingerprintSource
@@ -136,6 +136,7 @@ export const sanitizeVideoUploadResumeRecords = (
       typeof candidate.admin !== 'boolean' ||
       (candidate.purpose !== 'reference' &&
         candidate.purpose !== 'reference_video' &&
+        candidate.purpose !== 'reference_audio' &&
         candidate.purpose !== 'sample') ||
       candidate.uploadMode !== 'multipart' ||
       !isPositiveInteger(candidate.partSize) ||

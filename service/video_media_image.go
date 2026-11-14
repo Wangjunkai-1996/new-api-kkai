@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 func inspectRasterVideoMedia(inputPath string) (VideoMediaMetadata, bool, error) {
@@ -42,9 +43,10 @@ func inspectRasterVideoMediaReader(input io.Reader) (VideoMediaMetadata, bool, e
 		codec = "webp"
 	}
 	return VideoMediaMetadata{
-		MIMEType: mimeType,
-		Width:    width,
-		Height:   height,
-		Codec:    codec,
+		MIMEType:  mimeType,
+		Width:     width,
+		Height:    height,
+		Codec:     codec,
+		Container: strings.TrimPrefix(mimeType, "image/"),
 	}, true, nil
 }

@@ -186,6 +186,142 @@
   gap: 22px;
   align-items: start;
 }
+
+/* The create route follows the multimodal reference design without changing
+   the shared library and task pages. */
+.video-studio-create-page .video-studio-container {
+  max-width: 1690px;
+  margin-inline: auto;
+  padding: 20px 28px;
+}
+.video-studio-create-page .video-studio-workspace {
+  grid-template-columns: minmax(410px, 450px) minmax(0, 1fr);
+  gap: 24px;
+}
+.video-studio-create-page .video-studio-panel {
+  border-radius: 12px;
+}
+.video-studio-create-page .video-studio-editor .video-studio-form-body {
+  padding: 20px;
+}
+.video-studio-create-page .video-studio-reference-collection {
+  border: 1px solid var(--vs-line);
+  border-radius: 10px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--vs-raised) 38%, transparent);
+}
+.video-studio-create-page .video-studio-reference-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.video-studio-create-page .video-studio-reference-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--vs-line);
+  border-radius: 8px;
+  background: var(--vs-surface);
+}
+.video-studio-create-page .video-studio-reference-thumbnail {
+  position: relative;
+  display: flex;
+  width: 100%;
+  aspect-ratio: 1.35;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--vs-muted);
+  background: var(--vs-stage);
+}
+.video-studio-create-page .video-studio-reference-kind,
+.video-studio-create-page .video-studio-reference-duration {
+  position: absolute;
+  bottom: 4px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: #fff;
+  background: #111b;
+  font-size: 10px;
+}
+.video-studio-create-page .video-studio-reference-kind {
+  left: 4px;
+}
+.video-studio-create-page .video-studio-reference-duration {
+  right: 4px;
+}
+.video-studio-create-page .video-studio-reference-preview {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  background: #0005;
+  transition: opacity 160ms;
+}
+.video-studio-create-page
+  .video-studio-reference-thumbnail:hover
+  .video-studio-reference-preview,
+.video-studio-create-page
+  .video-studio-reference-thumbnail:focus-visible
+  .video-studio-reference-preview {
+  opacity: 1;
+}
+.video-studio-create-page .video-studio-reference-card-body {
+  padding: 7px;
+}
+.video-studio-create-page .video-studio-reference-actions button {
+  min-height: 28px;
+}
+.video-studio-create-page .video-studio-reference-empty {
+  grid-column: 1 / -1;
+  list-style: none;
+}
+.video-studio-create-page .video-studio-composer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.video-studio-create-page .video-studio-composer-heading h2 {
+  margin: 0;
+  font-size: 16px;
+}
+@media (max-width: 1200px) {
+  .video-studio-create-page .video-studio-container {
+    padding: 20px 22px;
+  }
+  .video-studio-create-page .video-studio-workspace {
+    grid-template-columns: minmax(370px, 1fr) minmax(0, 1fr);
+    gap: 20px;
+  }
+}
+@media (max-width: 940px) {
+  .video-studio-create-page .video-studio-workspace {
+    grid-template-columns: 1fr;
+  }
+  .video-studio-create-page .video-studio-reference-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .video-studio-create-page .video-studio-container {
+    padding: 15px;
+  }
+  .video-studio-create-page .video-studio-editor .video-studio-form-body {
+    padding: 18px;
+  }
+  .video-studio-create-page .video-studio-reference-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 360px) {
+  .video-studio-create-page .video-studio-reference-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .video-studio-panel {
   min-width: 0;
   border: 1px solid var(--vs-line);

@@ -294,6 +294,7 @@ export const useVideoQuote = (
       request ?? {
         token_id: 0,
         model: '',
+        specification_version: 0,
         mode: 'text_to_video',
         prompt: '',
         reference_assets: [],

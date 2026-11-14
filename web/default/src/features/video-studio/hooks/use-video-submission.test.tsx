@@ -41,7 +41,7 @@ const values: VideoComposerValues = {
   model_profile_id: 1,
   mode: 'text_to_video',
   prompt: 'A scene',
-  reference_asset_ids: [],
+  references: [],
   parameters: {},
 }
 const profile: VideoModelProfile = {
@@ -61,6 +61,7 @@ const profile: VideoModelProfile = {
 const request: VideoQuoteRequest = {
   token_id: 17,
   model: 'video',
+  specification_version: 1,
   mode: 'text_to_video',
   prompt: 'A scene',
   reference_assets: [],

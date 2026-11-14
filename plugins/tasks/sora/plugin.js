@@ -126,34 +126,65 @@ function specialSeedanceDuration(req, model) {
 }
 
 function specialSeedanceRequest(req, model, capabilityModel) {
-  const metadata = req && req.metadata && typeof req.metadata === "object" && !Array.isArray(req.metadata) ? req.metadata : {};
+  if (req.metadata !== undefined && (!req.metadata || typeof req.metadata !== "object" || Array.isArray(req.metadata)))
+    throw new Error("metadata must be an object");
+  const metadata = req.metadata || {};
+  const parameterKeys = ["duration", "seconds", "ratio", "resolution", "generate_audio", "reference_assets"];
+  for (const key of Object.keys(metadata))
+    if (!parameterKeys.includes(key)) throw new Error("unsupported Seedance metadata parameter: " + key);
+  for (const key of Object.keys(req))
+    if (!["model", "prompt", "mode", "group", "metadata", "duration", "seconds", "ratio", "resolution", "generate_audio"].includes(key))
+      throw new Error("unsupported Seedance request field: " + key);
   const result = { model: model, prompt: req.prompt, duration: specialSeedanceDuration(req, capabilityModel) };
   const copyFromRequest = function (key) {
+    if (hasOwn(req, key) && hasOwn(metadata, key) && req[key] !== metadata[key]) throw new Error(key + " fields must match");
     if (hasOwn(req, key) && req[key] !== undefined && req[key] !== null && req[key] !== "") return req[key];
     if (hasOwn(metadata, key)) return metadata[key];
     return undefined;
   };
 
-  ["ratio", "resolution", "reference_video", "generate_audio"].forEach(function (key) {
+  ["ratio", "resolution", "generate_audio"].forEach(function (key) {
     const value = copyFromRequest(key);
     if (value !== undefined && value !== null && value !== "") result[key] = value;
   });
 
-  // Studio duplicates one reference under compatibility aliases. Accept those
-  // copies, but never silently discard an additional or conflicting image.
-  let referenceImage = "";
-  for (const source of [req, metadata]) {
-    if (source.images !== undefined && (!Array.isArray(source.images) || source.images.length > 1))
-      throw new Error("Seedance accepts at most one reference image");
-    for (const value of [source.reference_image, source.input_reference, source.image].concat(source.images || [])) {
-      if (value === undefined || value === null || value === "") continue;
-      if (typeof value !== "string") throw new Error("reference image must be a string");
-      const image = value.trim();
-      if (referenceImage && image && referenceImage !== image) throw new Error("reference image fields must match");
-      if (image) referenceImage = image;
+  const references = metadata.reference_assets;
+  if (references !== undefined && !Array.isArray(references)) throw new Error("metadata.reference_assets must be an array");
+  const referencesByRole = {
+    reference_image: [],
+    reference_video: [],
+    reference_audio: [],
+    first_frame: [],
+    last_frame: [],
+  };
+  (references || []).forEach(function (reference, index) {
+    if (!reference || typeof reference !== "object" || Array.isArray(reference)) throw new Error("reference_assets[" + index + "] must be an object");
+    const role = trimmed(reference.role);
+    const position = reference.position;
+    if (!Object.prototype.hasOwnProperty.call(referencesByRole, role) || !Number.isSafeInteger(position) || position < 0 || typeof reference.url !== "string" || !trimmed(reference.url))
+      throw new Error("reference_assets[" + index + "] must include role, position, and url");
+    referencesByRole[role].push({ url: trimmed(reference.url), position: position });
+  });
+  Object.keys(referencesByRole).forEach(function (role) {
+    const ordered = referencesByRole[role].sort(function (left, right) { return left.position - right.position; });
+    ordered.forEach(function (reference, index) {
+      if (reference.position !== index) throw new Error(role + " positions must be unique and consecutive from zero");
+    });
+    const urls = ordered.map(function (reference) { return reference.url; });
+    if (role === "reference_image" && urls.length) result.reference_images = urls;
+    else if (role === "reference_video" && urls.length) result.reference_videos = urls;
+    else if (role === "reference_audio" && urls.length) result.reference_audios = urls;
+    else if (role === "first_frame" && urls.length) {
+      if (urls.length !== 1) throw new Error("only one first_frame is supported");
+      result.first_image = urls[0];
+    } else if (role === "last_frame" && urls.length) {
+      if (urls.length !== 1) throw new Error("only one last_frame is supported");
+      result.last_image = urls[0];
     }
-  }
-  if (referenceImage) result.reference_image = referenceImage;
+  });
+
+  for (const key of ["reference_image", "reference_video", "reference_audio", "input_reference", "image", "images"])
+    if (hasOwn(req, key) || hasOwn(metadata, key)) throw new Error("legacy reference field is unsupported: " + key);
 
   return result;
 }

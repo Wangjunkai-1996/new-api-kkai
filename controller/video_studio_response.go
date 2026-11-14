@@ -20,6 +20,11 @@ func videoStudioSuccess(c *gin.Context, status int, data any) {
 
 func respondVideoStudioError(c *gin.Context, err error) {
 	status, code := videoStudioErrorStatus(err)
+	var validation *service.VideoStudioValidationError
+	if errors.As(err, &validation) && status != http.StatusInternalServerError {
+		c.JSON(status, gin.H{"success": false, "message": validation.Message, "code": code, "issues": validation.Issues})
+		return
+	}
 	message := err.Error()
 	if status == http.StatusInternalServerError {
 		common.SysError("video studio request failed: " + message)
@@ -29,10 +34,24 @@ func respondVideoStudioError(c *gin.Context, err error) {
 }
 
 func videoStudioErrorStatus(err error) (int, string) {
+	var validation *service.VideoStudioValidationError
+	if errors.As(err, &validation) && validation.StatusCode >= 400 && validation.StatusCode < 600 && validation.Code != "" {
+		return validation.StatusCode, validation.Code
+	}
 	switch {
 	case errors.Is(err, service.ErrInvalidVideoStudioSubmission),
+		errors.Is(err, service.ErrInvalidVideoParameters):
+		return http.StatusBadRequest, "video_request_contract_invalid"
+	case errors.Is(err, service.ErrIdempotencyConflict),
+		errors.Is(err, service.ErrIdempotencyBindingConflict):
+		return http.StatusConflict, "video_idempotency_conflict"
+	case errors.Is(err, service.ErrIdempotencyInProgress):
+		return http.StatusConflict, "video_submission_pending"
+	case errors.Is(err, service.ErrVideoStudioQuoteMismatch),
+		errors.Is(err, service.ErrVideoStudioQuoteExpired):
+		return http.StatusConflict, "quote_stale"
+	case
 		errors.Is(err, service.ErrInvalidVideoModelSpec),
-		errors.Is(err, service.ErrInvalidVideoParameters),
 		errors.Is(err, service.ErrInvalidVideoSample),
 		errors.Is(err, service.ErrInvalidVideoOutboxEvent),
 		errors.Is(err, service.ErrInvalidVideoAssetUpload),
@@ -69,10 +88,7 @@ func videoStudioErrorStatus(err error) (int, string) {
 		errors.Is(err, service.ErrVideoGenerationDeleted),
 		errors.Is(err, service.ErrVideoAssetInUse),
 		errors.Is(err, service.ErrVideoAssetUploadCompleted),
-		errors.Is(err, service.ErrVideoOutboxRedriveConflict),
-		errors.Is(err, service.ErrIdempotencyConflict),
-		errors.Is(err, service.ErrIdempotencyInProgress),
-		errors.Is(err, service.ErrIdempotencyBindingConflict):
+		errors.Is(err, service.ErrVideoOutboxRedriveConflict):
 		return http.StatusConflict, "video_studio_conflict"
 	case errors.Is(err, video_studio_setting.ErrR2NotConfigured):
 		return http.StatusServiceUnavailable, "video_storage_unavailable"

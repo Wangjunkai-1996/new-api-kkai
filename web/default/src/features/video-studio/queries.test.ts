@@ -628,6 +628,7 @@ describe('video studio private query ownership', () => {
     const privateQuote = videoStudioQueryKeys.quote(11, {
       token_id: 7,
       model: 'video-model',
+      specification_version: 1,
       mode: 'text_to_video',
       prompt: 'test',
       parameters: {},

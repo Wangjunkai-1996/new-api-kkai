@@ -37,12 +37,13 @@ import {
 const request: VideoQuoteRequest = {
   token_id: 7,
   model: 'video',
+  specification_version: 1,
   mode: 'first_last_frame',
   prompt: 'Rain at dusk',
   parameters: { duration: 5, audio: false, seed: 0 },
   reference_assets: [
-    { role: 'first_frame', asset_id: 1 },
-    { role: 'last_frame', asset_id: 2 },
+    { role: 'first_frame', asset_id: 1, position: 0 },
+    { role: 'last_frame', asset_id: 2, position: 0 },
   ],
 }
 beforeEach(() => {
@@ -78,8 +79,8 @@ test('fingerprints canonical input while retaining role, type, token, owner and 
     {
       ...request,
       reference_assets: [
-        { role: 'first_frame' as const, asset_id: 2 },
-        { role: 'last_frame' as const, asset_id: 1 },
+        { role: 'first_frame' as const, asset_id: 2, position: 0 },
+        { role: 'last_frame' as const, asset_id: 1, position: 0 },
       ],
     },
   ]) {
@@ -131,7 +132,7 @@ test('quote and prompt boundaries reject unsafe amounts and UTF-8 overflow', () 
   const values = {
     model_profile_id: 1,
     mode: 'text_to_video',
-    reference_asset_ids: [],
+    references: [],
     parameters: {},
   }
   expect(

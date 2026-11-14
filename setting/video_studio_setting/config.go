@@ -33,16 +33,20 @@ type Setting struct {
 }
 
 type UploadLimits struct {
-	ReferenceMaxBytes int64 `json:"reference_max_bytes"`
-	SampleMaxBytes    int64 `json:"sample_max_bytes"`
-	ArchiveMaxBytes   int64 `json:"archive_max_bytes"`
+	ReferenceMaxBytes      int64 `json:"reference_max_bytes"`
+	ReferenceVideoMaxBytes int64 `json:"reference_video_max_bytes"`
+	AudioMaxBytes          int64 `json:"audio_max_bytes"`
+	SampleMaxBytes         int64 `json:"sample_max_bytes"`
+	ArchiveMaxBytes        int64 `json:"archive_max_bytes"`
 }
 
 func (setting Setting) UploadLimits() UploadLimits {
 	return UploadLimits{
-		ReferenceMaxBytes: setting.MaxReferenceBytes,
-		SampleMaxBytes:    setting.MaxArchivedVideoBytes,
-		ArchiveMaxBytes:   setting.MaxArchivedVideoBytes,
+		ReferenceMaxBytes:      setting.MaxReferenceBytes,
+		ReferenceVideoMaxBytes: min(setting.MaxArchivedVideoBytes, int64(49_999_999)),
+		AudioMaxBytes:          min(setting.MaxReferenceBytes, int64(14_999_999)),
+		SampleMaxBytes:         setting.MaxArchivedVideoBytes,
+		ArchiveMaxBytes:        setting.MaxArchivedVideoBytes,
 	}
 }
 

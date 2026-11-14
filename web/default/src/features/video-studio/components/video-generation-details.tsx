@@ -55,6 +55,8 @@ export function VideoGenerationDetails(props: VideoGenerationDetailsProps) {
   const modes = {
     text_to_video: t('Text to video'),
     image_to_video: t('Image to video'),
+    reference_to_video: t('videoStudio.mode.reference'),
+    first_frame_to_video: t('videoStudio.mode.firstFrame'),
     first_last_frame: t('First and last frames'),
   }
 

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
@@ -66,7 +67,9 @@ const (
 )
 
 const videoMediaProtocolBlacklist = "http,https,tcp,tls,udp,rtp,concat,concatf,subfile,crypto,data,ftp,gopher,srt,rist,unix"
-const videoMediaFormatWhitelist = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,image2"
+const videoMediaFormatWhitelist = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,image2,mp3,wav"
+
+const VideoMediaInspectionVersion = 1
 
 type VideoMediaMetadata struct {
 	MIMEType        string
@@ -74,6 +77,40 @@ type VideoMediaMetadata struct {
 	Height          int
 	DurationSeconds float64
 	Codec           string
+	Container       string
+	FrameRateNum    int64
+	FrameRateDen    int64
+}
+
+// VideoMediaInspection is the durable evidence needed when a ready asset is
+// used as a generation reference. Keep it intentionally small and versioned;
+// provider-specific validation belongs to the model capability profile.
+type VideoMediaInspection struct {
+	InspectionVersion int    `json:"inspection_version"`
+	Container         string `json:"container"`
+	FrameRateNum      int64  `json:"frame_rate_num,omitempty"`
+	FrameRateDen      int64  `json:"frame_rate_den,omitempty"`
+}
+
+func (metadata VideoMediaMetadata) Inspection() VideoMediaInspection {
+	return VideoMediaInspection{
+		InspectionVersion: VideoMediaInspectionVersion,
+		Container:         metadata.Container,
+		FrameRateNum:      metadata.FrameRateNum,
+		FrameRateDen:      metadata.FrameRateDen,
+	}
+}
+
+func DecodeVideoMediaInspection(asset model.KKAIVideoAsset) (VideoMediaInspection, error) {
+	if strings.TrimSpace(asset.MediaMetadata) == "" {
+		return VideoMediaInspection{}, ErrVideoMediaInvalid
+	}
+	var inspection VideoMediaInspection
+	if err := common.UnmarshalJsonStr(asset.MediaMetadata, &inspection); err != nil ||
+		inspection.InspectionVersion != VideoMediaInspectionVersion || strings.TrimSpace(inspection.Container) == "" {
+		return VideoMediaInspection{}, ErrVideoMediaInvalid
+	}
+	return inspection, nil
 }
 
 type VideoMediaProcessor interface {
@@ -267,15 +304,19 @@ func videoMediaCommandError(commandContext context.Context, tool string, err err
 	return fmt.Errorf("%w: %s execution failed: %w", ErrVideoMediaProcessingFailed, tool, err)
 }
 
+type videoProbeStream struct {
+	CodecType    string `json:"codec_type"`
+	CodecName    string `json:"codec_name"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	Duration     string `json:"duration"`
+	AvgFrameRate string `json:"avg_frame_rate"`
+	RFrameRate   string `json:"r_frame_rate"`
+}
+
 type videoProbeOutput struct {
-	Streams []struct {
-		CodecType string `json:"codec_type"`
-		CodecName string `json:"codec_name"`
-		Width     int    `json:"width"`
-		Height    int    `json:"height"`
-		Duration  string `json:"duration"`
-	} `json:"streams"`
-	Format struct {
+	Streams []videoProbeStream `json:"streams"`
+	Format  struct {
 		FormatName string `json:"format_name"`
 		Duration   string `json:"duration"`
 	} `json:"format"`
@@ -288,52 +329,56 @@ func parseVideoProbeOutput(output []byte) (VideoMediaMetadata, error) {
 	}
 	videoStreams := 0
 	audioStreams := 0
-	var selected *struct {
-		CodecType string `json:"codec_type"`
-		CodecName string `json:"codec_name"`
-		Width     int    `json:"width"`
-		Height    int    `json:"height"`
-		Duration  string `json:"duration"`
-	}
+	var selectedVideo *videoProbeStream
+	var selectedAudio *videoProbeStream
 	for index := range probe.Streams {
 		stream := &probe.Streams[index]
 		switch stream.CodecType {
 		case "video":
 			videoStreams++
-			selected = stream
+			selectedVideo = stream
 		case "audio":
-			if !allowedVideoAudioCodec(stream.CodecName) {
+			if !allowedReferenceAudioCodec(stream.CodecName) && !allowedVideoAudioCodec(stream.CodecName) {
 				return VideoMediaMetadata{}, ErrVideoMediaInvalid
 			}
 			audioStreams++
+			selectedAudio = stream
 		default:
 			return VideoMediaMetadata{}, ErrVideoMediaInvalid
 		}
 	}
-	if videoStreams != 1 || audioStreams > 1 || selected == nil {
+	if videoStreams > 1 || audioStreams > 1 || (videoStreams == 0 && audioStreams != 1) {
 		return VideoMediaMetadata{}, ErrVideoMediaInvalid
 	}
-	stream := *selected
-	if !validVideoMediaDimensions(stream.Width, stream.Height) {
-		return VideoMediaMetadata{}, ErrVideoMediaInvalid
+	var stream videoProbeStream
+	if selectedVideo != nil {
+		stream = *selectedVideo
+		if !validVideoMediaDimensions(stream.Width, stream.Height) {
+			return VideoMediaMetadata{}, ErrVideoMediaInvalid
+		}
+	} else {
+		stream = *selectedAudio
+		stream.Width, stream.Height = 0, 0
 	}
 	duration := parseVideoMediaDuration(stream.Duration)
 	if duration <= 0 {
 		duration = parseVideoMediaDuration(probe.Format.Duration)
 	}
-	mimeType := videoMediaMIMEType(probe.Format.FormatName, stream.CodecName, duration)
+	mimeType := videoMediaMIMEType(probe.Format.FormatName, stream.CodecName, duration, videoStreams == 0)
 	if mimeType == "" {
 		return VideoMediaMetadata{}, ErrVideoMediaInvalid
 	}
 	if strings.HasPrefix(mimeType, "image/") {
 		duration = 0
 	}
-	if strings.HasPrefix(mimeType, "video/") && (duration <= 0 || duration > relaycommon.MaxTaskDurationSeconds) {
+	if !strings.HasPrefix(mimeType, "image/") && (duration <= 0 || duration > relaycommon.MaxTaskDurationSeconds) {
 		return VideoMediaMetadata{}, ErrVideoMediaInvalid
 	}
+	frameRate := parseVideoMediaRate(stream.AvgFrameRate, stream.RFrameRate)
 	return VideoMediaMetadata{
 		MIMEType: mimeType, Width: stream.Width, Height: stream.Height,
-		DurationSeconds: duration, Codec: stream.CodecName,
+		DurationSeconds: duration, Codec: stream.CodecName, Container: probe.Format.FormatName,
+		FrameRateNum: frameRate[0], FrameRateDen: frameRate[1],
 	}, nil
 }
 
@@ -352,7 +397,7 @@ func parseVideoMediaDuration(value string) float64 {
 	return duration
 }
 
-func videoMediaMIMEType(formatName string, codec string, duration float64) string {
+func videoMediaMIMEType(formatName string, codec string, duration float64, audioOnly bool) string {
 	formatName = strings.ToLower(strings.TrimSpace(formatName))
 	codec = strings.ToLower(codec)
 	if formatName == "image2" {
@@ -368,6 +413,19 @@ func videoMediaMIMEType(formatName string, codec string, duration float64) strin
 		}
 	}
 	if duration <= 0 {
+		return ""
+	}
+	if audioOnly {
+		switch formatName {
+		case "mp3", "mpeg":
+			if codec == "mp3" {
+				return "audio/mpeg"
+			}
+		case "wav", "wave":
+			if allowedReferenceAudioCodec(codec) {
+				return "audio/wav"
+			}
+		}
 		return ""
 	}
 	if formatName == "matroska,webm" || formatName == "webm,matroska" {
@@ -394,6 +452,30 @@ func allowedVideoAudioCodec(codec string) bool {
 	default:
 		return false
 	}
+}
+
+func allowedReferenceAudioCodec(codec string) bool {
+	switch strings.ToLower(strings.TrimSpace(codec)) {
+	case "mp3", "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_s32le", "pcm_s32be", "pcm_f32le", "pcm_f32be", "pcm_mulaw", "pcm_alaw":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseVideoMediaRate(values ...string) [2]int64 {
+	for _, value := range values {
+		parts := strings.Split(strings.TrimSpace(value), "/")
+		if len(parts) != 2 {
+			continue
+		}
+		numerator, errNum := strconv.ParseInt(parts[0], 10, 64)
+		denominator, errDen := strconv.ParseInt(parts[1], 10, 64)
+		if errNum == nil && errDen == nil && numerator > 0 && denominator > 0 {
+			return [2]int64{numerator, denominator}
+		}
+	}
+	return [2]int64{}
 }
 
 func validateVideoMediaInputPath(inputPath string) (string, error) {

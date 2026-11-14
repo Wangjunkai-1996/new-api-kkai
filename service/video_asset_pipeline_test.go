@@ -272,6 +272,35 @@ func TestVideoAssetPipelineInspectsVideoReferenceAndCreatesPoster(t *testing.T) 
 	require.NotEmpty(t, asset.PosterObjectKey)
 }
 
+func TestVideoAssetPipelineMarksAudioReferenceReadyWithoutPoster(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	store := newMemoryVideoAssetStore()
+	store.objects["reference.mp3"] = []byte("audio")
+	store.contentType["reference.mp3"] = "audio/mpeg"
+	now := time.Now().Unix()
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference,
+		State: model.VideoAssetStateUploaded, ObjectKey: "reference.mp3", MIMEType: "audio/mpeg",
+		SizeBytes: 5, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	media := callbackVideoMediaProcessor{inspect: func(context.Context, string) (VideoMediaMetadata, error) {
+		return VideoMediaMetadata{MIMEType: "audio/mpeg", DurationSeconds: 4, Codec: "mp3", Container: "mp3"}, nil
+	}}
+	pipeline, err := NewVideoAssetPipeline(db, store, media, &staticVideoArchiveFetcher{}, t.TempDir())
+	require.NoError(t, err)
+	payload, err := common.Marshal(VideoAssetEventPayload{AssetID: asset.ID})
+	require.NoError(t, err)
+	require.NoError(t, pipeline.HandleInspect(context.Background(), model.KKAIOutboxEvent{Payload: string(payload)}))
+	require.NoError(t, db.First(&asset, asset.ID).Error)
+	require.Equal(t, model.VideoAssetStateReady, asset.State)
+	require.Empty(t, asset.PosterObjectKey)
+	require.NotEmpty(t, asset.MediaMetadata)
+	var posterEvents int64
+	require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where("topic = ?", VideoOutboxTopicPoster).Count(&posterEvents).Error)
+	require.Zero(t, posterEvents)
+}
+
 func TestVideoAssetPipelineRejectsImageContentReservedAsVideoReference(t *testing.T) {
 	db := newVideoPipelineTestDB(t)
 	store := newMemoryVideoAssetStore()

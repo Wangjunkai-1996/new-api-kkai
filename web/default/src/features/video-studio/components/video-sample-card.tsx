@@ -105,7 +105,9 @@ export function VideoSampleCard(props: VideoSampleCardProps) {
   const pointerInsideRef = useRef(false)
   const keyboardFocusInsideRef = useRef(false)
   const activeRef = useRef(props.active)
-  activeRef.current = props.active
+  useEffect(() => {
+    activeRef.current = props.active
+  }, [props.active])
   const [playback, dispatchPlayback] = useReducer(
     reduceVideoSamplePlayback,
     VIDEO_SAMPLE_PLAYBACK_INITIAL_STATE

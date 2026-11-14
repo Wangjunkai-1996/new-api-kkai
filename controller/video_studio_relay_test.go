@@ -104,7 +104,7 @@ func TestPrepareVideoStudioTaskRequestForcesValidatedTokenGroup(t *testing.T) {
 		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
 	}).Error)
 	body, err := common.Marshal(map[string]any{
-		"token_id": token.Id, "model": "video-model-v1", "group": "default",
+		"token_id": token.Id, "specification_version": 1, "model": "video-model-v1", "group": "default",
 		"mode": "text_to_video", "prompt": "test",
 	})
 	require.NoError(t, err)
@@ -162,7 +162,8 @@ func TestPrepareVideoStudioTaskRequestRejectsSampleDerivedModelWithoutGroupAbili
 	require.NoError(t, db.Create(&sample).Error)
 
 	body, err := common.Marshal(map[string]any{
-		"token_id": token.Id, "sample_id": sample.ID,
+		"token_id": token.Id, "specification_version": 1, "sample_id": sample.ID,
+		"model": "sample-only-model", "mode": "text_to_video", "prompt": "test",
 	})
 	require.NoError(t, err)
 	request := httptest.NewRequest(http.MethodPost, "/pg/videos/quote", bytes.NewReader(body))
@@ -229,7 +230,7 @@ func TestVideoStudioDistributionUsesValidatedTokenGroup(t *testing.T) {
 	for _, clientGroup := range []string{"default", "forged-client-group"} {
 		t.Run(clientGroup, func(t *testing.T) {
 			body, err := common.Marshal(map[string]any{
-				"token_id": token.Id, "model": modelName, "group": clientGroup,
+				"token_id": token.Id, "specification_version": 1, "model": modelName, "group": clientGroup,
 				"mode": "text_to_video", "prompt": "test",
 			})
 			require.NoError(t, err)
@@ -288,7 +289,7 @@ func TestPrepareVideoStudioTaskRequestRejectsDisabledCurrentUserDespiteStaleSess
 	require.NoError(t, db.Model(&model.User{}).Where("id = ?", 7).Update("status", common.UserStatusDisabled).Error)
 
 	body, err := common.Marshal(map[string]any{
-		"token_id": token.Id, "model": "video-model-v1", "mode": "text_to_video", "prompt": "test",
+		"token_id": token.Id, "specification_version": 1, "model": "video-model-v1", "mode": "text_to_video", "prompt": "test",
 	})
 	require.NoError(t, err)
 	request := httptest.NewRequest(http.MethodPost, "/pg/videos/quote", bytes.NewReader(body))
@@ -316,7 +317,7 @@ func TestPrepareVideoStudioTaskRequestRejectsTokenOutsideAllowedIP(t *testing.T)
 	require.NoError(t, db.Model(&model.Token{}).Where("id = ?", token.Id).Update("allow_ips", allowIPs).Error)
 
 	body, err := common.Marshal(map[string]any{
-		"token_id": token.Id, "model": "video-model-v1", "mode": "text_to_video", "prompt": "test",
+		"token_id": token.Id, "specification_version": 1, "model": "video-model-v1", "mode": "text_to_video", "prompt": "test",
 	})
 	require.NoError(t, err)
 	request := httptest.NewRequest(http.MethodPost, "/pg/videos/quote", bytes.NewReader(body))
@@ -350,7 +351,7 @@ func TestPrepareVideoStudioTaskRequestReplaysBeforeStorageAndDistribution(t *tes
 	quoteHash := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	quoteExpiresAt := now - 60
 	fingerprint, err := service.VideoStudioIdempotencyFingerprint(service.VideoStudioSubmissionRequest{
-		TokenID: token.Id, Model: "disabled-or-missing-model", Group: service.VideoStudioTokenGroup,
+		TokenID: token.Id, SpecificationVersion: 1, Model: "disabled-or-missing-model", Group: service.VideoStudioTokenGroup,
 		Mode: service.VideoModeTextToVideo, Prompt: "test",
 	})
 	require.NoError(t, err)
@@ -361,7 +362,7 @@ func TestPrepareVideoStudioTaskRequestReplaysBeforeStorageAndDistribution(t *tes
 	}).Error)
 
 	body, err := common.Marshal(map[string]any{
-		"token_id": token.Id, "model": "disabled-or-missing-model", "mode": "text_to_video", "prompt": "test",
+		"token_id": token.Id, "specification_version": 1, "model": "disabled-or-missing-model", "mode": "text_to_video", "prompt": "test",
 		"max_quota": 1, "quote_hash": quoteHash, "quote_expires_at": quoteExpiresAt,
 	})
 	require.NoError(t, err)
@@ -390,7 +391,7 @@ func TestPrepareVideoStudioTaskRequestRejectsCopiedQuoteForDifferentCreativeRequ
 
 	quoteHash := strings.Repeat("a", 64)
 	original := service.VideoStudioSubmissionRequest{
-		TokenID: token.Id, Model: "video-model-v1", Group: service.VideoStudioTokenGroup,
+		TokenID: token.Id, SpecificationVersion: 1, Model: "video-model-v1", Group: service.VideoStudioTokenGroup,
 		Mode: service.VideoModeTextToVideo, Prompt: "original prompt",
 	}
 	fingerprint, err := service.VideoStudioIdempotencyFingerprint(original)
@@ -403,7 +404,7 @@ func TestPrepareVideoStudioTaskRequestRejectsCopiedQuoteForDifferentCreativeRequ
 	}).Error)
 
 	body, err := common.Marshal(map[string]any{
-		"token_id": token.Id, "model": "video-model-v1", "mode": "text_to_video", "prompt": "different prompt",
+		"token_id": token.Id, "specification_version": 1, "model": "video-model-v1", "mode": "text_to_video", "prompt": "different prompt",
 		"max_quota": 1, "quote_hash": quoteHash, "quote_expires_at": now + 300,
 	})
 	require.NoError(t, err)
@@ -419,7 +420,7 @@ func TestPrepareVideoStudioTaskRequestRejectsCopiedQuoteForDifferentCreativeRequ
 	PrepareVideoStudioTaskRequest(ctx)
 
 	require.Equal(t, http.StatusConflict, response.Code)
-	require.Contains(t, response.Body.String(), "video_studio_conflict")
+	require.Contains(t, response.Body.String(), "video_idempotency_conflict")
 }
 
 func TestPrepareVideoStudioTaskRequestRejectsExpiredQuoteBeforeStorageAndReleasesReservation(t *testing.T) {
@@ -430,7 +431,7 @@ func TestPrepareVideoStudioTaskRequestRejectsExpiredQuoteBeforeStorageAndRelease
 	t.Cleanup(func() { model.DB = previousDB })
 	now := time.Now().Unix()
 	body, err := common.Marshal(map[string]any{
-		"token_id": token.Id, "model": "missing-model", "mode": "text_to_video", "prompt": "test",
+		"token_id": token.Id, "specification_version": 1, "model": "missing-model", "mode": "text_to_video", "prompt": "test",
 		"max_quota": 1, "quote_hash": strings.Repeat("a", 64), "quote_expires_at": now - 1,
 	})
 	require.NoError(t, err)
@@ -460,7 +461,7 @@ func TestPrepareVideoStudioTaskRequestRequiresSubmissionGuardsBeforeStorage(t *t
 	t.Cleanup(func() { model.DB = previousDB })
 
 	body, err := common.Marshal(map[string]any{
-		"token_id": token.Id, "model": "video-model-v1", "mode": "text_to_video", "prompt": "test", "max_quota": 1,
+		"token_id": token.Id, "specification_version": 1, "model": "video-model-v1", "mode": "text_to_video", "prompt": "test", "max_quota": 1,
 	})
 	require.NoError(t, err)
 	request := httptest.NewRequest(http.MethodPost, "/pg/videos", bytes.NewReader(body))
@@ -475,4 +476,82 @@ func TestPrepareVideoStudioTaskRequestRequiresSubmissionGuardsBeforeStorage(t *t
 
 	require.Equal(t, http.StatusBadRequest, response.Code)
 	require.Contains(t, response.Body.String(), "idempotency_key_required")
+}
+
+func TestVideoStudioHTTPRejectsUnknownAndLegacyTopLevelFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "unknown", body: `{"token_id":1,"specification_version":1,"model":"video-model-v1","mode":"text_to_video","prompt":"test","unexpected":true}`},
+		{name: "legacy reference", body: `{"token_id":1,"specification_version":1,"model":"video-model-v1","mode":"text_to_video","prompt":"test","reference_image":"asset-old"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			engine := gin.New()
+			engine.POST("/pg/videos/quote", PrepareVideoStudioTaskRequest, func(c *gin.Context) {
+				c.Status(http.StatusNoContent)
+			})
+			request := httptest.NewRequest(http.MethodPost, "/pg/videos/quote", strings.NewReader(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			require.Contains(t, response.Body.String(), "video_request_contract_invalid")
+		})
+	}
+}
+
+func TestVideoStudioHTTPReusesStrictlyDecodedBodyForQuoteAndSubmit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, token := newVideoStudioRelayTestDB(t)
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+	specification, err := common.Marshal(service.VideoModelSpec{Version: 1, Modes: []string{service.VideoModeTextToVideo}})
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&model.KKAIVideoModelProfile{
+		Model: "video-model-v1", DisplayName: "Video Model", SpecificationVersion: 1,
+		Specification: string(specification), DefaultParameters: `{}`, Enabled: true,
+		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}).Error)
+
+	for _, path := range []string{"/pg/videos/quote", "/pg/videos"} {
+		t.Run(path, func(t *testing.T) {
+			body := map[string]any{
+				"token_id": token.Id, "specification_version": 1, "model": "video-model-v1",
+				"mode": "text_to_video", "prompt": "test",
+			}
+			if path == "/pg/videos" {
+				body["max_quota"] = 1
+				body["quote_hash"] = strings.Repeat("a", 64)
+				body["quote_expires_at"] = time.Now().Add(time.Minute).Unix()
+			}
+			encoded, err := common.Marshal(body)
+			require.NoError(t, err)
+			engine := gin.New()
+			engine.POST(path, func(c *gin.Context) {
+				c.Set("id", 7)
+				c.Set("user_group", "default")
+				c.Set(videoStudioAssetStoreContextKey, videoStudioRelayTestStore{})
+				c.Next()
+			}, PrepareVideoStudioTaskRequest, func(c *gin.Context) {
+				var replayed service.VideoStudioSubmissionRequest
+				require.NoError(t, common.UnmarshalBodyReusable(c, &replayed))
+				require.Equal(t, service.VideoModeTextToVideo, replayed.Mode)
+				require.Equal(t, "test", replayed.Prompt)
+				c.Status(http.StatusNoContent)
+			})
+			request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(encoded))
+			request.Header.Set("Content-Type", "application/json")
+			if path == "/pg/videos" {
+				request.Header.Set("Idempotency-Key", "strict-body-replay-"+strings.TrimPrefix(path, "/"))
+			}
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+
+			require.Equal(t, http.StatusNoContent, response.Code)
+		})
+	}
 }

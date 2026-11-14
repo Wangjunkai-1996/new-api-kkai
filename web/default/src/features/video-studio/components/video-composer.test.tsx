@@ -77,6 +77,7 @@ const samples: VideoSample[] = models.map((profile) => ({
   mode: 'text_to_video',
   model_version: 1,
   parameters: {},
+  reference_assets: [],
   reference_asset_ids: [],
   reference_content_urls: [],
   video_asset_id: 1,
@@ -152,6 +153,29 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+test.each([
+  { model_version: 0, reference_assets: [] },
+  { model_version: 2, reference_assets: [] },
+  { model_version: 1, reference_assets: undefined },
+])('does not reuse a legacy or outdated sample', async (legacyFields) => {
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={models}
+        sample={{ ...samples[0], ...legacyFields }}
+        videoTokenGate={videoTokenGate}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  expect(screen.getByRole('textbox')).toHaveValue('')
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'This item cannot be reused with the current video model settings.'
+  )
+  expect(apiMocks.quoteVideoGeneration).not.toHaveBeenCalled()
+  expect(apiMocks.createVideoGeneration).not.toHaveBeenCalled()
+})
+
 test('quotes and submits the selected sample without mixing the previous model and prompt', async () => {
   const onSubmitted = vi.fn()
   const view = render(
@@ -166,7 +190,9 @@ test('quotes and submits the selected sample without mixing the previous model a
   await act(() => vi.advanceTimersByTimeAsync(300))
   await act(() => vi.advanceTimersByTimeAsync(0))
   expect(apiMocks.quoteVideoGeneration).toHaveBeenCalledTimes(1)
-  expect(screen.getByRole('button')).toBeEnabled()
+  expect(
+    screen.getByRole('button', { name: 'videoStudio.generate' })
+  ).toBeEnabled()
   apiMocks.quoteVideoGeneration.mockClear()
 
   view.rerender(
@@ -185,7 +211,9 @@ test('quotes and submits the selected sample without mixing the previous model a
     fireEvent.click(screen.getByRole('button', { name: 'Replace settings' }))
   )
   expect(screen.getByRole('textbox')).toHaveValue(samples[1].prompt)
-  expect(screen.getByRole('button')).toBeDisabled()
+  expect(
+    screen.getByRole('button', { name: 'videoStudio.generate' })
+  ).toBeDisabled()
   expect(apiMocks.quoteVideoGeneration).not.toHaveBeenCalled()
 
   await act(() => vi.advanceTimersByTimeAsync(300))
@@ -193,6 +221,7 @@ test('quotes and submits the selected sample without mixing the previous model a
   const expectedRequest: VideoQuoteRequest = {
     token_id: 17,
     model: models[1].model,
+    specification_version: models[1].specification_version,
     mode: 'text_to_video',
     prompt: samples[1].prompt,
     parameters: {},
@@ -202,10 +231,14 @@ test('quotes and submits the selected sample without mixing the previous model a
   expect(apiMocks.quoteVideoGeneration).toHaveBeenCalledExactlyOnceWith(
     expectedRequest
   )
-  expect(screen.getByRole('button')).toBeEnabled()
+  expect(
+    screen.getByRole('button', { name: 'videoStudio.generate' })
+  ).toBeEnabled()
 
   await act(async () => {
-    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'videoStudio.generate' })
+    )
   })
   expect(apiMocks.createVideoGeneration).toHaveBeenCalledExactlyOnceWith(
     {
@@ -287,14 +320,16 @@ test('storage failure blocks POST before any charge can be requested', async () 
   await act(() => vi.advanceTimersByTimeAsync(300))
   await act(() => vi.advanceTimersByTimeAsync(0))
   const originalSet = Storage.prototype.setItem
-  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(
-    function (this: Storage, key, value) {
-      if (key.startsWith('video-studio-submissions:')) {
-        throw new Error('quota exceeded')
-      }
-      return originalSet.call(this, key, value)
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+    this: Storage,
+    key,
+    value
+  ) {
+    if (key.startsWith('video-studio-submissions:')) {
+      throw new Error('quota exceeded')
     }
-  )
+    return originalSet.call(this, key, value)
+  })
   await act(async () =>
     fireEvent.click(
       screen.getByRole('button', { name: 'videoStudio.generate' })

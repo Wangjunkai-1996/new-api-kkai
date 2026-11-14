@@ -24,11 +24,12 @@ import type {
   VideoGenerationMode,
   VideoModelProfile,
   VideoModelProfileInput,
+  VideoModelSpec,
   VideoParameterControl,
   VideoParameterOption,
   VideoParameterValue,
   VideoParameters,
-  VideoReferenceInput,
+  VideoReferencePolicy,
   VideoSample,
   VideoSampleInput,
   VideoTokenCapability,
@@ -36,7 +37,6 @@ import type {
 } from './types'
 import {
   getVideoParametersForMode,
-  getVideoReferenceRoles,
   videoParameterAcceptsValue,
   trimVideoInput,
   videoPromptByteLength,
@@ -45,7 +45,8 @@ import { VIDEO_SAMPLE_CATEGORIES } from './video-sample-categories'
 
 export const VIDEO_GENERATION_MODES = [
   'text_to_video',
-  'image_to_video',
+  'reference_to_video',
+  'first_frame_to_video',
   'first_last_frame',
 ] as const
 
@@ -105,6 +106,7 @@ type VideoModelPresetDetails = {
   description: string
   resolution: string
   requiresVideoReference: boolean
+  referencePolicy?: VideoReferencePolicy
   durationRequestKey?: 'duration' | 'seconds'
   maxDuration?: number
   ratios?: readonly string[]
@@ -116,31 +118,31 @@ type VideoModelPresetDetails = {
 const VIDEO_MODEL_PRESET_DETAILS = {
   'sd_2.0_fast_special_720p': {
     displayName: 'Seedance 2.0 Fast 720p',
-    description: '快速 720p 文生 / 图生视频',
+    description: '快速 720p 文生 / 多模态参考视频',
     resolution: '720p',
     requiresVideoReference: false,
   },
   'sd_2.0_special_720p': {
     displayName: 'Seedance 2.0 720p',
-    description: '720p 文生 / 图生视频',
+    description: '720p 文生 / 多模态参考视频',
     resolution: '720p',
     requiresVideoReference: false,
   },
   'sd_2.0_special_1080p': {
     displayName: 'Seedance 2.0 1080p',
-    description: '1080p 文生 / 图生视频',
+    description: '1080p 文生 / 多模态参考视频',
     resolution: '1080p',
     requiresVideoReference: false,
   },
   'sd_2.0_special_2k': {
     displayName: 'Seedance 2.0 2K',
-    description: '2K 文生 / 图生视频',
+    description: '2K 文生 / 多模态参考视频',
     resolution: '2K',
     requiresVideoReference: false,
   },
   'sd_2.0_special_4k': {
     displayName: 'Seedance 2.0 4K',
-    description: '4K 文生 / 图生视频',
+    description: '4K 文生 / 多模态参考视频',
     resolution: '4K',
     requiresVideoReference: false,
   },
@@ -184,7 +186,7 @@ const displayResolution = (resolution: string): string =>
 const SEEDANCE_25_MODEL_PRESET_DETAILS = {
   'seedance-2.5': {
     displayName: 'Seedance 2.5 720p',
-    description: '720p 文生 / 图生视频',
+    description: '720p 文生 / 多模态参考视频',
     resolution: '720p',
     requiresVideoReference: false,
   },
@@ -196,7 +198,7 @@ const SEEDANCE_25_MODEL_PRESET_DETAILS = {
   },
   'sd_2.5_special_1080p': {
     displayName: 'Seedance 2.5 1080p',
-    description: '1080p 文生 / 图生视频',
+    description: '1080p 文生 / 多模态参考视频',
     resolution: '1080p',
     requiresVideoReference: false,
   },
@@ -251,8 +253,8 @@ export const getVideoModelPreset = (
   if (!details) return undefined
 
   const modes: VideoGenerationMode[] = details.requiresVideoReference
-    ? ['image_to_video']
-    : ['text_to_video', 'image_to_video']
+    ? ['reference_to_video']
+    : ['text_to_video', 'reference_to_video']
   const parameters: VideoParameterControl[] = [
     {
       key: 'duration',
@@ -313,21 +315,43 @@ export const getVideoModelPreset = (
       version: 1,
       modes,
       parameters,
-      reference_inputs: details.requiresVideoReference
-        ? [
-            {
-              role: 'reference_video',
-              request_key: 'reference_video',
-              required: true,
-            },
-          ]
-        : [
-            {
-              role: 'reference',
-              request_key: 'reference_image',
-              required: true,
-            },
-          ],
+      reference_policy: details.referencePolicy ?? {
+        // A candidate without backend verification must remain disabled. A
+        // null aggregate cap is intentionally not treated as unlimited.
+        max_total_count: null,
+        requires_visual: true,
+        requires_video: details.requiresVideoReference,
+        audio_requires_generate_audio: true,
+        image: {
+          allowed_mime_types: ['image/jpeg', 'image/png', 'image/webp'],
+          max_count: 9,
+          max_size_bytes: 20 * 1024 * 1024,
+          min_width: 301,
+          max_width: 5999,
+          min_height: 301,
+          max_height: 5999,
+          min_aspect_ratio_exclusive: 0.4,
+          max_aspect_ratio_exclusive: 2.5,
+        },
+        video: {
+          allowed_mime_types: ['video/mp4', 'video/quicktime'],
+          max_count: 3,
+          max_size_bytes: 49_999_999,
+          min_duration_seconds: 2,
+          max_duration_seconds: 15,
+          max_total_duration_seconds: 15,
+          min_frame_rate: 24,
+          max_frame_rate: 60,
+        },
+        audio: {
+          allowed_mime_types: ['audio/mpeg', 'audio/wav'],
+          max_count: 3,
+          max_size_bytes: 14_999_999,
+          min_duration_seconds: 2,
+          max_duration_seconds: 15,
+          max_total_duration_seconds: 15,
+        },
+      },
     },
     default_parameters: defaultParameters,
   }
@@ -506,9 +530,24 @@ export const videoComposerSchema = z.object({
       (value) => videoPromptByteLength(value) <= VIDEO_PROMPT_MAX_LENGTH,
       'videoStudio.validation.promptTooLong'
     ),
-  reference_asset_ids: z.array(z.number().int().positive()).max(2),
+  references: z.array(
+    z.object({
+      client_id: z.string().min(1),
+      asset_id: z.number().int().positive(),
+      role: z.enum([
+        'reference_image',
+        'reference_video',
+        'reference_audio',
+        'first_frame',
+        'last_frame',
+      ]),
+      position: z.number().int().nonnegative(),
+      included: z.boolean(),
+    })
+  ),
+  reference_asset_ids: z.array(z.number().int().positive()).optional(),
   parameters: z.record(z.string(), videoParameterValueSchema),
-}) satisfies z.ZodType<VideoComposerValues>
+})
 
 export const videoModelSpecSchema = z.object({
   version: z.number().int().positive(),
@@ -559,15 +598,59 @@ export const videoModelSpecSchema = z.object({
     .array(
       z.object({
         role: z.enum([
-          'reference',
+          'reference_image',
           'reference_video',
+          'reference_audio',
           'first_frame',
           'last_frame',
         ]),
-        request_key: z.string().min(1),
+        request_key: z.string().min(1).optional(),
         required: z.boolean(),
       })
     )
+    .optional(),
+  reference_policy: z
+    .object({
+      max_total_count: z.number().int().positive().nullable(),
+      requires_visual: z.boolean(),
+      requires_video: z.boolean(),
+      audio_requires_generate_audio: z.boolean(),
+      image: z
+        .object({
+          allowed_mime_types: z.array(z.string().min(1)).min(1),
+          max_count: z.number().int().positive(),
+          max_size_bytes: z.number().int().positive(),
+          min_width: z.number().int().positive().optional(),
+          max_width: z.number().int().positive().optional(),
+          min_height: z.number().int().positive().optional(),
+          max_height: z.number().int().positive().optional(),
+          min_aspect_ratio_exclusive: z.number().positive().optional(),
+          max_aspect_ratio_exclusive: z.number().positive().optional(),
+        })
+        .optional(),
+      video: z
+        .object({
+          allowed_mime_types: z.array(z.string().min(1)).min(1),
+          max_count: z.number().int().positive(),
+          max_size_bytes: z.number().int().positive(),
+          min_duration_seconds: z.number().positive().optional(),
+          max_duration_seconds: z.number().positive().optional(),
+          max_total_duration_seconds: z.number().positive().optional(),
+          min_frame_rate: z.number().positive().optional(),
+          max_frame_rate: z.number().positive().optional(),
+        })
+        .optional(),
+      audio: z
+        .object({
+          allowed_mime_types: z.array(z.string().min(1)).min(1),
+          max_count: z.number().int().positive(),
+          max_size_bytes: z.number().int().positive(),
+          min_duration_seconds: z.number().positive().optional(),
+          max_duration_seconds: z.number().positive().optional(),
+          max_total_duration_seconds: z.number().positive().optional(),
+        })
+        .optional(),
+    })
     .optional(),
 })
 
@@ -728,10 +811,7 @@ export const videoModelProfileFormSchema = z
       .array(z.enum(VIDEO_GENERATION_MODES))
       .min(1, 'videoStudio.validation.modeRequired'),
     parameters: z.array(videoModelParameterFormSchema).max(32),
-    image_reference_role: z.enum(['reference', 'reference_video']),
-    image_reference_request_key: z.string().trim(),
-    first_frame_request_key: z.string().trim(),
-    last_frame_request_key: z.string().trim(),
+    reference_policy: videoModelSpecSchema.shape.reference_policy,
   })
   .superRefine((values, context) => {
     const modes = new Set(values.modes)
@@ -766,33 +846,21 @@ export const videoModelProfileFormSchema = z
     })
 
     if (
-      modes.has('image_to_video') &&
-      values.image_reference_request_key.length === 0
+      values.enabled &&
+      values.modes.some((mode) => mode !== 'text_to_video') &&
+      values.reference_policy?.max_total_count == null
     ) {
       context.addIssue({
         code: 'custom',
-        path: ['image_reference_request_key'],
-        message: 'videoStudio.validation.referenceRequestKeyRequired',
+        path: ['reference_policy', 'max_total_count'],
+        message: 'videoStudio.validation.referenceTotalLimitRequired',
       })
     }
-    if (
-      modes.has('first_last_frame') &&
-      values.first_frame_request_key.length === 0
-    ) {
+    if (modes.has('reference_to_video') && !values.reference_policy) {
       context.addIssue({
         code: 'custom',
-        path: ['first_frame_request_key'],
-        message: 'videoStudio.validation.referenceRequestKeyRequired',
-      })
-    }
-    if (
-      modes.has('first_last_frame') &&
-      values.last_frame_request_key.length === 0
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['last_frame_request_key'],
-        message: 'videoStudio.validation.referenceRequestKeyRequired',
+        path: ['reference_policy'],
+        message: 'videoStudio.validation.referencePolicyRequired',
       })
     }
   })
@@ -827,7 +895,19 @@ export const videoSampleFormSchema = z.object({
     ),
   mode: z.enum(VIDEO_GENERATION_MODES),
   parameters: z.record(z.string(), videoParameterValueSchema),
-  reference_asset_ids: z.array(z.number().int().positive()),
+  reference_assets: z.array(
+    z.object({
+      asset_id: z.number().int().positive(),
+      role: z.enum([
+        'reference_image',
+        'reference_video',
+        'reference_audio',
+        'first_frame',
+        'last_frame',
+      ]),
+      position: z.number().int().nonnegative(),
+    })
+  ),
   video_asset_id: z
     .number()
     .int()
@@ -868,7 +948,9 @@ const modelParameterFormValues = (
     key: parameter.key,
     label: parameter.label,
     request_key: parameter.request_key ?? '',
-    modes: parameter.modes?.length ? parameter.modes : [...modes],
+    modes: parameter.modes?.length
+      ? (parameter.modes as VideoModelParameterFormValues['modes'])
+      : ([...modes] as VideoModelProfileFormValues['modes']),
     modes_explicit: parameter.modes !== undefined,
     control: parameter.control,
     required: parameter.required ?? false,
@@ -899,18 +981,12 @@ const modelParameterFormValues = (
   }
 }
 
-const referenceInput = (
-  inputs: VideoReferenceInput[] | undefined,
-  roles: VideoReferenceInput['role'][]
-): VideoReferenceInput | undefined =>
-  inputs?.find((input) => roles.includes(input.role))
-
 export const createVideoModelProfileFormValues = (
   profile?: VideoModelProfile,
   candidate = ''
 ): VideoModelProfileFormValues => {
   const preset = getVideoModelPreset(profile?.model ?? candidate)
-  const specification = preset?.specification ?? profile?.specification
+  const specification = profile?.specification ?? preset?.specification
   const configuredDefaults: VideoParameters = {}
   if (preset && profile) {
     for (const parameter of profile.specification.parameters) {
@@ -920,20 +996,12 @@ export const createVideoModelProfileFormValues = (
     }
     Object.assign(configuredDefaults, profile.default_parameters)
   }
-  const defaults = preset
-    ? getVideoModelPresetDefaults(preset, configuredDefaults)
-    : (profile?.default_parameters ?? {})
-  const modes = specification?.modes ?? ['text_to_video']
-  const imageReference = referenceInput(specification?.reference_inputs, [
-    'reference',
-    'reference_video',
-  ])
-  const firstFrame = referenceInput(specification?.reference_inputs, [
-    'first_frame',
-  ])
-  const lastFrame = referenceInput(specification?.reference_inputs, [
-    'last_frame',
-  ])
+  const defaults =
+    profile?.default_parameters ??
+    (preset ? getVideoModelPresetDefaults(preset, configuredDefaults) : {})
+  const modes = (specification?.modes ?? [
+    'text_to_video',
+  ]) as VideoModelProfileFormValues['modes']
   const modelName = profile?.model ?? preset?.model ?? candidate
   return {
     model: modelName,
@@ -949,14 +1017,13 @@ export const createVideoModelProfileFormValues = (
       specification?.parameters.map((parameter) =>
         modelParameterFormValues(parameter, modes, defaults)
       ) ?? [],
-    image_reference_role:
-      imageReference?.role === 'reference_video'
-        ? 'reference_video'
-        : 'reference',
-    image_reference_request_key:
-      imageReference?.request_key ?? 'reference_image',
-    first_frame_request_key: firstFrame?.request_key ?? 'first_frame',
-    last_frame_request_key: lastFrame?.request_key ?? 'last_frame',
+    reference_policy: specification?.reference_policy
+      ? {
+          ...specification.reference_policy,
+          max_total_count:
+            specification.reference_policy.max_total_count ?? null,
+        }
+      : undefined,
   }
 }
 
@@ -995,12 +1062,10 @@ const parameterControlFromForm = (
     return {
       ...common,
       control: parameter.control,
-      options: parameter.options.map(
-        (option): VideoParameterOption => ({
-          label: option.label.trim(),
-          value: option.value,
-        })
-      ),
+      options: parameter.options.map((option): VideoParameterOption => ({
+        label: option.label.trim(),
+        value: option.value,
+      })),
       default: inlineDefault,
     }
   }
@@ -1021,38 +1086,10 @@ const parameterControlFromForm = (
   }
 }
 
-const referenceInputsFromForm = (
-  values: VideoModelProfileFormValues
-): VideoReferenceInput[] => {
-  const inputs: VideoReferenceInput[] = []
-  if (values.modes.includes('image_to_video')) {
-    inputs.push({
-      role: values.image_reference_role,
-      request_key: values.image_reference_request_key.trim(),
-      required: true,
-    })
-  }
-  if (values.modes.includes('first_last_frame')) {
-    inputs.push(
-      {
-        role: 'first_frame',
-        request_key: values.first_frame_request_key.trim(),
-        required: true,
-      },
-      {
-        role: 'last_frame',
-        request_key: values.last_frame_request_key.trim(),
-        required: true,
-      }
-    )
-  }
-  return inputs
-}
-
 const specificationSnapshot = (
   modes: VideoGenerationMode[],
   parameters: VideoParameterControl[],
-  referenceInputs: VideoReferenceInput[]
+  referencePolicy?: VideoReferencePolicy
 ): string =>
   JSON.stringify({
     modes,
@@ -1081,14 +1118,7 @@ const specificationSnapshot = (
           ? parameter.step
           : undefined,
     })),
-    reference_inputs:
-      referenceInputs.length > 0
-        ? referenceInputs.map((input) => ({
-            role: input.role,
-            request_key: input.request_key,
-            required: input.required,
-          }))
-        : undefined,
+    reference_policy: referencePolicy,
   })
 
 export const parseVideoModelProfileForm = (
@@ -1106,17 +1136,27 @@ export const parseVideoModelProfileForm = (
       defaultParameters[parameter.key.trim()] = parameter.default_value
     }
   })
-  const referenceInputs = referenceInputsFromForm(values)
   const nextSnapshot = specificationSnapshot(
     values.modes,
     parameters,
-    referenceInputs
+    values.reference_policy
+      ? {
+          ...values.reference_policy,
+          max_total_count: values.reference_policy.max_total_count ?? null,
+        }
+      : undefined
   )
   const currentSnapshot = current
     ? specificationSnapshot(
         current.specification.modes,
         current.specification.parameters,
-        current.specification.reference_inputs ?? []
+        current.specification.reference_policy
+          ? {
+              ...current.specification.reference_policy,
+              max_total_count:
+                current.specification.reference_policy.max_total_count ?? null,
+            }
+          : undefined
       )
     : ''
   const version = current
@@ -1132,10 +1172,14 @@ export const parseVideoModelProfileForm = (
     sort_order: values.sort_order,
     specification: videoModelSpecSchema.parse({
       version,
-      modes: values.modes,
+      modes: values.modes as VideoModelSpec['modes'],
       parameters,
-      reference_inputs:
-        referenceInputs.length > 0 ? referenceInputs : undefined,
+      reference_policy: values.reference_policy
+        ? {
+            ...values.reference_policy,
+            max_total_count: values.reference_policy.max_total_count ?? null,
+          }
+        : undefined,
     }),
     default_parameters: defaultParameters,
   }
@@ -1143,20 +1187,21 @@ export const parseVideoModelProfileForm = (
 
 export type VideoSampleProfileState = Pick<
   VideoSampleFormValues,
-  'model_profile_id' | 'mode' | 'parameters' | 'reference_asset_ids'
+  'model_profile_id' | 'mode' | 'parameters' | 'reference_assets'
 >
 
 export const buildVideoSampleProfileState = (
   profile: VideoModelProfile,
   preferredMode?: VideoGenerationMode,
   currentParameters: VideoParameters = {},
-  referenceAssetIds: number[] = []
+  referenceAssets: VideoSampleFormValues['reference_assets'] = []
 ): VideoSampleProfileState => {
   const mode =
     preferredMode && profile.specification.modes.includes(preferredMode)
       ? preferredMode
       : profile.specification.modes[0]
-  const normalizedMode = mode ?? 'text_to_video'
+  const normalizedMode = (mode ??
+    'text_to_video') as VideoSampleFormValues['mode']
   return {
     model_profile_id: profile.id,
     mode: normalizedMode,
@@ -1165,10 +1210,7 @@ export const buildVideoSampleProfileState = (
       normalizedMode,
       currentParameters
     ),
-    reference_asset_ids: referenceAssetIds.slice(
-      0,
-      getVideoReferenceRoles(profile, normalizedMode).length
-    ),
+    reference_assets: referenceAssets,
   }
 }
 
@@ -1181,13 +1223,18 @@ export const createVideoSampleFormValues = (
         profile,
         sample?.mode,
         sample?.parameters,
-        sample?.reference_asset_ids
+        sample?.reference_assets?.filter(
+          (reference) => reference.role !== 'reference'
+        ) as VideoSampleFormValues['reference_assets'] | undefined
       )
     : {
         model_profile_id: sample?.model_profile_id ?? 0,
-        mode: sample?.mode ?? ('text_to_video' as const),
+        mode: (sample?.mode ??
+          'text_to_video') as VideoSampleFormValues['mode'],
         parameters: sample?.parameters ?? {},
-        reference_asset_ids: sample?.reference_asset_ids ?? [],
+        reference_assets: (sample?.reference_assets?.filter(
+          (reference) => reference.role !== 'reference'
+        ) ?? []) as VideoSampleFormValues['reference_assets'],
       }
   return {
     ...profileState,
@@ -1209,7 +1256,7 @@ export const parseVideoSampleForm = (
     prompt: values.prompt,
     mode: values.mode,
     parameters: values.parameters,
-    reference_asset_ids: values.reference_asset_ids,
+    reference_assets: values.reference_assets,
     video_asset_id: values.video_asset_id,
     aspect_ratio: 0,
     category: values.category,
@@ -1230,19 +1277,50 @@ export const validateComposerForProfile = (
     return 'videoStudio.validation.promptTooLong'
   }
 
-  const requiredReferences = (
-    profile.specification.reference_inputs ?? []
-  ).filter((input) => {
-    if (!input.required || values.mode === 'text_to_video') return false
-    if (values.mode === 'image_to_video') {
-      return input.role === 'reference' || input.role === 'reference_video'
+  const included = (values.references ?? []).filter(
+    (reference) => reference.included
+  )
+  const policy = profile.specification.reference_policy
+  if (values.mode === 'reference_to_video') {
+    if (!policy || policy.max_total_count === null) {
+      return 'videoStudio.validation.referencePolicyRequired'
     }
-    return input.role === 'first_frame' || input.role === 'last_frame'
-  }).length
-  if (values.reference_asset_ids.length !== requiredReferences) {
-    return requiredReferences === 2
-      ? 'videoStudio.validation.twoFramesRequired'
-      : 'videoStudio.validation.imageRequired'
+    if (included.length > policy.max_total_count) {
+      return 'videoStudio.validation.referenceLimitExceeded'
+    }
+    const imageCount = included.filter(
+      (reference) => reference.role === 'reference_image'
+    ).length
+    const videoCount = included.filter(
+      (reference) => reference.role === 'reference_video'
+    ).length
+    const audioCount = included.filter(
+      (reference) => reference.role === 'reference_audio'
+    ).length
+    if (policy.requires_visual && imageCount + videoCount === 0) {
+      return 'videoStudio.validation.visualReferenceRequired'
+    }
+    if (policy.requires_video && videoCount === 0) {
+      return 'videoStudio.validation.videoReferenceRequired'
+    }
+    if (
+      audioCount > 0 &&
+      policy.audio_requires_generate_audio &&
+      values.parameters.generate_audio !== true
+    ) {
+      return 'videoStudio.validation.audioOutputRequired'
+    }
+    for (const [kind, count] of [
+      ['image', imageCount],
+      ['video', videoCount],
+      ['audio', audioCount] as const,
+    ]) {
+      const mediaKind = kind as 'image' | 'video' | 'audio'
+      const limit = policy[mediaKind]?.max_count
+      if (limit !== undefined && Number(count) > limit) {
+        return 'videoStudio.validation.referenceLimitExceeded'
+      }
+    }
   }
 
   const controls = profile.specification.parameters.filter(

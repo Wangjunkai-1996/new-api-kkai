@@ -13,6 +13,13 @@ pageClass: kkr-seedance-page
 提交、查询和下载都必须请求 `https://api.kkrich.ltd`。不要用其他平台或渠道的地址测试本站 Token。
 :::
 
+::: warning 新建参考物使用本地协议
+Video Studio 新建请求只接受 `metadata.reference_assets` 的
+`{role, position, url}` 条目；旧的 `reference_image`、`reference_video`、
+`reference_audio`、`input_reference` 和供应商数组字段不兼容。外置 adapter 尚待验收，
+本页查询、下载和错误处理说明不表示新建链路已经上线。
+:::
+
 ## 快速定位
 
 | 现象 | 常见原因 | 先做什么 |
@@ -128,11 +135,19 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 
 ### 2.5 参考素材错误
 
-普通 2.5 名称（`sd_2.5_special_720p`、`sd_2.5_special_1080p`）只支持一个图片参考：
+普通 2.5 名称（`sd_2.5_special_720p`、`sd_2.5_special_1080p`）的本地新建参考物示例：
 
 ```json
 {
-  "reference_image": "https://media.your-domain.example/reference.jpg"
+  "metadata": {
+    "reference_assets": [
+      {
+        "role": "reference_image",
+        "position": 0,
+        "url": "https://media.your-domain.example/reference.jpg"
+      }
+    ]
+  }
 }
 ```
 
@@ -141,21 +156,29 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 
 以下情况会失败：
 
-- 同时发送 `reference_image` 和 `input_reference`。
-- 对普通 2.5 名称发送 `reference_video` 或音频参考。
-- 发送 `reference_images`、`reference_videos`、`reference_audios` 等数组字段。
-- 发送 `first_image`、`last_image`、`tools`、`seed` 等未支持字段。
+- 在 `metadata.reference_assets` 外发送旧的 `reference_image`、`reference_video`、`reference_audio` 或 `input_reference`。
+- 发送 `reference_images`、`reference_videos`、`reference_audios`、`first_image`、`last_image` 等供应商字段；这些由 adapter 投影。
+- 同一 role 的 `position` 重复、跳号或只提供音频参考。
+- 发送 `tools`、`seed` 等未支持字段。
 - 素材 URL 需要登录、Cookie、Referer 或自定义请求头才能访问。
 - URL 指向私网、本机、保留地址，或使用 HTTP、`data:`、base64、本地路径。
 
 ### 2.0 视频参考错误
 
-只有名称以 `_with_video_ref` 结尾的 2.0 模型接受 `reference_video`，并且该字段必填。普通 2.0 模型不能发送视频参考。
+只有名称以 `_with_video_ref` 结尾的 2.0 模型接受 `reference_video` role，并且该 role 必填。普通 2.0 模型不能发送视频参考。
 
 ```json
 {
   "model": "sd_2.0_special_1080p_with_video_ref",
-  "reference_video": "https://media.your-domain.example/reference.mp4"
+  "metadata": {
+    "reference_assets": [
+      {
+        "role": "reference_video",
+        "position": 0,
+        "url": "https://media.your-domain.example/reference.mp4"
+      }
+    ]
+  }
 }
 ```
 
@@ -164,7 +187,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 ### 2.5 视频参考模型
 
 `sd_2.5_special_720p_with_video_ref` 和 `sd_2.5_special_1080p_with_video_ref` 必须发送
-一个 `reference_video`，并将 `resolution` 分别设置为 `720p` 或 `1080p`：
+一个 `reference_video` role，并将 `resolution` 分别设置为 `720p` 或 `1080p`：
 
 ```json
 {
@@ -173,13 +196,21 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
   "duration": 8,
   "ratio": "9:16",
   "resolution": "720p",
-  "reference_video": "https://media.your-domain.example/reference.mp4",
+  "metadata": {
+    "reference_assets": [
+      {
+        "role": "reference_video",
+        "position": 0,
+        "url": "https://media.your-domain.example/reference.mp4"
+      }
+    ]
+  },
   "generate_audio": true
 }
 ```
 
-不要把 `reference_video` 发送给两个普通 2.5 名称；不要把视频参考名称的必填字段改成
-`reference_images` 或其他数组字段。
+不要把 `reference_video` role 发送给两个普通 2.5 名称；不要把本地参考物改成
+`reference_images` 或其他供应商数组字段。
 
 ### 未知字段
 

@@ -110,7 +110,12 @@ func CreateVideoAssetUpload(
 		if !isSupportedVideoMIME(request.MIMEType) {
 			return nil, ErrInvalidVideoAssetUpload
 		}
-		maxBytes = uploadLimits.ArchiveMaxBytes
+		maxBytes = uploadLimits.ReferenceVideoMaxBytes
+	case model.VideoUploadPurposeReferenceAudio:
+		if !isSupportedAudioMIME(request.MIMEType) {
+			return nil, ErrInvalidVideoAssetUpload
+		}
+		maxBytes = uploadLimits.AudioMaxBytes
 	case model.VideoAssetKindSample:
 		if !isAdmin || !isSupportedVideoMIME(request.MIMEType) {
 			return nil, ErrInvalidVideoAssetUpload
@@ -371,6 +376,15 @@ func isSupportedReferenceMIME(value string) bool {
 func isSupportedVideoMIME(value string) bool {
 	switch value {
 	case "video/mp4", "video/webm", "video/quicktime":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedAudioMIME(value string) bool {
+	switch value {
+	case "audio/mpeg", "audio/wav", "audio/x-wav", "audio/wave":
 		return true
 	default:
 		return false

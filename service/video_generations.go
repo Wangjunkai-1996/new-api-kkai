@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,25 +22,35 @@ var (
 )
 
 type VideoGenerationView struct {
-	ID             int64          `json:"id"`
-	TaskID         string         `json:"task_id"`
-	ModelProfileID int64          `json:"model_profile_id"`
-	SampleID       *int64         `json:"sample_id,omitempty"`
-	Model          string         `json:"model"`
-	Mode           string         `json:"mode"`
-	Prompt         string         `json:"prompt"`
-	Parameters     map[string]any `json:"parameters"`
-	Status         string         `json:"status"`
-	Progress       string         `json:"progress"`
-	FailureReason  string         `json:"failure_reason,omitempty"`
-	FailureCode    string         `json:"failure_code,omitempty"`
-	Quota          int            `json:"quota"`
-	OutputAssetID  *int64         `json:"output_asset_id,omitempty"`
-	VideoURL       string         `json:"video_url,omitempty"`
-	PosterURL      string         `json:"poster_url,omitempty"`
-	DownloadURL    string         `json:"download_url,omitempty"`
-	CreatedAt      int64          `json:"created_at"`
-	UpdatedAt      int64          `json:"updated_at"`
+	SpecificationVersion int                       `json:"specification_version,omitempty"`
+	ReferenceAssets      []VideoReferenceAssetView `json:"reference_assets"`
+	ID                   int64                     `json:"id"`
+	TaskID               string                    `json:"task_id"`
+	ModelProfileID       int64                     `json:"model_profile_id"`
+	SampleID             *int64                    `json:"sample_id,omitempty"`
+	Model                string                    `json:"model"`
+	Mode                 string                    `json:"mode"`
+	Prompt               string                    `json:"prompt"`
+	Parameters           map[string]any            `json:"parameters"`
+	Status               string                    `json:"status"`
+	Progress             string                    `json:"progress"`
+	FailureReason        string                    `json:"failure_reason,omitempty"`
+	FailureCode          string                    `json:"failure_code,omitempty"`
+	Quota                int                       `json:"quota"`
+	OutputAssetID        *int64                    `json:"output_asset_id,omitempty"`
+	VideoURL             string                    `json:"video_url,omitempty"`
+	PosterURL            string                    `json:"poster_url,omitempty"`
+	DownloadURL          string                    `json:"download_url,omitempty"`
+	CreatedAt            int64                     `json:"created_at"`
+	UpdatedAt            int64                     `json:"updated_at"`
+}
+
+type VideoReferenceAssetView struct {
+	AssetID     int64           `json:"asset_id"`
+	Role        string          `json:"role"`
+	Position    int             `json:"position"`
+	Asset       *VideoAssetView `json:"asset"`
+	Unavailable bool            `json:"unavailable"`
 }
 
 type VideoGenerationPage struct {
@@ -72,8 +83,9 @@ func CreateVideoGeneration(ctx context.Context, tx *gorm.DB, normalized *Normali
 		return nil, fmt.Errorf("load video task owner: %w", err)
 	}
 	generation.UserID = task.UserId
-	if !task.PrivateData.AssetHostedResult {
+	if !task.PrivateData.AssetHostedResult || task.PrivateData.StudioSpecificationVersion != normalized.SpecificationVersion {
 		task.PrivateData.AssetHostedResult = true
+		task.PrivateData.StudioSpecificationVersion = normalized.SpecificationVersion
 		if err := tx.WithContext(ctx).Model(&model.Task{}).Where("id = ?", task.ID).
 			Update("private_data", task.PrivateData).Error; err != nil {
 			return nil, fmt.Errorf("mark video task result as asset hosted: %w", err)
@@ -94,7 +106,7 @@ func CreateVideoGeneration(ctx context.Context, tx *gorm.DB, normalized *Normali
 	for _, asset := range currentAssets {
 		currentAssetsByID[asset.ID] = asset
 	}
-	for position, reference := range normalized.ReferenceAssets {
+	for _, reference := range normalized.ReferenceAssets {
 		current, exists := currentAssetsByID[reference.Asset.ID]
 		if !exists {
 			return nil, ErrInvalidVideoStudioSubmission
@@ -115,7 +127,7 @@ func CreateVideoGeneration(ctx context.Context, tx *gorm.DB, normalized *Normali
 		}
 		link := model.KKAIVideoTaskAsset{
 			TaskID: taskID, AssetID: reference.Asset.ID, Role: reference.Role,
-			Position: position, CreatedAt: now,
+			Position: reference.Position, CreatedAt: now,
 		}
 		if err := tx.WithContext(ctx).Create(&link).Error; err != nil {
 			return nil, fmt.Errorf("link video reference asset: %w", err)
@@ -254,15 +266,30 @@ func buildVideoGenerationViews(ctx context.Context, db *gorm.DB, generations []m
 	if err := db.WithContext(ctx).Where("id IN ?", taskIDs).Find(&tasks).Error; err != nil {
 		return nil, err
 	}
-	var outputLinks []model.KKAIVideoTaskAsset
-	if err := db.WithContext(ctx).Where(
-		"task_id IN ? AND role = ? AND position = ?", taskIDs, model.VideoTaskAssetRoleOutput, 0,
-	).Find(&outputLinks).Error; err != nil {
+	var links []model.KKAIVideoTaskAsset
+	if err := db.WithContext(ctx).Where("task_id IN ?", taskIDs).Find(&links).Error; err != nil {
 		return nil, err
 	}
-	assetIDs := make([]int64, 0, len(outputLinks))
-	for _, link := range outputLinks {
+	outputLinks := make([]model.KKAIVideoTaskAsset, 0, len(generations))
+	referenceLinksByTask := make(map[int64][]model.KKAIVideoTaskAsset, len(generations))
+	assetIDs := make([]int64, 0, len(links))
+	for _, link := range links {
 		assetIDs = append(assetIDs, link.AssetID)
+		if link.Role == model.VideoTaskAssetRoleOutput {
+			if link.Position == 0 {
+				outputLinks = append(outputLinks, link)
+			}
+		} else {
+			referenceLinksByTask[link.TaskID] = append(referenceLinksByTask[link.TaskID], link)
+		}
+	}
+	for _, references := range referenceLinksByTask {
+		sort.SliceStable(references, func(i, j int) bool {
+			if references[i].Role != references[j].Role {
+				return referenceRoleOrder(references[i].Role) < referenceRoleOrder(references[j].Role)
+			}
+			return references[i].Position < references[j].Position
+		})
 	}
 	var assets []model.KKAIVideoAsset
 	if len(assetIDs) > 0 {
@@ -299,11 +326,33 @@ func buildVideoGenerationViews(ctx context.Context, db *gorm.DB, generations []m
 			return nil, err
 		}
 		view := VideoGenerationView{
-			ID: generation.ID, TaskID: task.TaskID, ModelProfileID: generation.ModelProfileID,
+			SpecificationVersion: task.PrivateData.StudioSpecificationVersion,
+			ID:                   generation.ID, TaskID: task.TaskID, ModelProfileID: generation.ModelProfileID,
 			SampleID: generation.SampleID, Model: generation.Model, Mode: generation.Mode,
 			Prompt: generation.Prompt, Parameters: parameters, Progress: task.Progress,
 			FailureReason: task.PublicFailReason(), FailureCode: videoGenerationFailureCode(task),
 			Quota: quota, CreatedAt: generation.CreatedAt, UpdatedAt: generation.UpdatedAt,
+		}
+		view.ReferenceAssets = make([]VideoReferenceAssetView, 0, len(referenceLinksByTask[generation.TaskID]))
+		for _, link := range referenceLinksByTask[generation.TaskID] {
+			item := VideoReferenceAssetView{AssetID: link.AssetID, Role: link.Role, Position: link.Position}
+			item.Unavailable = true
+			if asset, exists := assetsByID[link.AssetID]; exists && asset.DeletedAt == 0 && asset.State == model.VideoAssetStateReady {
+				accessible := asset.Scope == model.VideoAssetScopeUser && asset.OwnerUserID == generation.UserID
+				if asset.Scope == model.VideoAssetScopeCatalog {
+					published, err := isPublishedVideoCatalogAsset(ctx, db, asset.ID)
+					if err != nil {
+						return nil, err
+					}
+					accessible = published
+				}
+				if accessible {
+					assetView := videoAssetView(asset)
+					item.Asset = &assetView
+					item.Unavailable = false
+				}
+			}
+			view.ReferenceAssets = append(view.ReferenceAssets, item)
 		}
 		assetID, hasOutput := outputByTask[generation.TaskID]
 		var output *model.KKAIVideoAsset

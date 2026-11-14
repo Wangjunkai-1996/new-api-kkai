@@ -26,6 +26,7 @@ import {
 import type {
   VideoComposerValues,
   VideoParameters,
+  VideoReferenceRole,
 } from '@/features/video-studio/types'
 import {
   sanitizeVideoUploadResumeRecords,
@@ -35,12 +36,13 @@ import { useAuthStore } from '@/stores/auth-store'
 
 const videoGenerationModes = new Set([
   'text_to_video',
-  'image_to_video',
+  'reference_to_video',
+  'first_frame_to_video',
   'first_last_frame',
 ])
-const legacyVideoStudioDraftStorageKey = 'video-studio-draft'
-const anonymousVideoStudioDraftStorageKey = 'video-studio-draft:anonymous'
-const videoStudioDraftStorageVersion = 1
+const anonymousVideoStudioDraftStorageKey =
+  'video-studio-multimodal-draft:anonymous'
+const videoStudioDraftStorageVersion = 2
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -55,9 +57,23 @@ export const sanitizeVideoStudioDraft = (
     typeof value.mode !== 'string' ||
     !videoGenerationModes.has(value.mode) ||
     typeof value.prompt !== 'string' ||
-    !Array.isArray(value.reference_asset_ids) ||
-    !value.reference_asset_ids.every(
-      (id) => Number.isSafeInteger(id) && Number(id) > 0
+    !Array.isArray(value.references) ||
+    !value.references.every(
+      (reference) =>
+        isRecord(reference) &&
+        typeof reference.client_id === 'string' &&
+        Number.isSafeInteger(reference.asset_id) &&
+        Number(reference.asset_id) > 0 &&
+        [
+          'reference_image',
+          'reference_video',
+          'reference_audio',
+          'first_frame',
+          'last_frame',
+        ].includes(String(reference.role)) &&
+        Number.isSafeInteger(reference.position) &&
+        Number(reference.position) >= 0 &&
+        typeof reference.included === 'boolean'
     ) ||
     !isRecord(value.parameters)
   ) {
@@ -79,7 +95,13 @@ export const sanitizeVideoStudioDraft = (
     model_profile_id: Number(value.model_profile_id),
     mode: value.mode as VideoComposerValues['mode'],
     prompt: value.prompt,
-    reference_asset_ids: value.reference_asset_ids.map(Number),
+    references: value.references.map((reference) => ({
+      client_id: String((reference as Record<string, unknown>).client_id),
+      asset_id: Number((reference as Record<string, unknown>).asset_id),
+      role: (reference as Record<string, unknown>).role as VideoReferenceRole,
+      position: Number((reference as Record<string, unknown>).position),
+      included: Boolean((reference as Record<string, unknown>).included),
+    })),
     parameters,
   }
 }
@@ -112,15 +134,7 @@ const sanitizeUserId = (userId: unknown): number | null =>
 const getVideoStudioDraftStorageKey = (userId: number | null): string =>
   userId === null
     ? anonymousVideoStudioDraftStorageKey
-    : `video-studio-draft:user:${String(userId)}`
-
-const removeLegacyVideoStudioDraft = (storage: Storage): void => {
-  try {
-    storage.removeItem(legacyVideoStudioDraftStorageKey)
-  } catch {
-    // Draft persistence is best-effort when browser storage is unavailable.
-  }
-}
+    : `video-studio-multimodal-draft:user:${String(userId)}`
 
 const getInitialVideoStudioDraftUserId = (): number | null => {
   const storage = getLocalStorage()
@@ -142,7 +156,6 @@ const videoStudioDraftStateStorage: StateStorage = {
   getItem: () => {
     const storage = getLocalStorage()
     if (!storage) return null
-    removeLegacyVideoStudioDraft(storage)
 
     const storageKey = getVideoStudioDraftStorageKey(
       activeVideoStudioDraftUserId
@@ -164,7 +177,6 @@ const videoStudioDraftStateStorage: StateStorage = {
   setItem: (_name, value) => {
     const storage = getLocalStorage()
     if (!storage) return
-    removeLegacyVideoStudioDraft(storage)
 
     try {
       storage.setItem(
@@ -178,7 +190,6 @@ const videoStudioDraftStateStorage: StateStorage = {
   removeItem: () => {
     const storage = getLocalStorage()
     if (!storage) return
-    removeLegacyVideoStudioDraft(storage)
 
     try {
       storage.removeItem(
@@ -246,8 +257,6 @@ export const useVideoStudioDraftStore = create<VideoStudioDraftState>()(
 
 const setVideoStudioDraftUser = (userId: number | null): void => {
   const nextUserId = sanitizeUserId(userId)
-  const storage = getLocalStorage()
-  if (storage) removeLegacyVideoStudioDraft(storage)
   if (nextUserId === activeVideoStudioDraftUserId) return
 
   activeVideoStudioDraftUserId = nextUserId

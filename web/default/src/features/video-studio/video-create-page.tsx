@@ -95,6 +95,8 @@ function VideoCreateWorkspace(props: VideoCreatePageProps) {
   )
   const [selectedSampleOverride, setSelectedSample] = useState<VideoSample>()
   const [sampleSelectionId, setSampleSelectionId] = useState(0)
+  const [reuseGeneration, setReuseGeneration] = useState<VideoGeneration>()
+  const [reuseSelectionId, setReuseSelectionId] = useState(0)
   const selectedSample = selectedSampleOverride ?? initialSampleQuery.data
   const [localTarget, setLocalTarget] = useState<{
     task?: string
@@ -232,8 +234,17 @@ function VideoCreateWorkspace(props: VideoCreatePageProps) {
     scrollTo(resultRef.current)
   }
   const trySample = (sample: VideoSample) => {
+    setReuseGeneration(undefined)
     setSelectedSample(sample)
     setSampleSelectionId((value) => value + 1)
+    scrollTo(editorRef.current)
+  }
+  const reuseInputs = () => {
+    if (!generation?.specification_version || !generation.reference_assets) {
+      return
+    }
+    setReuseGeneration(generation)
+    setReuseSelectionId((value) => value + 1)
     scrollTo(editorRef.current)
   }
   const refreshMedia = async () => {
@@ -380,6 +391,12 @@ function VideoCreateWorkspace(props: VideoCreatePageProps) {
             </p>
           </div>
           <div className='video-studio-result-actions'>
+            {generation?.specification_version &&
+              generation.reference_assets && (
+                <Button variant='outline' onClick={reuseInputs}>
+                  {t('videoStudio.reuseInputs')}
+                </Button>
+              )}
             <Button
               variant='ghost'
               size='icon'
@@ -478,7 +495,10 @@ function VideoCreateWorkspace(props: VideoCreatePageProps) {
   }
 
   return (
-    <main id='content' className='video-studio video-studio-page'>
+    <main
+      id='content'
+      className='video-studio video-studio-page video-studio-create-page'
+    >
       <div className='video-studio-container'>
         <VideoStudioNav />
         <VideoSubmissionNotice
@@ -513,6 +533,8 @@ function VideoCreateWorkspace(props: VideoCreatePageProps) {
                 models={models}
                 sample={selectedSample}
                 sampleSelectionId={sampleSelectionId}
+                reuseGeneration={reuseGeneration}
+                reuseSelectionId={reuseSelectionId}
                 videoTokenGate={videoTokenGate}
                 onSubmitted={handleSubmitted}
                 onSubmissionUnknown={inspectTask}

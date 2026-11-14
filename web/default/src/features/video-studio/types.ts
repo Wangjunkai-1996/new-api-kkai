@@ -22,8 +22,11 @@ import type { VideoSampleCategory } from './video-sample-categories'
 
 export type VideoGenerationMode =
   | 'text_to_video'
-  | 'image_to_video'
+  | 'reference_to_video'
+  | 'first_frame_to_video'
   | 'first_last_frame'
+  /** @deprecated Only retained for rendering historical task records. */
+  | 'image_to_video'
 
 export type VideoStudioAccessMode = 'off' | 'admin' | 'all'
 
@@ -68,15 +71,45 @@ export type VideoParameterControl =
   | VideoSwitchParameter
 
 export type VideoReferenceRole =
-  | 'reference'
+  | 'reference_image'
   | 'reference_video'
+  | 'reference_audio'
   | 'first_frame'
   | 'last_frame'
+  /** @deprecated Only retained for historical task records. */
+  | 'reference'
 
 export type VideoReferenceInput = {
   role: VideoReferenceRole
-  request_key: string
+  request_key?: string
   required: boolean
+}
+
+export type VideoReferencePolicy = {
+  max_total_count: number | null
+  requires_visual: boolean
+  requires_video: boolean
+  audio_requires_generate_audio: boolean
+  image?: VideoReferenceMediaPolicy
+  video?: VideoReferenceMediaPolicy
+  audio?: VideoReferenceMediaPolicy
+}
+
+export type VideoReferenceMediaPolicy = {
+  allowed_mime_types: string[]
+  max_count: number
+  max_size_bytes: number
+  min_duration_seconds?: number
+  max_duration_seconds?: number
+  max_total_duration_seconds?: number
+  min_width?: number
+  max_width?: number
+  min_height?: number
+  max_height?: number
+  min_aspect_ratio_exclusive?: number
+  max_aspect_ratio_exclusive?: number
+  min_frame_rate?: number
+  max_frame_rate?: number
 }
 
 export type VideoModelSpec = {
@@ -84,6 +117,7 @@ export type VideoModelSpec = {
   modes: VideoGenerationMode[]
   parameters: VideoParameterControl[]
   reference_inputs?: VideoReferenceInput[]
+  reference_policy?: VideoReferencePolicy
 }
 
 export type VideoModelProfile = {
@@ -146,8 +180,11 @@ export type VideoSample = {
   mode: VideoGenerationMode
   model_version: number
   parameters: VideoParameters
-  reference_asset_ids: number[]
-  reference_content_urls: string[]
+  reference_assets?: VideoSampleReferenceAsset[]
+  /** @deprecated Historical catalog fields; never used to construct new requests. */
+  reference_asset_ids?: number[]
+  /** @deprecated Historical catalog fields; never used to construct new requests. */
+  reference_content_urls?: string[]
   video_asset_id: number
   video_url: string
   poster_url: string
@@ -186,9 +223,11 @@ export type VideoGeneration = {
   model_profile_id: number
   sample_id?: number
   model: string
+  specification_version?: number
   mode: VideoGenerationMode
   prompt: string
   parameters: VideoParameters
+  reference_assets?: VideoGenerationReferenceAsset[]
   status: VideoGenerationStatus
   progress: string
   failure_reason?: string
@@ -224,18 +263,40 @@ export type VideoComposerValues = {
   model_profile_id: number
   mode: VideoGenerationMode
   prompt: string
-  reference_asset_ids: number[]
+  references?: VideoComposerReference[]
+  /** @deprecated Kept only while loading historical local drafts. */
+  reference_asset_ids?: number[]
   parameters: VideoParameters
 }
+
+export type VideoComposerReference = {
+  client_id: string
+  asset_id: number
+  role: VideoReferenceRole
+  position: number
+  included: boolean
+  asset?: VideoAsset | null
+}
+
+export type VideoSampleReferenceAsset = {
+  asset_id: number
+  role: VideoReferenceRole
+  position: number
+  asset?: VideoAsset | null
+}
+
+export type VideoGenerationReferenceAsset = VideoSampleReferenceAsset
 
 export type VideoReferenceAssetInput = {
   asset_id: number
   role: VideoReferenceRole
+  position: number
 }
 
 export type VideoQuoteRequest = {
   token_id: number
   model: string
+  specification_version: number
   mode: VideoGenerationMode
   prompt: string
   parameters: VideoParameters
@@ -295,7 +356,11 @@ export type VideoSubmissionReceipt = {
   [key: string]: unknown
 }
 
-export type VideoUploadPurpose = 'reference' | 'reference_video' | 'sample'
+export type VideoUploadPurpose =
+  | 'reference'
+  | 'reference_video'
+  | 'reference_audio'
+  | 'sample'
 
 export type VideoUploadMode = 'single' | 'multipart'
 
@@ -356,7 +421,7 @@ export type VideoSampleInput = {
   prompt: string
   mode: VideoGenerationMode
   parameters: VideoParameters
-  reference_asset_ids: number[]
+  reference_assets: VideoReferenceAssetInput[]
   video_asset_id: number
   aspect_ratio: number
   category: VideoSampleCategory

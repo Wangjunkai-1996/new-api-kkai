@@ -87,7 +87,8 @@ JOIN tasks AS active_reference_task ON active_reference_task.id = active_referen
 WHERE active_reference.asset_id = kkai_video_assets.id
   AND active_reference.role IN ?
   AND active_reference_task.status NOT IN ?
-)`, []string{model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleReferenceVideo,
+)`, []string{model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleReferenceImage,
+				model.VideoTaskAssetRoleReferenceVideo, model.VideoTaskAssetRoleReferenceAudio,
 				model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame},
 				[]model.TaskStatus{model.TaskStatusSuccess, model.TaskStatusFailure}).
 			Order("id ASC").Limit(batchLimit).Find(&assets).Error

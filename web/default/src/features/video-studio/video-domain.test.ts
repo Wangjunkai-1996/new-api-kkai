@@ -23,6 +23,7 @@ import { test } from 'vitest'
 import { validateComposerForProfile } from './schemas'
 import type {
   VideoAsset,
+  VideoComposerReference,
   VideoGeneration,
   VideoGenerationFailureCode,
   VideoModelProfile,
@@ -52,6 +53,7 @@ import {
   restoreVideoComposerDraft,
   shouldRenderVideoAssetMedia,
 } from './video-domain'
+import { validateVideoReferenceMedia } from './video-reference-validation'
 
 const profile: VideoModelProfile = {
   id: 1,
@@ -62,7 +64,7 @@ const profile: VideoModelProfile = {
   specification_version: 1,
   specification: {
     version: 1,
-    modes: ['text_to_video', 'image_to_video', 'first_last_frame'],
+    modes: ['text_to_video', 'reference_to_video', 'first_last_frame'],
     parameters: [
       {
         control: 'select',
@@ -82,10 +84,43 @@ const profile: VideoModelProfile = {
       },
     ],
     reference_inputs: [
-      { role: 'reference', request_key: 'image', required: true },
+      {
+        role: 'reference_image',
+        request_key: 'reference_images',
+        required: true,
+      },
       { role: 'first_frame', request_key: 'first_image', required: true },
       { role: 'last_frame', request_key: 'last_image', required: true },
     ],
+    reference_policy: {
+      max_total_count: 6,
+      requires_visual: true,
+      requires_video: false,
+      audio_requires_generate_audio: true,
+      image: {
+        allowed_mime_types: ['image/jpeg'],
+        max_count: 3,
+        max_size_bytes: 20_971_520,
+      },
+      video: {
+        allowed_mime_types: ['video/mp4'],
+        max_count: 2,
+        max_size_bytes: 49_999_999,
+        min_duration_seconds: 2,
+        max_duration_seconds: 15,
+        max_total_duration_seconds: 15,
+        min_frame_rate: 24,
+        max_frame_rate: 60,
+      },
+      audio: {
+        allowed_mime_types: ['audio/mpeg'],
+        max_count: 1,
+        max_size_bytes: 14_999_999,
+        min_duration_seconds: 2,
+        max_duration_seconds: 15,
+        max_total_duration_seconds: 15,
+      },
+    },
   },
   default_parameters: { duration: 5 },
   enabled: true,
@@ -126,6 +161,18 @@ const asset = (state: VideoAsset['state']): VideoAsset => ({
   codec: '',
   created_at: 100,
   updated_at: 100,
+})
+
+const reference = (
+  assetId: number,
+  role: VideoComposerReference['role'] = 'reference_image',
+  position = 0
+): VideoComposerReference => ({
+  client_id: `asset-${assetId}`,
+  asset_id: assetId,
+  role,
+  position,
+  included: true,
 })
 
 test('generation failures use safe reason codes with a generic fallback', () => {
@@ -181,11 +228,12 @@ test('sample reuse keeps profile defaults and overlays sample parameters', () =>
     model_display_name: profile.display_name,
     title: 'Storm lighthouse',
     prompt: 'A lighthouse in a storm',
-    mode: 'image_to_video',
+    mode: 'reference_to_video',
     model_version: 1,
     parameters: { duration: 8 },
     reference_asset_ids: [3],
     reference_content_urls: ['/api/video-studio/assets/3/content'],
+    reference_assets: [{ asset_id: 3, role: 'reference_image', position: 0 }],
     video_asset_id: 4,
     video_url: '/api/video-studio/assets/4/content',
     poster_url: '/api/video-studio/assets/4/content?variant=poster',
@@ -200,9 +248,9 @@ test('sample reuse keeps profile defaults and overlays sample parameters', () =>
 
   assert.deepEqual(buildVideoComposerValues(profile, sample), {
     model_profile_id: profile.id,
-    mode: 'image_to_video',
+    mode: 'reference_to_video',
     prompt: sample.prompt,
-    reference_asset_ids: [3],
+    references: [reference(3)],
     parameters: { duration: 8, quality: 'standard' },
   })
 })
@@ -216,9 +264,9 @@ test('draft restore follows the persisted profile across model reordering', () =
   }
   const draft = {
     model_profile_id: selectedProfile.id,
-    mode: 'image_to_video' as const,
+    mode: 'reference_to_video' as const,
     prompt: 'Persist this draft',
-    reference_asset_ids: [42],
+    references: [reference(42)],
     parameters: { duration: 8, quality: 'standard' },
   }
 
@@ -230,12 +278,11 @@ test('draft restore follows the persisted profile across model reordering', () =
     restoreVideoComposerDraft([profile, selectedProfile], draft),
     {
       ...draft,
-      parameters: { duration: 8, quality: 'standard' },
     }
   )
 })
 
-test('draft restore drops a model that is outside the bound key catalog', () => {
+test('draft restore preserves a model outside the catalog for explicit repair', () => {
   const unavailableProfile: VideoModelProfile = {
     ...profile,
     id: 2,
@@ -243,22 +290,22 @@ test('draft restore drops a model that is outside the bound key catalog', () => 
   }
   const restored = restoreVideoComposerDraft([profile], {
     model_profile_id: unavailableProfile.id,
-    mode: 'image_to_video',
+    mode: 'reference_to_video',
     prompt: 'Keep only the prompt',
-    reference_asset_ids: [42],
+    references: [reference(42)],
     parameters: { duration: 12 },
   })
 
   assert.deepEqual(restored, {
-    model_profile_id: profile.id,
-    mode: 'text_to_video',
-    prompt: '',
-    reference_asset_ids: [],
-    parameters: { duration: 5, quality: 'standard' },
+    model_profile_id: unavailableProfile.id,
+    mode: 'reference_to_video',
+    prompt: 'Keep only the prompt',
+    references: [reference(42)],
+    parameters: { duration: 12 },
   })
 })
 
-test('draft refresh preserves reference IDs and revalidates updated model parameters', () => {
+test('draft refresh preserves references and invalid parameters for explicit repair', () => {
   const updatedProfile: VideoModelProfile = {
     ...profile,
     specification_version: 2,
@@ -273,36 +320,40 @@ test('draft refresh preserves reference IDs and revalidates updated model parame
   }
   const restored = restoreVideoComposerDraft([updatedProfile], {
     model_profile_id: updatedProfile.id,
-    mode: 'image_to_video',
+    mode: 'reference_to_video',
     prompt: 'Restore the uploaded image',
-    reference_asset_ids: [77],
+    references: [reference(77)],
     parameters: { duration: 12, quality: 'removed-option', obsolete: true },
   })
 
   assert.deepEqual(restored, {
     model_profile_id: updatedProfile.id,
-    mode: 'image_to_video',
+    mode: 'reference_to_video',
     prompt: 'Restore the uploaded image',
-    reference_asset_ids: [77],
-    parameters: { duration: 5, quality: 'standard' },
+    references: [reference(77)],
+    parameters: { duration: 12, quality: 'removed-option', obsolete: true },
   })
   assert.equal(
     restored && validateComposerForProfile(restored, updatedProfile),
-    null
+    'videoStudio.validation.parameterInvalid'
   )
 })
 
-test('clearing a broken draft preserves its current reference mode with empty inputs', () => {
+test('clearing a broken draft resets the empty collection to text generation', () => {
   assert.deepEqual(
     buildClearedVideoComposerValues(profile, 'first_last_frame'),
     {
       model_profile_id: profile.id,
-      mode: 'first_last_frame',
+      mode: 'text_to_video',
       prompt: '',
-      reference_asset_ids: [],
+      references: [],
       parameters: { duration: 5, quality: 'standard' },
     }
   )
+})
+
+test('empty references remain valid for text generation on multimodal profiles', () => {
+  assert.equal(validateVideoReferenceMedia([], profile), null)
 })
 
 test('quote request maps first and last frame assets by canonical role order', () => {
@@ -328,7 +379,7 @@ test('quote request maps first and last frame assets by canonical role order', (
         model_profile_id: profile.id,
         mode: 'first_last_frame',
         prompt: 'Day becomes night',
-        reference_asset_ids: [11, 12],
+        references: [reference(11, 'first_frame'), reference(12, 'last_frame')],
         parameters: { duration: 5, quality: 'standard' },
       },
       reversedReferenceProfile,
@@ -342,9 +393,10 @@ test('quote request maps first and last frame assets by canonical role order', (
       prompt: 'Day becomes night',
       parameters: { duration: 5, quality: 'standard' },
       reference_assets: [
-        { asset_id: 11, role: 'first_frame' },
-        { asset_id: 12, role: 'last_frame' },
+        { asset_id: 11, role: 'first_frame', position: 0 },
+        { asset_id: 12, role: 'last_frame', position: 0 },
       ],
+      specification_version: 1,
       sample_id: 9,
     }
   )
@@ -357,29 +409,33 @@ test('video-reference runtime profiles submit the reference_video role', () => {
     model: 'sd_2.0_special_1080p_with_video_ref',
     specification: {
       version: 1,
-      modes: ['image_to_video'],
+      modes: ['reference_to_video'],
       parameters: [],
-      reference_inputs: [
-        {
-          role: 'reference_video',
-          request_key: 'reference_video',
-          required: true,
+      reference_policy: {
+        max_total_count: 3,
+        requires_visual: true,
+        requires_video: true,
+        audio_requires_generate_audio: true,
+        video: {
+          allowed_mime_types: ['video/mp4'],
+          max_count: 3,
+          max_size_bytes: 49_999_999,
         },
-      ],
+      },
     },
   }
 
   assert.deepEqual(
-    getVideoReferenceRoles(videoReferenceProfile, 'image_to_video'),
+    getVideoReferenceRoles(videoReferenceProfile, 'reference_to_video'),
     ['reference_video']
   )
   assert.equal(
     validateComposerForProfile(
       {
         model_profile_id: videoReferenceProfile.id,
-        mode: 'image_to_video',
+        mode: 'reference_to_video',
         prompt: 'Extend this video',
-        reference_asset_ids: [77],
+        references: [reference(77, 'reference_video')],
         parameters: {},
       },
       videoReferenceProfile
@@ -390,15 +446,15 @@ test('video-reference runtime profiles submit the reference_video role', () => {
     buildVideoQuoteRequest(
       {
         model_profile_id: videoReferenceProfile.id,
-        mode: 'image_to_video',
+        mode: 'reference_to_video',
         prompt: 'Extend this video',
-        reference_asset_ids: [77],
+        references: [reference(77, 'reference_video')],
         parameters: {},
       },
       videoReferenceProfile,
       42
     ).reference_assets,
-    [{ asset_id: 77, role: 'reference_video' }]
+    [{ asset_id: 77, role: 'reference_video', position: 0 }]
   )
 })
 
@@ -408,7 +464,7 @@ test('create request carries the complete quote contract', () => {
       model_profile_id: profile.id,
       mode: 'text_to_video',
       prompt: 'Ocean at sunrise',
-      reference_asset_ids: [],
+      references: [],
       parameters: { duration: 5, quality: 'standard' },
     },
     profile,
@@ -434,6 +490,7 @@ test('submission request key is stable across parameter insertion order', () => 
   const request = {
     token_id: 42,
     model: 'video-model',
+    specification_version: 1,
     mode: 'text_to_video' as const,
     prompt: 'Ocean at sunrise',
     reference_assets: [],
@@ -450,6 +507,93 @@ test('submission request key is stable across parameter insertion order', () => 
   assert.notEqual(
     getVideoSubmissionRequestKey(request),
     getVideoSubmissionRequestKey({ ...request, token_id: 43 })
+  )
+})
+
+test('quote includes only active references with canonical role order and per-role positions', () => {
+  const request = buildVideoQuoteRequest(
+    {
+      model_profile_id: profile.id,
+      mode: 'reference_to_video',
+      prompt: 'Combine the references',
+      parameters: { duration: 5, quality: 'standard', generate_audio: true },
+      references: [
+        reference(30, 'reference_audio'),
+        reference(9, 'reference_image', 1),
+        { ...reference(99, 'reference_image', 2), included: false },
+        reference(20, 'reference_video'),
+        reference(3, 'reference_image', 0),
+      ],
+    },
+    profile,
+    42
+  )
+
+  assert.equal(request.specification_version, profile.specification_version)
+  assert.equal(request.mode, 'reference_to_video')
+  assert.deepEqual(request.reference_assets, [
+    { asset_id: 3, role: 'reference_image', position: 0 },
+    { asset_id: 9, role: 'reference_image', position: 1 },
+    { asset_id: 20, role: 'reference_video', position: 0 },
+    { asset_id: 30, role: 'reference_audio', position: 0 },
+  ])
+})
+
+test('reference positions and capability version affect submission identity but transport array order does not', () => {
+  const request = buildVideoQuoteRequest(
+    {
+      model_profile_id: profile.id,
+      mode: 'reference_to_video',
+      prompt: 'Use both images',
+      references: [
+        reference(80, 'reference_image', 0),
+        reference(2, 'reference_image', 1),
+      ],
+      parameters: { duration: 5, quality: 'standard' },
+    },
+    profile,
+    42
+  )
+  const originalKey = getVideoSubmissionRequestKey(request)
+  assert.equal(
+    originalKey,
+    getVideoSubmissionRequestKey({
+      ...request,
+      reference_assets: [...request.reference_assets].reverse(),
+    })
+  )
+  assert.notEqual(
+    originalKey,
+    getVideoSubmissionRequestKey({
+      ...request,
+      reference_assets: request.reference_assets.map((binding) => ({
+        ...binding,
+        position: 1 - binding.position,
+      })),
+    })
+  )
+  assert.notEqual(
+    originalKey,
+    getVideoSubmissionRequestKey({
+      ...request,
+      specification_version: request.specification_version + 1,
+    })
+  )
+})
+
+test('legacy image mode cannot validate for a new generation profile', () => {
+  assert.equal(
+    validateComposerForProfile(
+      {
+        model_profile_id: profile.id,
+        mode: 'image_to_video',
+        prompt: 'Use the image',
+        references: [reference(3)],
+        parameters: { duration: 5, quality: 'standard' },
+      },
+      profile
+    ),
+    'videoStudio.validation.modeUnsupported'
   )
 })
 
@@ -509,16 +653,20 @@ test('mode changes prune stale parameters and restore applicable defaults', () =
   }
 
   assert.deepEqual(
-    getVideoParametersForMode(modeProfile, 'image_to_video', staleParameters),
+    getVideoParametersForMode(
+      modeProfile,
+      'reference_to_video',
+      staleParameters
+    ),
     { duration: 8, quality: 'standard' }
   )
   assert.equal(
     validateComposerForProfile(
       {
         model_profile_id: modeProfile.id,
-        mode: 'image_to_video',
+        mode: 'reference_to_video',
         prompt: 'Ocean waves',
-        reference_asset_ids: [3],
+        references: [reference(3)],
         parameters: staleParameters,
       },
       modeProfile

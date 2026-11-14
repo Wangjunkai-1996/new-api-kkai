@@ -89,13 +89,13 @@ func TestVideoSamplesRespectEffectiveModelFilter(t *testing.T) {
 	samples := []model.KKAIVideoSample{
 		{
 			ModelProfileID: profiles[0].ID, Title: "Allowed", Prompt: "allowed",
-			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`,
 			VideoAssetID: assets[0].ID, AspectRatio: 1, Status: model.VideoSampleStatusPublished,
 			CreatedAt: now, UpdatedAt: now,
 		},
 		{
 			ModelProfileID: profiles[1].ID, Title: "Blocked", Prompt: "blocked",
-			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`,
 			VideoAssetID: assets[1].ID, AspectRatio: 1, Status: model.VideoSampleStatusPublished,
 			CreatedAt: now, UpdatedAt: now,
 		},
@@ -123,19 +123,19 @@ func TestVideoSamplesCombineModelAndCategoryFilters(t *testing.T) {
 	samples := []model.KKAIVideoSample{
 		{
 			ModelProfileID: profiles[0].ID, Title: "A people", Prompt: "a people",
-			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`,
 			VideoAssetID: asset.ID, AspectRatio: 1, Category: model.VideoSampleCategoryPeople,
 			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
 		},
 		{
 			ModelProfileID: profiles[0].ID, Title: "A animals", Prompt: "a animals",
-			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`,
 			VideoAssetID: asset.ID, AspectRatio: 1, Category: model.VideoSampleCategoryAnimals,
 			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
 		},
 		{
 			ModelProfileID: profiles[1].ID, Title: "B people", Prompt: "b people",
-			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`,
 			VideoAssetID: asset.ID, AspectRatio: 1, Category: model.VideoSampleCategoryPeople,
 			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
 		},
@@ -166,19 +166,19 @@ func TestVideoSampleOtherCategoryIncludesLegacyMissingValues(t *testing.T) {
 	samples := []model.KKAIVideoSample{
 		{
 			ModelProfileID: profiles[0].ID, Title: "Explicit other", Prompt: "other",
-			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`,
 			VideoAssetID: asset.ID, AspectRatio: 1, Category: model.VideoSampleCategoryOther,
 			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
 		},
 		{
 			ModelProfileID: profiles[0].ID, Title: "Legacy empty", Prompt: "empty",
-			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`,
 			VideoAssetID: asset.ID, AspectRatio: 1, Category: "",
 			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
 		},
 		{
 			ModelProfileID: profiles[0].ID, Title: "Legacy null", Prompt: "null",
-			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`,
 			VideoAssetID: asset.ID, AspectRatio: 1, Category: model.VideoSampleCategoryOther,
 			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
 		},
@@ -234,7 +234,7 @@ func TestVideoSampleListRejectsCorruptStoredCategory(t *testing.T) {
 	now := time.Now().Unix()
 	sample := model.KKAIVideoSample{
 		ModelProfileID: profiles[0].ID, Title: "Corrupt", Prompt: "corrupt",
-		Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+		Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`,
 		VideoAssetID: asset.ID, AspectRatio: 1, Category: "invalid",
 		Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
 	}
@@ -340,7 +340,7 @@ func TestUpdateVideoSampleAllowsChangingLastPublishedSample(t *testing.T) {
 			require.NoError(t, db.Create(&asset).Error)
 			sample := model.KKAIVideoSample{
 				ModelProfileID: profiles[0].ID, Title: "Published", Prompt: "prompt",
-				Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+				Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`,
 				VideoAssetID: asset.ID, AspectRatio: 16.0 / 9.0, Category: model.VideoSampleCategoryOther,
 				Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
 			}

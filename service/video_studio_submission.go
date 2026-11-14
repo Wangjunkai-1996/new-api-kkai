@@ -5,13 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/video_studio_setting"
+	"github.com/shopspring/decimal"
 
 	"gorm.io/gorm"
 )
@@ -20,24 +21,53 @@ var ErrInvalidVideoStudioSubmission = errors.New("invalid video studio submissio
 var ErrVideoStudioQuoteMismatch = errors.New("video studio quote does not match the normalized request")
 var ErrVideoStudioQuoteExpired = errors.New("video studio quote has expired")
 
+type VideoStudioValidationIssue struct {
+	Field    string `json:"field"`
+	Rule     string `json:"rule"`
+	Role     string `json:"role,omitempty"`
+	AssetID  int64  `json:"asset_id,omitempty"`
+	Position *int   `json:"position,omitempty"`
+	Actual   any    `json:"actual,omitempty"`
+	Limit    any    `json:"limit,omitempty"`
+}
+
+type VideoStudioValidationError struct {
+	Code       string                       `json:"code"`
+	Message    string                       `json:"message"`
+	StatusCode int                          `json:"-"`
+	Issues     []VideoStudioValidationIssue `json:"issues,omitempty"`
+}
+
+func (e *VideoStudioValidationError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Code + ": " + e.Message
+}
+
+func videoStudioValidationError(code string, status int, message string) error {
+	return &VideoStudioValidationError{Code: code, StatusCode: status, Message: message}
+}
+
 type VideoStudioReferenceAssetInput struct {
-	AssetID    int64  `json:"asset_id"`
-	Role       string `json:"role"`
-	requestKey string
+	AssetID  int64  `json:"asset_id"`
+	Role     string `json:"role"`
+	Position *int   `json:"position"`
 }
 
 type VideoStudioSubmissionRequest struct {
-	TokenID         int                              `json:"token_id"`
-	Model           string                           `json:"model"`
-	Group           string                           `json:"group,omitempty"`
-	Mode            string                           `json:"mode"`
-	Prompt          string                           `json:"prompt"`
-	Parameters      map[string]any                   `json:"parameters"`
-	ReferenceAssets []VideoStudioReferenceAssetInput `json:"reference_assets,omitempty"`
-	SampleID        *int64                           `json:"sample_id,omitempty"`
-	MaxQuota        *int                             `json:"max_quota,omitempty"`
-	QuoteHash       string                           `json:"quote_hash,omitempty"`
-	QuoteExpiresAt  int64                            `json:"quote_expires_at,omitempty"`
+	TokenID              int                              `json:"token_id"`
+	Model                string                           `json:"model"`
+	SpecificationVersion int                              `json:"specification_version"`
+	Group                string                           `json:"group,omitempty"`
+	Mode                 string                           `json:"mode"`
+	Prompt               string                           `json:"prompt"`
+	Parameters           map[string]any                   `json:"parameters"`
+	ReferenceAssets      []VideoStudioReferenceAssetInput `json:"reference_assets,omitempty"`
+	SampleID             *int64                           `json:"sample_id,omitempty"`
+	MaxQuota             *int                             `json:"max_quota,omitempty"`
+	QuoteHash            string                           `json:"quote_hash,omitempty"`
+	QuoteExpiresAt       int64                            `json:"quote_expires_at,omitempty"`
 }
 
 type NormalizedVideoStudioSubmission struct {
@@ -62,6 +92,7 @@ type NormalizedVideoStudioSubmission struct {
 
 type NormalizedVideoReferenceAsset struct {
 	Role       string
+	Position   int
 	RequestKey string
 	Asset      model.KKAIVideoAsset
 	SignedURL  string
@@ -77,7 +108,7 @@ type VideoStudioQuote struct {
 
 func ValidateVideoStudioSubmitRequest(request VideoStudioSubmissionRequest) error {
 	request.QuoteHash = strings.ToLower(strings.TrimSpace(request.QuoteHash))
-	if request.TokenID <= 0 || request.MaxQuota == nil || *request.MaxQuota < 0 || request.QuoteHash == "" ||
+	if request.TokenID <= 0 || request.SpecificationVersion <= 0 || request.MaxQuota == nil || *request.MaxQuota < 0 || request.QuoteHash == "" ||
 		!validVideoQuoteHash(request.QuoteHash) || request.QuoteExpiresAt <= 0 {
 		return ErrInvalidVideoStudioSubmission
 	}
@@ -99,7 +130,7 @@ func NormalizeVideoStudioSubmission(
 	request.Mode = strings.TrimSpace(request.Mode)
 	request.Prompt = strings.TrimSpace(request.Prompt)
 	request.QuoteHash = strings.ToLower(strings.TrimSpace(request.QuoteHash))
-	if len(request.Group) > 64 || (request.MaxQuota != nil && *request.MaxQuota < 0) || !validVideoQuoteHash(request.QuoteHash) {
+	if request.SpecificationVersion <= 0 || len(request.Group) > 64 || (request.MaxQuota != nil && *request.MaxQuota < 0) || !validVideoQuoteHash(request.QuoteHash) {
 		return nil, ErrInvalidVideoStudioSubmission
 	}
 
@@ -113,25 +144,6 @@ func NormalizeVideoStudioSubmission(
 			return nil, ErrVideoSampleNotFound
 		}
 		sample = &found
-		if request.Model == "" {
-			var profile model.KKAIVideoModelProfile
-			if err := db.WithContext(ctx).Select("model").First(&profile, "id = ?", found.ModelProfileID).Error; err != nil {
-				return nil, ErrVideoModelProfileNotFound
-			}
-			request.Model = profile.Model
-		}
-		if request.Prompt == "" {
-			request.Prompt = found.Prompt
-		}
-		if request.Mode == "" {
-			request.Mode = found.Mode
-		}
-		if len(request.Parameters) == 0 {
-			request.Parameters = map[string]any{}
-			if err := common.UnmarshalJsonStr(found.Parameters, &request.Parameters); err != nil {
-				return nil, fmt.Errorf("decode sample parameters: %w", err)
-			}
-		}
 	}
 	if request.Prompt == "" || len(request.Prompt) > 8000 {
 		return nil, ErrInvalidVideoStudioSubmission
@@ -144,16 +156,8 @@ func NormalizeVideoStudioSubmission(
 	if sample != nil && sample.ModelProfileID != profileID {
 		return nil, ErrInvalidVideoStudioSubmission
 	}
-	if sample != nil && len(request.ReferenceAssets) == 0 {
-		expectedReferences := expectedVideoReferenceInputs(specification, request.Mode)
-		referenceSnapshots, err := decodeVideoSampleReferenceSnapshots(sample.ReferenceAssetIDs, expectedReferences)
-		if err != nil {
-			return nil, fmt.Errorf("decode sample references: %w", err)
-		}
-		if !videoSampleReferenceSnapshotsMatch(referenceSnapshots, expectedReferences) {
-			return nil, ErrInvalidVideoStudioSubmission
-		}
-		request.ReferenceAssets = sampleReferenceInputs(referenceSnapshots)
+	if request.SpecificationVersion != specificationVersion {
+		return nil, videoStudioValidationError("video_capabilities_stale", 409, "the selected model capabilities have changed; refresh and retry")
 	}
 	modeDefaults := filterVideoParametersForMode(specification, request.Mode, defaults)
 	mergedParameters := make(map[string]any, len(modeDefaults)+len(request.Parameters))
@@ -167,7 +171,7 @@ func NormalizeVideoStudioSubmission(
 	if err != nil {
 		return nil, err
 	}
-	references, err := normalizeVideoReferences(ctx, db, store, userID, specification, request.Mode, request.ReferenceAssets)
+	references, err := normalizeVideoReferences(ctx, db, store, userID, specification, request.Mode, parameters, request.ReferenceAssets)
 	if err != nil {
 		return nil, err
 	}
@@ -207,9 +211,9 @@ func ApplyVideoStudioEffectiveGroup(normalized *NormalizedVideoStudioSubmission,
 		Value      any    `json:"value"`
 	}
 	type canonicalReference struct {
-		AssetID    int64  `json:"asset_id"`
-		Role       string `json:"role"`
-		RequestKey string `json:"request_key"`
+		AssetID  int64  `json:"asset_id"`
+		Role     string `json:"role"`
+		Position int    `json:"position"`
 	}
 	parameterValues := make([]canonicalParameter, 0, len(normalized.Parameters))
 	for _, parameter := range normalized.specification.Parameters {
@@ -226,7 +230,7 @@ func ApplyVideoStudioEffectiveGroup(normalized *NormalizedVideoStudioSubmission,
 	referenceValues := make([]canonicalReference, 0, len(normalized.ReferenceAssets))
 	for _, reference := range normalized.ReferenceAssets {
 		referenceValues = append(referenceValues, canonicalReference{
-			AssetID: reference.Asset.ID, Role: reference.Role, RequestKey: reference.RequestKey,
+			AssetID: reference.Asset.ID, Role: reference.Role, Position: reference.Position,
 		})
 	}
 	canonical := struct {
@@ -268,79 +272,225 @@ func validVideoQuoteHash(value string) bool {
 }
 
 func normalizeVideoReferences(
-	ctx context.Context,
-	db *gorm.DB,
-	store VideoAssetStore,
-	userID int,
-	specification VideoModelSpec,
-	mode string,
+	ctx context.Context, db *gorm.DB, store VideoAssetStore, userID int,
+	specification VideoModelSpec, mode string, parameters map[string]any,
 	inputs []VideoStudioReferenceAssetInput,
 ) ([]NormalizedVideoReferenceAsset, error) {
-	requiredRoles := expectedVideoReferenceRoles(specification, mode)
-	if len(inputs) != len(requiredRoles) {
-		return nil, ErrInvalidVideoStudioSubmission
+	if mode == VideoModeTextToVideo && len(inputs) != 0 {
+		return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "text-to-video does not accept references")
 	}
-	inputByRole := make(map[string]VideoStudioReferenceAssetInput, len(inputs))
+	policy := specification.ReferencePolicy
+	if len(inputs) > 0 {
+		if policy == nil || policy.MaxTotalCount == nil || *policy.MaxTotalCount <= 0 {
+			return nil, videoStudioValidationError("video_model_capability_unavailable", 503, "reference capabilities are not available")
+		}
+		if len(inputs) > *policy.MaxTotalCount {
+			return nil, videoReferenceLimitError("", nil, "max_total_count", len(inputs), *policy.MaxTotalCount)
+		}
+	}
+	assets := make(map[int64]model.KKAIVideoAsset, len(inputs))
 	for _, input := range inputs {
-		if input.AssetID <= 0 || input.Role == "" {
-			return nil, ErrInvalidVideoStudioSubmission
+		asset, err := GetAuthorizedVideoAsset(ctx, db, userID, false, input.AssetID)
+		if errors.Is(err, ErrVideoAssetAccessDenied) {
+			return nil, err
 		}
-		if _, duplicate := inputByRole[input.Role]; duplicate {
-			return nil, ErrInvalidVideoStudioSubmission
+		if err != nil {
+			return nil, videoStudioValidationError("video_reference_unavailable", 409, "a reference asset is unavailable")
 		}
-		inputByRole[input.Role] = input
+		assets[input.AssetID] = *asset
 	}
-	requestKeyByRole := make(map[string]string, len(specification.ReferenceInputs))
-	for _, input := range specification.ReferenceInputs {
-		requestKeyByRole[input.Role] = input.RequestKey
+	references, err := validateVideoReferenceAssets(specification, mode, parameters, inputs, assets)
+	if err != nil {
+		return nil, err
 	}
 	settings := video_studio_setting.Get()
-	result := make([]NormalizedVideoReferenceAsset, 0, len(requiredRoles))
-	for _, role := range requiredRoles {
-		input, ok := inputByRole[role]
-		if !ok {
-			return nil, ErrInvalidVideoStudioSubmission
-		}
-		requestKey := requestKeyByRole[role]
-		if input.requestKey != "" {
-			if input.requestKey != requestKey {
-				return nil, ErrInvalidVideoStudioSubmission
-			}
-			requestKey = input.requestKey
-		}
-		var asset model.KKAIVideoAsset
-		if err := db.WithContext(ctx).First(&asset, "id = ?", input.AssetID).Error; err != nil {
-			return nil, ErrInvalidVideoStudioSubmission
-		}
-		expectsVideo := role == model.VideoTaskAssetRoleReferenceVideo
-		validMIME := strings.HasPrefix(asset.MIMEType, "image/")
-		if expectsVideo {
-			validMIME = strings.HasPrefix(asset.MIMEType, "video/")
-		}
-		if asset.DeletedAt != 0 || asset.Kind != model.VideoAssetKindReference ||
-			asset.State != model.VideoAssetStateReady || !validMIME {
-			return nil, ErrInvalidVideoStudioSubmission
-		}
-		if asset.Scope == model.VideoAssetScopeCatalog {
-			published, err := isPublishedVideoCatalogAsset(ctx, db, asset.ID)
-			if err != nil {
-				return nil, err
-			}
-			if !published {
-				return nil, ErrInvalidVideoStudioSubmission
-			}
-		} else if asset.Scope != model.VideoAssetScopeUser || asset.OwnerUserID != userID {
-			return nil, ErrInvalidVideoStudioSubmission
-		}
+	for index := range references {
+		asset := references[index].Asset
 		signedURL, err := store.PresignDownload(ctx, asset.ObjectKey, asset.OriginalFilename, false, time.Duration(settings.SignedURLSeconds)*time.Second)
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, NormalizedVideoReferenceAsset{
-			Role: role, RequestKey: requestKey, Asset: asset, SignedURL: signedURL,
-		})
+		references[index].SignedURL = signedURL
 	}
-	return result, nil
+	return references, nil
+}
+
+// validateVideoReferenceAssets is shared by submission and sample authoring so
+// a saved sample cannot bypass the model's media or ordering contract.
+func validateVideoReferenceAssets(spec VideoModelSpec, mode string, parameters map[string]any, inputs []VideoStudioReferenceAssetInput, assets map[int64]model.KKAIVideoAsset) ([]NormalizedVideoReferenceAsset, error) {
+	if !containsVideoMode(spec.Modes, mode) || !isVideoMode(mode) {
+		return nil, videoStudioValidationError("video_request_contract_invalid", 400, "unsupported video mode")
+	}
+	if mode == VideoModeTextToVideo {
+		if len(inputs) != 0 || (spec.ReferencePolicy != nil && spec.ReferencePolicy.RequiresVideo) {
+			return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "this mode requires a different reference selection")
+		}
+		return []NormalizedVideoReferenceAsset{}, nil
+	}
+	policy := spec.ReferencePolicy
+	if policy == nil || policy.MaxTotalCount == nil || *policy.MaxTotalCount <= 0 {
+		return nil, videoStudioValidationError("video_model_capability_unavailable", 503, "reference capabilities are not available")
+	}
+	if len(inputs) == 0 {
+		return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "reference assets are required")
+	}
+	if len(inputs) > *policy.MaxTotalCount {
+		return nil, videoReferenceLimitError("", nil, "max_total_count", len(inputs), *policy.MaxTotalCount)
+	}
+	counts := map[string]int{}
+	positions := map[string]map[int]bool{}
+	seenAssets := map[int64]bool{}
+	references := make([]NormalizedVideoReferenceAsset, 0, len(inputs))
+	durations := map[string]decimal.Decimal{}
+	for _, input := range inputs {
+		if input.AssetID <= 0 || input.Position == nil || *input.Position < 0 {
+			return nil, videoStudioValidationError("video_request_contract_invalid", 400, "asset_id, role and position are required")
+		}
+		role := input.Role
+		advanced := mode == VideoModeFirstFrameToVideo || mode == VideoModeFirstLastFrame
+		if advanced {
+			if role != model.VideoTaskAssetRoleFirstFrame && !(mode == VideoModeFirstLastFrame && role == model.VideoTaskAssetRoleLastFrame) {
+				return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "frame controls cannot be mixed with ordinary references")
+			}
+		} else if role != model.VideoTaskAssetRoleReferenceImage && role != model.VideoTaskAssetRoleReferenceVideo && role != model.VideoTaskAssetRoleReferenceAudio {
+			return nil, videoStudioValidationError("video_request_contract_invalid", 400, "unsupported reference role")
+		}
+		if seenAssets[input.AssetID] && !advanced {
+			return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "an asset cannot be repeated")
+		}
+		seenAssets[input.AssetID] = true
+		if positions[role] == nil {
+			positions[role] = map[int]bool{}
+		}
+		if positions[role][*input.Position] {
+			return nil, videoStudioValidationError("video_request_contract_invalid", 400, "reference positions must be unique")
+		}
+		positions[role][*input.Position] = true
+		counts[role]++
+		mediaPolicy, kind := policy.Image, "image"
+		if role == model.VideoTaskAssetRoleReferenceVideo {
+			mediaPolicy, kind = policy.Video, "video"
+		}
+		if role == model.VideoTaskAssetRoleReferenceAudio {
+			mediaPolicy, kind = policy.Audio, "audio"
+		}
+		if mediaPolicy == nil {
+			return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "this reference type is not supported")
+		}
+		if counts[role] > mediaPolicy.MaxCount {
+			return nil, videoReferenceLimitError(role, nil, "max_count", counts[role], mediaPolicy.MaxCount)
+		}
+		asset, exists := assets[input.AssetID]
+		if !exists || asset.State != model.VideoAssetStateReady || asset.Kind != model.VideoAssetKindReference || asset.DeletedAt != 0 {
+			return nil, videoStudioValidationError("video_reference_unavailable", 409, "a reference asset is unavailable")
+		}
+		if !strings.HasPrefix(asset.MIMEType, kind+"/") || !videoReferenceMIMEAllowed(asset.MIMEType, mediaPolicy.AllowedMIMETypes) {
+			return nil, videoReferenceLimitError(role, &input, "allowed_mime_types", asset.MIMEType, mediaPolicy.AllowedMIMETypes)
+		}
+		if asset.SizeBytes <= 0 || asset.SizeBytes > mediaPolicy.MaxSizeBytes {
+			return nil, videoReferenceLimitError(role, &input, "max_size_bytes", asset.SizeBytes, mediaPolicy.MaxSizeBytes)
+		}
+		inspection, err := DecodeVideoMediaInspection(asset)
+		if err != nil || inspection.InspectionVersion != VideoMediaInspectionVersion {
+			return nil, videoStudioValidationError("video_reference_unavailable", 409, "reference media inspection is required")
+		}
+		if kind == "image" {
+			if asset.Width < mediaPolicy.MinWidth || asset.Width > mediaPolicy.MaxWidth {
+				return nil, videoReferenceLimitError(role, &input, "width", asset.Width, []int{mediaPolicy.MinWidth, mediaPolicy.MaxWidth})
+			}
+			if asset.Height < mediaPolicy.MinHeight || asset.Height > mediaPolicy.MaxHeight {
+				return nil, videoReferenceLimitError(role, &input, "height", asset.Height, []int{mediaPolicy.MinHeight, mediaPolicy.MaxHeight})
+			}
+			ratio := float64(asset.Width) / float64(asset.Height)
+			if ratio <= mediaPolicy.MinAspectRatioExclusive || ratio >= mediaPolicy.MaxAspectRatioExclusive {
+				return nil, videoReferenceLimitError(role, &input, "aspect_ratio_exclusive", ratio, []float64{mediaPolicy.MinAspectRatioExclusive, mediaPolicy.MaxAspectRatioExclusive})
+			}
+		} else {
+			if !isFinite(asset.DurationSeconds) || asset.DurationSeconds <= 0 || asset.DurationSeconds < mediaPolicy.MinDurationSeconds || asset.DurationSeconds > mediaPolicy.MaxDurationSeconds {
+				return nil, videoReferenceLimitError(role, &input, "duration_seconds", asset.DurationSeconds, []float64{mediaPolicy.MinDurationSeconds, mediaPolicy.MaxDurationSeconds})
+			}
+			durations[role] = durations[role].Add(decimal.NewFromFloat(asset.DurationSeconds))
+			if durations[role].GreaterThan(decimal.NewFromFloat(mediaPolicy.MaxTotalDurationSeconds)) {
+				totalDuration, _ := durations[role].Float64()
+				return nil, videoReferenceLimitError(role, &input, "max_total_duration_seconds", totalDuration, mediaPolicy.MaxTotalDurationSeconds)
+			}
+			if kind == "video" {
+				if inspection.FrameRateNum <= 0 || inspection.FrameRateDen <= 0 {
+					return nil, videoStudioValidationError("video_reference_unavailable", 409, "video frame rate inspection is required")
+				}
+				fps := float64(inspection.FrameRateNum) / float64(inspection.FrameRateDen)
+				if fps < mediaPolicy.MinFrameRate || fps > mediaPolicy.MaxFrameRate {
+					return nil, videoReferenceLimitError(role, &input, "frame_rate", fps, []float64{mediaPolicy.MinFrameRate, mediaPolicy.MaxFrameRate})
+				}
+			}
+		}
+		references = append(references, NormalizedVideoReferenceAsset{Role: role, Position: *input.Position, RequestKey: role, Asset: asset})
+	}
+	for role, rolePositions := range positions {
+		for position := range rolePositions {
+			if position >= counts[role] {
+				return nil, videoStudioValidationError("video_request_contract_invalid", 400, "reference positions must be contiguous from zero")
+			}
+		}
+	}
+	switch mode {
+	case VideoModeReferenceToVideo:
+		if counts[model.VideoTaskAssetRoleReferenceImage]+counts[model.VideoTaskAssetRoleReferenceVideo] == 0 || (policy.RequiresVideo && counts[model.VideoTaskAssetRoleReferenceVideo] == 0) {
+			return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "the model requires a visual or video reference")
+		}
+		if counts[model.VideoTaskAssetRoleReferenceAudio] > 0 && policy.AudioRequiresGenerateAudio {
+			if generateAudio, ok := parameters["generate_audio"].(bool); !ok || !generateAudio {
+				return nil, videoStudioValidationError("video_audio_output_required", 400, "audio references require generated audio")
+			}
+		}
+	case VideoModeFirstFrameToVideo:
+		if counts[model.VideoTaskAssetRoleFirstFrame] != 1 {
+			return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "one first frame is required")
+		}
+	case VideoModeFirstLastFrame:
+		if counts[model.VideoTaskAssetRoleFirstFrame] != 1 || counts[model.VideoTaskAssetRoleLastFrame] != 1 {
+			return nil, videoStudioValidationError("video_reference_combination_invalid", 400, "one first frame and one last frame are required")
+		}
+	}
+	sort.SliceStable(references, func(i, j int) bool {
+		if references[i].Role != references[j].Role {
+			return referenceRoleOrder(references[i].Role) < referenceRoleOrder(references[j].Role)
+		}
+		return references[i].Position < references[j].Position
+	})
+	return references, nil
+}
+
+func videoReferenceLimitError(role string, input *VideoStudioReferenceAssetInput, rule string, actual, limit any) error {
+	issue := VideoStudioValidationIssue{Field: "reference_assets", Rule: rule, Role: role, Actual: actual, Limit: limit}
+	if input != nil {
+		issue.AssetID, issue.Position = input.AssetID, input.Position
+	}
+	return &VideoStudioValidationError{Code: "video_reference_limit_exceeded", StatusCode: 400, Message: "a reference exceeds the model limits", Issues: []VideoStudioValidationIssue{issue}}
+}
+
+func videoReferenceMIMEAllowed(mimeType string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, candidate := range allowed {
+		if strings.EqualFold(strings.TrimSpace(candidate), mimeType) {
+			return true
+		}
+	}
+	return false
+}
+
+func referenceRoleOrder(role string) int {
+	switch role {
+	case model.VideoTaskAssetRoleReferenceImage, model.VideoTaskAssetRoleFirstFrame:
+		return 0
+	case model.VideoTaskAssetRoleReferenceVideo, model.VideoTaskAssetRoleLastFrame:
+		return 1
+	case model.VideoTaskAssetRoleReferenceAudio:
+		return 2
+	}
+	return 9
 }
 
 func buildVideoTaskPayload(
@@ -370,32 +520,13 @@ func buildVideoTaskPayload(
 		payload[requestKey] = value
 		metadata[requestKey] = value
 	}
+	referenceViews := make([]map[string]any, 0, len(references))
 	for _, reference := range references {
-		payload[reference.RequestKey] = reference.SignedURL
-		metadata[reference.RequestKey] = reference.SignedURL
+		referenceViews = append(referenceViews, map[string]any{"role": reference.Role, "position": reference.Position, "url": reference.SignedURL})
 	}
-	images := make([]string, 0, len(references))
-	for _, reference := range references {
-		if reference.Role != model.VideoTaskAssetRoleReferenceVideo {
-			images = append(images, reference.SignedURL)
-		}
-	}
-	if len(images) > 0 {
-		payload["images"] = images
-		if len(images) == 1 {
-			payload["image"] = images[0]
-		}
+	if len(referenceViews) > 0 {
+		metadata["reference_assets"] = referenceViews
 	}
 	payload["metadata"] = metadata
 	return common.Marshal(payload)
-}
-
-func sampleReferenceInputs(snapshots []VideoSampleReferenceSnapshot) []VideoStudioReferenceAssetInput {
-	result := make([]VideoStudioReferenceAssetInput, 0, len(snapshots))
-	for _, snapshot := range snapshots {
-		result = append(result, VideoStudioReferenceAssetInput{
-			AssetID: snapshot.AssetID, Role: snapshot.Role, requestKey: snapshot.RequestKey,
-		})
-	}
-	return result
 }

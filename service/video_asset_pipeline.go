@@ -433,13 +433,18 @@ func (pipeline *VideoAssetPipeline) HandleInspect(ctx context.Context, event mod
 	if asset.Kind != model.VideoAssetKindReference && !strings.HasPrefix(metadata.MIMEType, "video/") {
 		return pipeline.assetProcessingError(ctx, asset.ID, ErrVideoMediaInvalid)
 	}
+	inspection, err := common.Marshal(metadata.Inspection())
+	if err != nil {
+		return err
+	}
 	now := pipeline.now().Unix()
 	updates := map[string]any{
 		"mime_type": metadata.MIMEType, "width": metadata.Width, "height": metadata.Height,
 		"duration_seconds": metadata.DurationSeconds, "codec": metadata.Codec,
 		"failure_reason": "", "updated_at": now,
 	}
-	if strings.HasPrefix(metadata.MIMEType, "image/") {
+	updates["media_metadata"] = string(inspection)
+	if strings.HasPrefix(metadata.MIMEType, "image/") || strings.HasPrefix(metadata.MIMEType, "audio/") {
 		updates["state"] = model.VideoAssetStateReady
 		return pipeline.db.WithContext(ctx).Model(&model.KKAIVideoAsset{}).
 			Where("id = ? AND state NOT IN ?", asset.ID,
@@ -470,6 +475,8 @@ func videoReferenceMediaCategoryMatches(reservedMIME string, detectedMIME string
 		return strings.HasPrefix(detectedMIME, "image/")
 	case isSupportedVideoMIME(reservedMIME):
 		return strings.HasPrefix(detectedMIME, "video/")
+	case isSupportedAudioMIME(reservedMIME):
+		return isSupportedAudioMIME(detectedMIME)
 	default:
 		return false
 	}
@@ -698,6 +705,9 @@ func (pipeline *VideoAssetPipeline) copyObjectToTemporaryFile(ctx context.Contex
 		case isSupportedReferenceMIME(mediaType):
 			maxBytes = video_studio_setting.Get().MaxReferenceBytes
 		case isSupportedVideoMIME(mediaType):
+			maxBytes = video_studio_setting.Get().UploadLimits().ReferenceVideoMaxBytes
+		case isSupportedAudioMIME(mediaType):
+			maxBytes = video_studio_setting.Get().UploadLimits().AudioMaxBytes
 		default:
 			return "", func() {}, ErrVideoArchiveMIMERejected
 		}

@@ -165,8 +165,8 @@ func TestCreateVideoGenerationAllowsSameAssetForFirstAndLastFrame(t *testing.T) 
 		UserID: 7, ProfileID: 1, SpecificationVersion: 1, Model: "model", Mode: VideoModeFirstLastFrame,
 		Prompt: "prompt", Parameters: map[string]any{},
 		ReferenceAssets: []NormalizedVideoReferenceAsset{
-			{Role: model.VideoTaskAssetRoleFirstFrame, Asset: asset},
-			{Role: model.VideoTaskAssetRoleLastFrame, Asset: asset},
+			{Role: model.VideoTaskAssetRoleFirstFrame, Position: 0, Asset: asset},
+			{Role: model.VideoTaskAssetRoleLastFrame, Position: 0, Asset: asset},
 		},
 	}
 
@@ -176,14 +176,14 @@ func TestCreateVideoGenerationAllowsSameAssetForFirstAndLastFrame(t *testing.T) 
 	}))
 
 	var links []model.KKAIVideoTaskAsset
-	require.NoError(t, db.Where("task_id = ?", task.ID).Order("position ASC").Find(&links).Error)
+	require.NoError(t, db.Where("task_id = ?", task.ID).Order("role ASC").Find(&links).Error)
 	require.Len(t, links, 2)
 	require.Equal(t, asset.ID, links[0].AssetID)
 	require.Equal(t, model.VideoTaskAssetRoleFirstFrame, links[0].Role)
 	require.Equal(t, 0, links[0].Position)
 	require.Equal(t, asset.ID, links[1].AssetID)
 	require.Equal(t, model.VideoTaskAssetRoleLastFrame, links[1].Role)
-	require.Equal(t, 1, links[1].Position)
+	require.Equal(t, 0, links[1].Position)
 }
 
 func TestCreateVideoGenerationMarksTaskResultAsAssetHostedInTransaction(t *testing.T) {

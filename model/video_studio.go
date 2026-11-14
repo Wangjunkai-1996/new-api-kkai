@@ -19,6 +19,7 @@ const (
 	VideoUploadModeSingle            = "single"
 	VideoUploadModeMultipart         = "multipart"
 	VideoUploadPurposeReferenceVideo = "reference_video"
+	VideoUploadPurposeReferenceAudio = "reference_audio"
 
 	VideoSampleStatusDraft     = "draft"
 	VideoSampleStatusPublished = "published"
@@ -34,7 +35,9 @@ const (
 	VideoSampleCategoryOther        = "other"
 
 	VideoTaskAssetRoleReference      = "reference"
+	VideoTaskAssetRoleReferenceImage = "reference_image"
 	VideoTaskAssetRoleReferenceVideo = "reference_video"
+	VideoTaskAssetRoleReferenceAudio = "reference_audio"
 	VideoTaskAssetRoleFirstFrame     = "first_frame"
 	VideoTaskAssetRoleLastFrame      = "last_frame"
 	VideoTaskAssetRoleOutput         = "output"
@@ -113,6 +116,7 @@ type KKAIVideoAsset struct {
 	Height            int     `json:"height" gorm:"not null;default:0"`
 	DurationSeconds   float64 `json:"duration_seconds" gorm:"not null;default:0"`
 	Codec             string  `json:"codec" gorm:"type:varchar(64);not null;default:''"`
+	MediaMetadata     string  `json:"-" gorm:"type:text"`
 	SHA256            string  `json:"sha256" gorm:"type:char(64);not null;default:'';index"`
 	FailureReason     string  `json:"failure_reason,omitempty" gorm:"type:varchar(1024);not null;default:''"`
 	UploadMode        string  `json:"upload_mode" gorm:"type:varchar(16);not null;default:''"`

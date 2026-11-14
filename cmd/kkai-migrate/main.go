@@ -53,6 +53,8 @@ func main() {
 		membershipBillingRecoveryControllerProof string
 		rc49Expand                               string
 		rc49ControllerProof                      string
+		videoMediaMetadataExpand                 string
+		videoMediaMetadataControllerProof        string
 	)
 	flag.StringVar(&dsn, "dsn", firstNonEmpty(os.Getenv("KKAI_MIGRATION_DSN"), os.Getenv("SQL_DSN")), "database DSN")
 	flag.BoolVar(&dsnFromStdin, "dsn-stdin", false, "read one database DSN from stdin")
@@ -85,7 +87,17 @@ func main() {
 	flag.StringVar(&membershipBillingRecoveryControllerProof, "membership-billing-recovery-controller-proof", "", "fixed root billing recovery controller proof mount for billing recovery apply")
 	flag.StringVar(&rc49Expand, "rc49-expand", "", "canonical21-preserving rc49 expansion: plan/status, or root-proof apply/repair-index")
 	flag.StringVar(&rc49ControllerProof, "rc49-controller-proof", "", "fixed root rc49 controller proof mount for apply or repair-index")
+	flag.StringVar(&videoMediaMetadataExpand, "video-media-metadata-expand", "", "canonical21-preserving media metadata expansion: plan/status/check, or root-proof apply")
+	flag.StringVar(&videoMediaMetadataControllerProof, "video-media-metadata-controller-proof", "", "fixed root media metadata controller proof mount for apply")
 	flag.Parse()
+	if videoMediaMetadataControllerProof != "" && videoMediaMetadataExpand != "apply" {
+		log.Fatal("--video-media-metadata-controller-proof is only valid for --video-media-metadata-expand apply")
+	}
+	if videoMediaMetadataExpand != "" {
+		if err := validateVideoMediaMetadataCommand(videoMediaMetadataExpand, videoMediaMetadataControllerProof, jsonOutput, tenantRuntime || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || shopMigration != "" || shopControllerProof != "" || membershipPaymentMigration != "" || membershipPaymentControllerProof != "" || membershipBillingRecoveryMigration != "" || membershipBillingRecoveryControllerProof != "" || tenantControllerProof != "" || rc49Expand != "" || rc49ControllerProof != "" || flag.NArg() != 0); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if rc49ControllerProof != "" && rc49Expand != "apply" && rc49Expand != "repair-index" {
 		log.Fatal("--rc49-controller-proof is only valid for --rc49-expand apply or repair-index")
 	}
@@ -188,7 +200,7 @@ func main() {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
 			log.Fatal("--observe requires --current --json and cannot be combined with migration operations")
 		}
-	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" && invoiceMigration == "" && walletPaymentMigration == "" && shopMigration == "" && membershipPaymentMigration == "" && membershipBillingRecoveryMigration == "" && rc49Expand == "" || dialect != "" {
+	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" && invoiceMigration == "" && walletPaymentMigration == "" && shopMigration == "" && membershipPaymentMigration == "" && membershipBillingRecoveryMigration == "" && rc49Expand == "" && videoMediaMetadataExpand == "" || dialect != "" {
 		log.Fatal("--current and --json require --observe or --describe-contract")
 	}
 
@@ -213,6 +225,12 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if videoMediaMetadataExpand != "" {
+		if err := runVideoMediaMetadataExpansion(ctx, db, videoMediaMetadataExpand, videoMediaMetadataControllerProof, os.Stdout); err != nil {
+			log.Fatalf("KKAI video media metadata expansion failed: %v", err)
+		}
+		return
+	}
 	if rc49Expand != "" {
 		if err := runRC49Online(ctx, db, rc49Expand, rc49ControllerProof, os.Stdout); err != nil {
 			log.Fatalf("KKAI rc49 expansion operation failed: %v", err)

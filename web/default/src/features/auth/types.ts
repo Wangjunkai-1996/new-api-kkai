@@ -90,6 +90,8 @@ export interface ApiResponse<T = unknown> {
 
 export interface VideoStudioUploadLimits {
   reference_max_bytes: number
+  reference_video_max_bytes?: number
+  audio_max_bytes?: number
   sample_max_bytes: number
   archive_max_bytes: number
 }

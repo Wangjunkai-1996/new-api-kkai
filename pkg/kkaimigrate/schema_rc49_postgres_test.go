@@ -17,7 +17,7 @@ func TestRC49RuntimeContractRequiresExpandedPostgres(t *testing.T) {
 	assert.Equal(t, MembershipBillingRecoverySchemaVersion, contract.RuntimeMaxVersion)
 	assert.Len(t, contract.CompatiblePrefixes, 1)
 	assert.Contains(t, contract.CompatiblePrefixes, "21")
-	assert.Equal(t, map[string]string{RC49OnlineExpansion: RC49OnlineExpansionDigest()}, contract.RequiredExpansions)
+	assert.Equal(t, map[string]string{RC49OnlineExpansion: RC49OnlineExpansionDigest(), VideoMediaMetadataExpansion: VideoMediaMetadataExpansionDigest()}, contract.RequiredExpansions)
 	for _, dialect := range []string{DialectSQLite, DialectMySQL} {
 		_, err := ContractForDialect(dialect)
 		require.Error(t, err, "these builds do not provide rc49 support for other dialects")

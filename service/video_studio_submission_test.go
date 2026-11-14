@@ -82,12 +82,9 @@ func createEnabledVideoSubmissionProfile(
 func createVideoSubmissionFixture(t *testing.T, db *gorm.DB) (model.KKAIVideoModelProfile, model.KKAIVideoSample, []model.KKAIVideoAsset) {
 	t.Helper()
 	specification := VideoModelSpec{
-		Version: 1,
-		Modes:   []string{VideoModeFirstLastFrame},
-		ReferenceInputs: []VideoReferenceInputSpec{
-			{Role: model.VideoTaskAssetRoleFirstFrame, RequestKey: "first_frame", Required: true},
-			{Role: model.VideoTaskAssetRoleLastFrame, RequestKey: "last_frame", Required: true},
-		},
+		Version:         1,
+		Modes:           []string{VideoModeFirstLastFrame},
+		ReferencePolicy: videoTestReferencePolicy(),
 	}
 	specificationJSON, err := common.Marshal(specification)
 	require.NoError(t, err)
@@ -106,6 +103,7 @@ func createVideoSubmissionFixture(t *testing.T, db *gorm.DB) (model.KKAIVideoMod
 	for index := range assets {
 		assets[index].CreatedAt = time.Now().Unix()
 		assets[index].UpdatedAt = assets[index].CreatedAt
+		inspectVideoTestAsset(&assets[index])
 		require.NoError(t, db.Create(&assets[index]).Error)
 	}
 	referenceIDs, err := common.Marshal([]int64{assets[0].ID, assets[1].ID})
@@ -120,25 +118,18 @@ func createVideoSubmissionFixture(t *testing.T, db *gorm.DB) (model.KKAIVideoMod
 	return profile, sample, assets
 }
 
-func TestNormalizeVideoStudioSubmissionDerivesModelFromSample(t *testing.T) {
+func TestNormalizeVideoStudioSubmissionRejectsImplicitSampleInputs(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
-	profile, sample, _ := createVideoSubmissionFixture(t, db)
-	require.NoError(t, db.Model(&sample).UpdateColumn("category", nil).Error)
-
-	normalized, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, VideoStudioSubmissionRequest{
-		SampleID: &sample.ID,
-	})
-	require.NoError(t, err)
-	require.Equal(t, profile.Model, normalized.Model)
-	require.Equal(t, sample.Prompt, normalized.Prompt)
-	require.Equal(t, sample.Mode, normalized.Mode)
+	_, sample, _ := createVideoSubmissionFixture(t, db)
+	_, err := NormalizeVideoStudioSubmission(t.Context(), db, videoSubmissionTestStore{}, 42, VideoStudioSubmissionRequest{SpecificationVersion: 1, SampleID: &sample.ID})
+	require.ErrorIs(t, err, ErrInvalidVideoStudioSubmission)
 }
 
 func TestNormalizeVideoStudioSubmissionRejectsMissingPersistedProfile(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
 	_, err := NormalizeVideoStudioSubmission(
 		context.Background(), db, videoSubmissionTestStore{}, 42,
-		VideoStudioSubmissionRequest{
+		VideoStudioSubmissionRequest{SpecificationVersion: 1,
 			TokenID: 1, Model: "runtime-text-model", Mode: VideoModeTextToVideo, Prompt: "A calm orbit",
 		},
 	)
@@ -154,7 +145,7 @@ func TestNormalizeVideoStudioSubmissionRejectsDisabledProfileInsteadOfRuntimeFal
 
 	_, err := NormalizeVideoStudioSubmission(
 		context.Background(), db, videoSubmissionTestStore{}, 42,
-		VideoStudioSubmissionRequest{
+		VideoStudioSubmissionRequest{SpecificationVersion: 1,
 			TokenID: 1, Model: profile.Model, Mode: VideoModeTextToVideo, Prompt: "Must stay disabled",
 		},
 	)
@@ -164,41 +155,40 @@ func TestNormalizeVideoStudioSubmissionRejectsDisabledProfileInsteadOfRuntimeFal
 func TestNormalizeVideoStudioSubmissionPersistedI2VRequiresImage(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
 	profile := createEnabledVideoSubmissionProfile(t, db, "wan2.7-i2v", VideoModelSpec{
-		Version: 1, Modes: []string{VideoModeImageToVideo}, ReferenceInputs: []VideoReferenceInputSpec{{
-			Role: model.VideoTaskAssetRoleReference, RequestKey: "image", Required: true,
-		}},
+		Version: 1, Modes: []string{VideoModeReferenceToVideo}, ReferencePolicy: videoTestReferencePolicy(),
 	}, map[string]any{})
 	asset := model.KKAIVideoAsset{
 		OwnerUserID: 42, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference,
 		State: model.VideoAssetStateReady, ObjectKey: "runtime-i2v.png", MIMEType: "image/png",
 		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
 	}
+	inspectVideoTestAsset(&asset)
 	require.NoError(t, db.Create(&asset).Error)
-	request := VideoStudioSubmissionRequest{
-		TokenID: 1, Model: "wan2.7-i2v", Mode: VideoModeImageToVideo, Prompt: "Animate the image",
+	request := VideoStudioSubmissionRequest{SpecificationVersion: 1,
+		TokenID: 1, Model: "wan2.7-i2v", Mode: VideoModeReferenceToVideo, Prompt: "Animate the image",
 	}
 	_, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
-	require.ErrorIs(t, err, ErrInvalidVideoStudioSubmission)
+	var validation *VideoStudioValidationError
+	require.ErrorAs(t, err, &validation)
+	require.Equal(t, "video_reference_combination_invalid", validation.Code)
 
 	request.ReferenceAssets = []VideoStudioReferenceAssetInput{{
-		AssetID: asset.ID, Role: model.VideoTaskAssetRoleReference,
+		AssetID: asset.ID, Role: model.VideoTaskAssetRoleReferenceImage, Position: intPointer(0),
 	}}
 	normalized, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
 	require.NoError(t, err)
 	require.Equal(t, profile.ID, normalized.ProfileID)
-	require.Equal(t, model.VideoTaskAssetRoleReference, normalized.ReferenceAssets[0].Role)
+	require.Equal(t, model.VideoTaskAssetRoleReferenceImage, normalized.ReferenceAssets[0].Role)
 }
 
 func TestNormalizeVideoStudioSubmissionPersistedVideoReferenceUsesSecondsContract(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
 	minimum, maximum, step := float64(4), float64(15), float64(1)
 	profile := createEnabledVideoSubmissionProfile(t, db, "sd_2.0_special_1080p_with_video_ref", VideoModelSpec{
-		Version: 2, Modes: []string{VideoModeImageToVideo}, Parameters: []VideoParameterSpec{{
+		Version: 2, Modes: []string{VideoModeReferenceToVideo}, Parameters: []VideoParameterSpec{{
 			Key: "duration", Label: "Duration", Control: VideoControlNumber, RequestKey: "seconds",
 			Required: true, Default: float64(5), Min: &minimum, Max: &maximum, Step: &step,
-		}}, ReferenceInputs: []VideoReferenceInputSpec{{
-			Role: model.VideoTaskAssetRoleReferenceVideo, RequestKey: "reference_video", Required: true,
-		}},
+		}}, ReferencePolicy: videoTestReferencePolicy(),
 	}, map[string]any{})
 	now := time.Now().Unix()
 	assets := []model.KKAIVideoAsset{
@@ -206,16 +196,19 @@ func TestNormalizeVideoStudioSubmissionPersistedVideoReferenceUsesSecondsContrac
 		{OwnerUserID: 42, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, ObjectKey: "reference.mp4", MIMEType: "video/mp4", CreatedAt: now, UpdatedAt: now},
 	}
 	for index := range assets {
+		inspectVideoTestAsset(&assets[index])
 		require.NoError(t, db.Create(&assets[index]).Error)
 	}
-	request := VideoStudioSubmissionRequest{
-		TokenID: 1, Model: "sd_2.0_special_1080p_with_video_ref", Mode: VideoModeImageToVideo,
+	request := VideoStudioSubmissionRequest{SpecificationVersion: 2,
+		TokenID: 1, Model: "sd_2.0_special_1080p_with_video_ref", Mode: VideoModeReferenceToVideo,
 		Prompt: "Continue the movement", ReferenceAssets: []VideoStudioReferenceAssetInput{{
-			AssetID: assets[0].ID, Role: model.VideoTaskAssetRoleReferenceVideo,
+			AssetID: assets[0].ID, Role: model.VideoTaskAssetRoleReferenceVideo, Position: intPointer(0),
 		}},
 	}
 	_, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
-	require.ErrorIs(t, err, ErrInvalidVideoStudioSubmission)
+	var validation *VideoStudioValidationError
+	require.ErrorAs(t, err, &validation)
+	require.Equal(t, "video_reference_limit_exceeded", validation.Code)
 
 	request.ReferenceAssets[0].AssetID = assets[1].ID
 	normalized, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
@@ -227,13 +220,13 @@ func TestNormalizeVideoStudioSubmissionPersistedVideoReferenceUsesSecondsContrac
 	var payload map[string]any
 	require.NoError(t, common.Unmarshal(normalized.TaskPayload, &payload))
 	require.Equal(t, float64(5), payload["seconds"])
-	require.Equal(t, "https://assets.invalid/reference.mp4", payload["reference_video"])
+	require.NotContains(t, payload, "reference_video")
 	require.NotContains(t, payload, "image")
 	require.NotContains(t, payload, "images")
 	metadata, ok := payload["metadata"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, float64(5), metadata["seconds"])
-	require.Equal(t, "https://assets.invalid/reference.mp4", metadata["reference_video"])
+	require.Equal(t, []any{map[string]any{"role": model.VideoTaskAssetRoleReferenceVideo, "position": float64(0), "url": "https://assets.invalid/reference.mp4"}}, metadata["reference_assets"])
 	legacyVersion := *normalized
 	legacyVersion.SpecificationVersion = 1
 	require.NoError(t, ApplyVideoStudioEffectiveGroup(&legacyVersion, normalized.Group))
@@ -319,7 +312,7 @@ func TestNormalizeVideoStudioSubmissionProjectsSeedance25AudioDefaultAndExplicit
 		t.Run(test.name, func(t *testing.T) {
 			normalized, err := NormalizeVideoStudioSubmission(
 				context.Background(), db, videoSubmissionTestStore{}, 42,
-				VideoStudioSubmissionRequest{
+				VideoStudioSubmissionRequest{SpecificationVersion: 2,
 					TokenID: 1, Model: profile.Model, Mode: VideoModeTextToVideo,
 					Prompt: "A cinematic sunrise", Parameters: test.parameters,
 				},
@@ -344,32 +337,31 @@ func TestNormalizeVideoStudioSubmissionFiltersModeScopedProfileDefaults(t *testi
 	strengthMin, strengthMax, strengthStep := float64(0), float64(1), float64(0.1)
 	profile := createEnabledVideoSubmissionProfile(t, db, "multi-mode-model", VideoModelSpec{
 		Version: 1,
-		Modes:   []string{VideoModeTextToVideo, VideoModeImageToVideo},
+		Modes:   []string{VideoModeTextToVideo, VideoModeReferenceToVideo},
 		Parameters: []VideoParameterSpec{
 			{Key: "duration", Label: "Duration", Control: VideoControlNumber, Min: &durationMin, Max: &durationMax, Step: &durationStep},
-			{Key: "strength", Label: "Strength", Control: VideoControlNumber, Modes: []string{VideoModeImageToVideo}, Min: &strengthMin, Max: &strengthMax, Step: &strengthStep},
+			{Key: "strength", Label: "Strength", Control: VideoControlNumber, Modes: []string{VideoModeReferenceToVideo}, Min: &strengthMin, Max: &strengthMax, Step: &strengthStep},
 		},
-		ReferenceInputs: []VideoReferenceInputSpec{{
-			Role: model.VideoTaskAssetRoleReference, RequestKey: "image", Required: true,
-		}},
+		ReferencePolicy: videoTestReferencePolicy(),
 	}, map[string]any{"duration": 6, "strength": 0.8})
 	asset := model.KKAIVideoAsset{
 		OwnerUserID: 42, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference,
 		State: model.VideoAssetStateReady, ObjectKey: "mode-default.png", MIMEType: "image/png",
 		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
 	}
+	inspectVideoTestAsset(&asset)
 	require.NoError(t, db.Create(&asset).Error)
 
-	textRequest := VideoStudioSubmissionRequest{
+	textRequest := VideoStudioSubmissionRequest{SpecificationVersion: 1,
 		TokenID: 1, Model: profile.Model, Mode: VideoModeTextToVideo, Prompt: "Text mode",
 	}
 	text, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, textRequest)
 	require.NoError(t, err)
 	require.Equal(t, map[string]any{"duration": float64(6)}, text.Parameters)
 
-	imageRequest := VideoStudioSubmissionRequest{
-		TokenID: 1, Model: profile.Model, Mode: VideoModeImageToVideo, Prompt: "Image mode",
-		ReferenceAssets: []VideoStudioReferenceAssetInput{{AssetID: asset.ID, Role: model.VideoTaskAssetRoleReference}},
+	imageRequest := VideoStudioSubmissionRequest{SpecificationVersion: 1,
+		TokenID: 1, Model: profile.Model, Mode: VideoModeReferenceToVideo, Prompt: "Image mode",
+		ReferenceAssets: []VideoStudioReferenceAssetInput{{AssetID: asset.ID, Role: model.VideoTaskAssetRoleReferenceImage, Position: intPointer(0)}},
 	}
 	image, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, imageRequest)
 	require.NoError(t, err)
@@ -382,59 +374,28 @@ func TestNormalizeVideoStudioSubmissionFiltersModeScopedProfileDefaults(t *testi
 	require.NoError(t, db.Model(&profile).Update("default_parameters", `{"unknown":true}`).Error)
 	textRequest.Parameters = nil
 	_, err = NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, textRequest)
-	require.ErrorIs(t, err, ErrInvalidVideoParameters)
+	var validation *VideoStudioValidationError
+	require.ErrorAs(t, err, &validation)
+	require.Equal(t, "video_model_capability_unavailable", validation.Code)
 }
 
-func TestNormalizeVideoStudioSubmissionUsesPersistedSampleReferenceMapping(t *testing.T) {
+func TestNormalizeVideoStudioSubmissionSampleDoesNotFillMissingReferences(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
-	profile, sample, assets := createVideoSubmissionFixture(t, db)
-	reversedSpecification := VideoModelSpec{
-		Version: 1,
-		Modes:   []string{VideoModeFirstLastFrame},
-		ReferenceInputs: []VideoReferenceInputSpec{
-			{Role: model.VideoTaskAssetRoleLastFrame, RequestKey: "last_source", Required: true},
-			{Role: model.VideoTaskAssetRoleFirstFrame, RequestKey: "first_source", Required: true},
-		},
-	}
-	specificationJSON, err := common.Marshal(reversedSpecification)
-	require.NoError(t, err)
-	require.NoError(t, db.Model(&model.KKAIVideoModelProfile{}).Where("id = ?", profile.ID).
-		Update("specification", string(specificationJSON)).Error)
-	referenceSnapshots, err := common.Marshal([]VideoSampleReferenceSnapshot{
-		{AssetID: assets[1].ID, Role: model.VideoTaskAssetRoleLastFrame, RequestKey: "last_source"},
-		{AssetID: assets[0].ID, Role: model.VideoTaskAssetRoleFirstFrame, RequestKey: "first_source"},
-	})
-	require.NoError(t, err)
-	require.NoError(t, db.Model(&model.KKAIVideoSample{}).Where("id = ?", sample.ID).
-		Update("reference_asset_ids", string(referenceSnapshots)).Error)
-
-	normalized, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, VideoStudioSubmissionRequest{
-		SampleID: &sample.ID,
-	})
-	require.NoError(t, err)
-	require.Equal(t, []string{model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame}, []string{
-		normalized.ReferenceAssets[0].Role,
-		normalized.ReferenceAssets[1].Role,
-	})
-	require.Equal(t, "https://assets.invalid/first.jpg", normalized.ReferenceAssets[0].SignedURL)
-	require.Equal(t, "first_source", normalized.ReferenceAssets[0].RequestKey)
-	require.Equal(t, "https://assets.invalid/last.jpg", normalized.ReferenceAssets[1].SignedURL)
-	require.Equal(t, "last_source", normalized.ReferenceAssets[1].RequestKey)
-
-	payload := map[string]any{}
-	require.NoError(t, common.Unmarshal(normalized.TaskPayload, &payload))
-	require.Equal(t, "https://assets.invalid/last.jpg", payload["last_source"])
-	require.Equal(t, "https://assets.invalid/first.jpg", payload["first_source"])
+	profile, sample, _ := createVideoSubmissionFixture(t, db)
+	_, err := NormalizeVideoStudioSubmission(t.Context(), db, videoSubmissionTestStore{}, 42, VideoStudioSubmissionRequest{SpecificationVersion: 1, Model: profile.Model, Mode: sample.Mode, Prompt: sample.Prompt, SampleID: &sample.ID})
+	var validation *VideoStudioValidationError
+	require.ErrorAs(t, err, &validation)
+	assert.Equal(t, "video_reference_combination_invalid", validation.Code)
 }
 
 func TestNormalizeVideoStudioSubmissionCanonicalizesReferenceOrder(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
 	profile, _, assets := createVideoSubmissionFixture(t, db)
-	base := VideoStudioSubmissionRequest{
+	base := VideoStudioSubmissionRequest{SpecificationVersion: 1,
 		Model: profile.Model, Mode: VideoModeFirstLastFrame, Prompt: "A controlled camera move",
 		ReferenceAssets: []VideoStudioReferenceAssetInput{
-			{AssetID: assets[0].ID, Role: model.VideoTaskAssetRoleFirstFrame},
-			{AssetID: assets[1].ID, Role: model.VideoTaskAssetRoleLastFrame},
+			{AssetID: assets[0].ID, Role: model.VideoTaskAssetRoleFirstFrame, Position: intPointer(0)},
+			{AssetID: assets[1].ID, Role: model.VideoTaskAssetRoleLastFrame, Position: intPointer(0)},
 		},
 	}
 	first, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, base)
@@ -458,22 +419,22 @@ func TestNormalizeVideoStudioSubmissionRejectsUnpublishedCatalogReference(t *tes
 	}
 	require.NoError(t, db.Create(&hidden).Error)
 
-	_, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, VideoStudioSubmissionRequest{
+	_, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, VideoStudioSubmissionRequest{SpecificationVersion: 1,
 		Model: profile.Model, Mode: VideoModeFirstLastFrame, Prompt: "A controlled camera move",
 		ReferenceAssets: []VideoStudioReferenceAssetInput{
-			{AssetID: hidden.ID, Role: model.VideoTaskAssetRoleFirstFrame},
-			{AssetID: assets[1].ID, Role: model.VideoTaskAssetRoleLastFrame},
+			{AssetID: hidden.ID, Role: model.VideoTaskAssetRoleFirstFrame, Position: intPointer(0)},
+			{AssetID: assets[1].ID, Role: model.VideoTaskAssetRoleLastFrame, Position: intPointer(0)},
 		},
 	})
-	require.ErrorIs(t, err, ErrInvalidVideoStudioSubmission)
+	require.ErrorIs(t, err, ErrVideoAssetAccessDenied)
 }
 
 func TestVideoStudioIdempotencyFingerprintBindsCreativeRequestOnly(t *testing.T) {
 	assetID := int64(91)
-	base := VideoStudioSubmissionRequest{
-		TokenID: 101, Model: " video-model-v1 ", Group: " default ", Mode: VideoModeImageToVideo,
+	base := VideoStudioSubmissionRequest{SpecificationVersion: 1,
+		TokenID: 101, Model: " video-model-v1 ", Group: " default ", Mode: VideoModeReferenceToVideo,
 		Prompt: " A controlled camera move ", Parameters: map[string]any{"duration": float64(5)},
-		ReferenceAssets: []VideoStudioReferenceAssetInput{{AssetID: assetID, Role: model.VideoTaskAssetRoleReference}},
+		ReferenceAssets: []VideoStudioReferenceAssetInput{{AssetID: assetID, Role: model.VideoTaskAssetRoleReferenceImage, Position: intPointer(0)}},
 		MaxQuota:        intPointer(1000), QuoteHash: strings.Repeat("a", 64), QuoteExpiresAt: 100,
 	}
 	first, err := VideoStudioIdempotencyFingerprint(base)
@@ -500,7 +461,7 @@ func TestVideoStudioIdempotencyFingerprintBindsCreativeRequestOnly(t *testing.T)
 	require.NotEqual(t, first, changedParametersHash)
 
 	changedAssets := base
-	changedAssets.ReferenceAssets = []VideoStudioReferenceAssetInput{{AssetID: assetID + 1, Role: model.VideoTaskAssetRoleReference}}
+	changedAssets.ReferenceAssets = []VideoStudioReferenceAssetInput{{AssetID: assetID + 1, Role: model.VideoTaskAssetRoleReferenceImage, Position: intPointer(0)}}
 	changedAssetsHash, err := VideoStudioIdempotencyFingerprint(changedAssets)
 	require.NoError(t, err)
 	require.NotEqual(t, first, changedAssetsHash)
@@ -603,55 +564,34 @@ func TestValidateVideoModelSpecRejectsRequestKeyCollisions(t *testing.T) {
 	}
 }
 
-func TestValidateVideoModelSpecAllowsSingleReferenceImageAlias(t *testing.T) {
-	specification := VideoModelSpec{
-		Version: 1, Modes: []string{VideoModeImageToVideo},
-		ReferenceInputs: []VideoReferenceInputSpec{{
-			Role: model.VideoTaskAssetRoleReference, RequestKey: "image", Required: true,
-		}},
-	}
-
-	require.NoError(t, ValidateVideoModelSpec(specification, map[string]any{}))
+func TestValidateVideoModelSpecRejectsLegacyReferenceImageAlias(t *testing.T) {
+	specification := VideoModelSpec{Version: 1, Modes: []string{"image_to_video"}, ReferenceInputs: []VideoReferenceInputSpec{{Role: model.VideoTaskAssetRoleReference, RequestKey: "image", Required: true}}}
+	require.ErrorIs(t, ValidateVideoModelSpec(specification, map[string]any{}), ErrInvalidVideoModelSpec)
 }
 
-func TestVideoStudioRequestHashBindsEffectiveGroupAndSpecificationMapping(t *testing.T) {
+func TestVideoStudioRequestHashBindsEffectiveGroupAndSpecificationVersion(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
 	profile, _, assets := createVideoSubmissionFixture(t, db)
-	request := VideoStudioSubmissionRequest{
-		Model: profile.Model, Mode: VideoModeFirstLastFrame, Prompt: "A controlled camera move",
-		ReferenceAssets: []VideoStudioReferenceAssetInput{
-			{AssetID: assets[0].ID, Role: model.VideoTaskAssetRoleFirstFrame},
-			{AssetID: assets[1].ID, Role: model.VideoTaskAssetRoleLastFrame},
-		},
-	}
-
-	first, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
+	request := VideoStudioSubmissionRequest{SpecificationVersion: 1, Model: profile.Model, Mode: VideoModeFirstLastFrame, Prompt: "camera move", ReferenceAssets: []VideoStudioReferenceAssetInput{{AssetID: assets[0].ID, Role: model.VideoTaskAssetRoleFirstFrame, Position: intPointer(0)}, {AssetID: assets[1].ID, Role: model.VideoTaskAssetRoleLastFrame, Position: intPointer(0)}}}
+	first, err := NormalizeVideoStudioSubmission(t.Context(), db, videoSubmissionTestStore{}, 42, request)
 	require.NoError(t, err)
 	require.NoError(t, ApplyVideoStudioEffectiveGroup(first, "default"))
-	firstHash := first.RequestHash
-
+	original := first.RequestHash
 	require.NoError(t, ApplyVideoStudioEffectiveGroup(first, "vip"))
-	require.NotEqual(t, firstHash, first.RequestHash)
-
-	updatedSpecification := VideoModelSpec{
-		Version: 2,
-		Modes:   []string{VideoModeFirstLastFrame},
-		ReferenceInputs: []VideoReferenceInputSpec{
-			{Role: model.VideoTaskAssetRoleFirstFrame, RequestKey: "start_image", Required: true},
-			{Role: model.VideoTaskAssetRoleLastFrame, RequestKey: "end_image", Required: true},
-		},
-	}
-	encoded, err := common.Marshal(updatedSpecification)
+	assert.NotEqual(t, original, first.RequestHash)
+	spec := VideoModelSpec{Version: 2, Modes: []string{VideoModeFirstLastFrame}, ReferencePolicy: videoTestReferencePolicy()}
+	encoded, err := common.Marshal(spec)
 	require.NoError(t, err)
-	require.NoError(t, db.Model(&model.KKAIVideoModelProfile{}).Where("id = ?", profile.ID).Updates(map[string]any{
-		"specification_version": 2,
-		"specification":         string(encoded),
-	}).Error)
-
-	second, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
+	require.NoError(t, db.Model(&profile).Updates(map[string]any{"specification_version": 2, "specification": string(encoded)}).Error)
+	_, err = NormalizeVideoStudioSubmission(t.Context(), db, videoSubmissionTestStore{}, 42, request)
+	var validation *VideoStudioValidationError
+	require.ErrorAs(t, err, &validation)
+	assert.Equal(t, "video_capabilities_stale", validation.Code)
+	request.SpecificationVersion = 2
+	second, err := NormalizeVideoStudioSubmission(t.Context(), db, videoSubmissionTestStore{}, 42, request)
 	require.NoError(t, err)
 	require.NoError(t, ApplyVideoStudioEffectiveGroup(second, "vip"))
-	require.NotEqual(t, first.RequestHash, second.RequestHash)
+	assert.NotEqual(t, first.RequestHash, second.RequestHash)
 }
 
 func TestValidateVideoModelSpecRejectsUnsafeBillingMultiplierBounds(t *testing.T) {
@@ -703,4 +643,82 @@ func floatPointer(value int) *float64 {
 
 func intPointer(value int) *int {
 	return &value
+}
+
+func TestVideoMultimodalReferenceOrderingAndAudioPolicy(t *testing.T) {
+	maxTotal := 3
+	policy := &VideoReferencePolicy{
+		MaxTotalCount: &maxTotal, RequiresVisual: true, AudioRequiresGenerateAudio: true,
+		Image: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"image/png"}, MaxCount: 1, MaxSizeBytes: 2_000_000, MinWidth: 301, MaxWidth: 5999, MinHeight: 301, MaxHeight: 5999, MinAspectRatioExclusive: .4, MaxAspectRatioExclusive: 2.5},
+		Audio: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"audio/mpeg"}, MaxCount: 1, MaxSizeBytes: 15_000_000, MinDurationSeconds: 2, MaxDurationSeconds: 15, MaxTotalDurationSeconds: 15},
+	}
+	spec := VideoModelSpec{Version: 2, Modes: []string{VideoModeReferenceToVideo}, ReferencePolicy: policy}
+	imageID, audioID := int64(1), int64(2)
+	assets := map[int64]model.KKAIVideoAsset{
+		imageID: {ID: imageID, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, MIMEType: "image/png", SizeBytes: 100, Width: 1200, Height: 800, MediaMetadata: `{"inspection_version":1,"container":"png"}`},
+		audioID: {ID: audioID, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, MIMEType: "audio/mpeg", SizeBytes: 100, DurationSeconds: 4, MediaMetadata: `{"inspection_version":1,"container":"mp3"}`},
+	}
+	posImage, posAudio := 0, 0
+	refs, err := validateVideoReferenceAssets(spec, VideoModeReferenceToVideo, map[string]any{"generate_audio": true}, []VideoStudioReferenceAssetInput{{AssetID: audioID, Role: model.VideoTaskAssetRoleReferenceAudio, Position: &posAudio}, {AssetID: imageID, Role: model.VideoTaskAssetRoleReferenceImage, Position: &posImage}}, assets)
+	require.NoError(t, err)
+	require.Equal(t, model.VideoTaskAssetRoleReferenceImage, refs[0].Role)
+	require.Equal(t, model.VideoTaskAssetRoleReferenceAudio, refs[1].Role)
+	_, err = validateVideoReferenceAssets(spec, VideoModeReferenceToVideo, map[string]any{"generate_audio": false}, []VideoStudioReferenceAssetInput{{AssetID: audioID, Role: model.VideoTaskAssetRoleReferenceAudio, Position: &posAudio}, {AssetID: imageID, Role: model.VideoTaskAssetRoleReferenceImage, Position: &posImage}}, assets)
+	var validationErr *VideoStudioValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.Equal(t, "video_audio_output_required", validationErr.Code)
+}
+
+func TestVideoMultimodalRejectsLegacyReferenceContract(t *testing.T) {
+	spec := VideoModelSpec{Version: 2, Modes: []string{VideoModeReferenceToVideo}, ReferenceInputs: []VideoReferenceInputSpec{{Role: model.VideoTaskAssetRoleReference, RequestKey: "image", Required: true}}}
+	require.Error(t, ValidateVideoModelSpec(spec, nil))
+	position := 0
+	_, err := validateVideoReferenceAssets(VideoModelSpec{Version: 2, Modes: []string{VideoModeReferenceToVideo}}, VideoModeReferenceToVideo, nil, []VideoStudioReferenceAssetInput{{AssetID: 1, Role: model.VideoTaskAssetRoleReference, Position: &position}}, nil)
+	var validationErr *VideoStudioValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.Equal(t, "video_model_capability_unavailable", validationErr.Code)
+}
+
+func TestVideoMultimodalDecimalDurationLimit(t *testing.T) {
+	maxTotal := 3
+	spec := VideoModelSpec{Version: 2, Modes: []string{VideoModeReferenceToVideo}, ReferencePolicy: &VideoReferencePolicy{MaxTotalCount: &maxTotal, RequiresVisual: true,
+		Image: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"image/png"}, MaxCount: 1, MaxSizeBytes: 2_000_000, MinWidth: 1, MaxWidth: 8192, MinHeight: 1, MaxHeight: 8192, MinAspectRatioExclusive: .1, MaxAspectRatioExclusive: 10},
+		Audio: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"audio/mpeg"}, MaxCount: 2, MaxSizeBytes: 15_000_000, MinDurationSeconds: 2, MaxDurationSeconds: 15, MaxTotalDurationSeconds: 15}}}
+	p0, p1, imagePos := 0, 1, 0
+	assets := map[int64]model.KKAIVideoAsset{1: {ID: 1, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, MIMEType: "audio/mpeg", SizeBytes: 10, DurationSeconds: 7.5, MediaMetadata: `{"inspection_version":1,"container":"mp3"}`}, 2: {ID: 2, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, MIMEType: "audio/mpeg", SizeBytes: 10, DurationSeconds: 7.5, MediaMetadata: `{"inspection_version":1,"container":"mp3"}`}, 3: {ID: 3, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, MIMEType: "image/png", SizeBytes: 10, Width: 100, Height: 100, MediaMetadata: `{"inspection_version":1,"container":"png"}`}}
+	_, err := validateVideoReferenceAssets(spec, VideoModeReferenceToVideo, nil, []VideoStudioReferenceAssetInput{{AssetID: 1, Role: model.VideoTaskAssetRoleReferenceAudio, Position: &p0}, {AssetID: 2, Role: model.VideoTaskAssetRoleReferenceAudio, Position: &p1}, {AssetID: 3, Role: model.VideoTaskAssetRoleReferenceImage, Position: &imagePos}}, assets)
+	require.NoError(t, err)
+	longerAudio := assets[2]
+	longerAudio.DurationSeconds = 7.51
+	assets[2] = longerAudio
+	_, err = validateVideoReferenceAssets(spec, VideoModeReferenceToVideo, nil, []VideoStudioReferenceAssetInput{{AssetID: 1, Role: model.VideoTaskAssetRoleReferenceAudio, Position: &p0}, {AssetID: 2, Role: model.VideoTaskAssetRoleReferenceAudio, Position: &p1}, {AssetID: 3, Role: model.VideoTaskAssetRoleReferenceImage, Position: &imagePos}}, assets)
+	var validationErr *VideoStudioValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.Equal(t, "video_reference_limit_exceeded", validationErr.Code)
+}
+
+func TestVideoMultimodalRejectsOversizedReferenceListBeforeAssetLookup(t *testing.T) {
+	spec := VideoModelSpec{Version: 2, Modes: []string{VideoModeReferenceToVideo}, ReferencePolicy: &VideoReferencePolicy{MaxTotalCount: intPointer(1)}}
+	_, err := normalizeVideoReferences(context.Background(), nil, nil, 7, spec, VideoModeReferenceToVideo, nil,
+		[]VideoStudioReferenceAssetInput{{AssetID: 1}, {AssetID: 2}})
+	var validation *VideoStudioValidationError
+	require.ErrorAs(t, err, &validation)
+	require.Equal(t, "video_reference_limit_exceeded", validation.Code)
+	require.Equal(t, "max_total_count", validation.Issues[0].Rule)
+}
+
+func videoTestReferencePolicy() *VideoReferencePolicy {
+	return &VideoReferencePolicy{MaxTotalCount: intPointer(6), RequiresVisual: true,
+		Image: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"image/png", "image/jpeg"}, MaxCount: 3, MaxSizeBytes: 20 << 20, MinWidth: 301, MaxWidth: 5999, MinHeight: 301, MaxHeight: 5999, MinAspectRatioExclusive: .4, MaxAspectRatioExclusive: 2.5},
+		Video: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"video/mp4"}, MaxCount: 3, MaxSizeBytes: 49999999, MinDurationSeconds: 2, MaxDurationSeconds: 15, MaxTotalDurationSeconds: 15, MinFrameRate: 24, MaxFrameRate: 60},
+		Audio: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"audio/mpeg"}, MaxCount: 3, MaxSizeBytes: 14999999, MinDurationSeconds: 2, MaxDurationSeconds: 15, MaxTotalDurationSeconds: 15}}
+}
+func inspectVideoTestAsset(asset *model.KKAIVideoAsset) {
+	asset.Width, asset.Height, asset.SizeBytes = 1280, 720, 100
+	if strings.HasPrefix(asset.MIMEType, "video/") {
+		asset.DurationSeconds = 5
+		asset.MediaMetadata = `{"inspection_version":1,"container":"mp4","frame_rate_num":30,"frame_rate_den":1}`
+		return
+	}
+	asset.MediaMetadata = `{"inspection_version":1,"container":"png"}`
 }

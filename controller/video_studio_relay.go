@@ -28,7 +28,7 @@ const videoStudioIdempotencyReservationContextKey = "video_studio_idempotency_re
 
 func PrepareVideoStudioTaskRequest(c *gin.Context) {
 	var request service.VideoStudioSubmissionRequest
-	if err := common.UnmarshalBodyReusable(c, &request); err != nil {
+	if err := unmarshalVideoStudioBodyReusable(c, &request); err != nil {
 		respondVideoStudioError(c, service.ErrInvalidVideoStudioSubmission)
 		c.Abort()
 		return
@@ -104,6 +104,33 @@ func PrepareVideoStudioTaskRequest(c *gin.Context) {
 	}
 	c.Set(videoStudioNormalizedSubmissionContextKey, normalized)
 	c.Next()
+}
+
+// unmarshalVideoStudioBodyReusable keeps the Studio request contract closed at
+// the HTTP boundary. The generic body helper intentionally permits unknown
+// fields for provider payloads, but Studio requests must reject typos and the
+// removed legacy reference fields before quote or submit processing.
+func unmarshalVideoStudioBodyReusable(c *gin.Context, target any) error {
+	contentType := c.Request.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "application/json") {
+		return common.UnmarshalBodyReusable(c, target)
+	}
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return err
+	}
+	body, err := storage.Bytes()
+	if err != nil {
+		return err
+	}
+	if err := common.UnmarshalStrict(body, target); err != nil {
+		return err
+	}
+	if _, err := storage.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	c.Request.Body = io.NopCloser(storage)
+	return nil
 }
 
 func QuoteVideoStudioTask(c *gin.Context) {

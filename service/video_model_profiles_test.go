@@ -10,7 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -116,8 +115,8 @@ func TestAdminVideoModelViewsReportPublishedSampleAvailability(t *testing.T) {
 		require.NoError(t, db.Create(&profiles[index]).Error)
 	}
 	samples := []model.KKAIVideoSample{
-		{ModelProfileID: profiles[0].ID, Title: "Draft", Prompt: "draft", Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`, VideoAssetID: 1, AspectRatio: 1, Status: model.VideoSampleStatusDraft, CreatedAt: now, UpdatedAt: now},
-		{ModelProfileID: profiles[1].ID, Title: "Published", Prompt: "published", Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`, VideoAssetID: 2, AspectRatio: 1, Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now},
+		{ModelProfileID: profiles[0].ID, Title: "Draft", Prompt: "draft", Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`, VideoAssetID: 1, AspectRatio: 1, Status: model.VideoSampleStatusDraft, CreatedAt: now, UpdatedAt: now},
+		{ModelProfileID: profiles[1].ID, Title: "Published", Prompt: "published", Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `{"reference_assets":[]}`, VideoAssetID: 2, AspectRatio: 1, Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now},
 	}
 	for index := range samples {
 		require.NoError(t, db.Create(&samples[index]).Error)
@@ -206,162 +205,38 @@ func TestUpdateVideoModelProfileKeepsModelImmutableAndAllowsDisableWithoutAbilit
 	require.False(t, disabled.Enabled)
 }
 
-func TestUpdateVideoModelProfileProtectsPublishedSampleReferenceSchema(t *testing.T) {
-	tests := []struct {
-		name       string
-		references []int64
-		newInputs  []VideoReferenceInputSpec
-		wantError  bool
-	}{
-		{
-			name:       "reference count",
-			references: []int64{1},
-			newInputs:  firstLastReferenceInputs(),
-			wantError:  true,
-		},
-		{
-			name:       "reference role order",
-			references: []int64{1, 2},
-			newInputs: []VideoReferenceInputSpec{
-				{Role: model.VideoTaskAssetRoleLastFrame, RequestKey: "last_frame", Required: true},
-				{Role: model.VideoTaskAssetRoleFirstFrame, RequestKey: "first_frame", Required: true},
-			},
-			wantError: false,
-		},
-		{
-			name:       "reference request key",
-			references: []int64{1, 2},
-			newInputs: []VideoReferenceInputSpec{
-				{Role: model.VideoTaskAssetRoleFirstFrame, RequestKey: "first_image", Required: true},
-				{Role: model.VideoTaskAssetRoleLastFrame, RequestKey: "last_frame", Required: true},
-			},
-			wantError: true,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			db := newVideoModelProfileTestDB(t)
-			oldSpec := VideoModelSpec{Version: 1, Modes: []string{VideoModeFirstLastFrame}, ReferenceInputs: firstLastReferenceInputs()}
-			encodedSpec, err := common.Marshal(oldSpec)
-			require.NoError(t, err)
-			now := time.Now().Unix()
-			profile := model.KKAIVideoModelProfile{
-				Model: "profile-model", DisplayName: "Profile", SpecificationVersion: 1,
-				Specification: string(encodedSpec), DefaultParameters: `{}`, CreatedAt: now, UpdatedAt: now,
-			}
-			require.NoError(t, db.Create(&profile).Error)
-			referenceJSON, err := common.Marshal(test.references)
-			require.NoError(t, err)
-			require.NoError(t, db.Create(&model.KKAIVideoSample{
-				ModelProfileID: profile.ID, Title: "Published", Prompt: "prompt", Mode: VideoModeFirstLastFrame,
-				ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: string(referenceJSON), VideoAssetID: 99,
-				AspectRatio: 1, Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
-			}).Error)
-
-			_, err = UpdateVideoModelProfile(context.Background(), db, profile.ID, VideoModelProfileInput{
-				Model: profile.Model, DisplayName: profile.DisplayName,
-				Specification:     VideoModelSpec{Version: 2, Modes: []string{VideoModeFirstLastFrame}, ReferenceInputs: test.newInputs},
-				DefaultParameters: map[string]any{},
-			})
-			if test.wantError {
-				require.ErrorIs(t, err, ErrInvalidVideoModelSpec)
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-}
-
-func TestUpdateVideoModelProfileAllowsOptionalAudioForPublishedSeedance25Sample(t *testing.T) {
+func TestUpdateVideoModelProfileIgnoresHistoricalPublishedSampleReferenceSchema(t *testing.T) {
 	db := newVideoModelProfileTestDB(t)
-	minimum, maximum, step := float64(4), float64(30), float64(1)
-	oldRatios := []VideoParameterOption{
-		{Label: "16:9", Value: "16:9"},
-		{Label: "9:16", Value: "9:16"},
-		{Label: "1:1", Value: "1:1"},
-	}
-	oldSpecification := VideoModelSpec{
-		Version: 1,
-		Modes:   []string{VideoModeTextToVideo, VideoModeImageToVideo},
-		Parameters: []VideoParameterSpec{
-			{
-				Key: "duration", Label: "Duration", Control: VideoControlNumber, Required: true,
-				Default: float64(5), Min: &minimum, Max: &maximum, Step: &step,
-			},
-			{Key: "ratio", Label: "Ratio", Control: VideoControlSelect, Required: true, Default: "16:9", Options: oldRatios},
-			{
-				Key: "resolution", Label: "Resolution", Control: VideoControlSelect, Required: true,
-				Default: "720p", Options: []VideoParameterOption{{Label: "720p", Value: "720p"}},
-			},
-		},
-		ReferenceInputs: []VideoReferenceInputSpec{{
-			Role: model.VideoTaskAssetRoleReference, RequestKey: "reference_image", Required: true,
-		}},
-	}
-	oldSpecificationJSON, err := common.Marshal(oldSpecification)
+	old := VideoModelSpec{Version: 1, Modes: []string{"text_to_video"}}
+	encoded, err := common.Marshal(old)
 	require.NoError(t, err)
 	now := time.Now().Unix()
-	profile := model.KKAIVideoModelProfile{
-		Model: "seedance-2.5", DisplayName: "Seedance 2.5 720p", SpecificationVersion: oldSpecification.Version,
-		Specification:     string(oldSpecificationJSON),
-		DefaultParameters: `{"duration":5,"ratio":"16:9","resolution":"720p"}`,
-		Enabled:           true, CreatedAt: now, UpdatedAt: now,
-	}
+	profile := model.KKAIVideoModelProfile{Model: "historical", DisplayName: "Historical", SpecificationVersion: 1, Specification: string(encoded), DefaultParameters: `{}`, Enabled: false, CreatedAt: now, UpdatedAt: now}
 	require.NoError(t, db.Create(&profile).Error)
-	priority := int64(0)
-	require.NoError(t, db.Create(&model.Ability{
-		Group: VideoStudioTokenGroup, Model: profile.Model, ChannelId: 1, Enabled: true, Priority: &priority,
-	}).Error)
-	require.NoError(t, db.Create(&model.KKAIVideoSample{
-		ModelProfileID: profile.ID, Title: "Published without audio", Prompt: "A wide establishing shot",
-		Mode: VideoModeTextToVideo, ModelVersion: oldSpecification.Version,
-		Parameters: `{"duration":5,"ratio":"16:9","resolution":"720p"}`, ReferenceAssetIDs: `[]`,
-		VideoAssetID: 99, AspectRatio: 16.0 / 9.0, Status: model.VideoSampleStatusPublished,
-		CreatedAt: now, UpdatedAt: now,
-	}).Error)
-
-	nextRatios := append([]VideoParameterOption{}, oldRatios...)
-	nextRatios = append(nextRatios,
-		VideoParameterOption{Label: "4:3", Value: "4:3"},
-		VideoParameterOption{Label: "3:4", Value: "3:4"},
-		VideoParameterOption{Label: "21:9", Value: "21:9"},
-		VideoParameterOption{Label: "Adaptive", Value: "adaptive"},
-	)
-	nextSpecification := oldSpecification
-	nextSpecification.Version = 2
-	nextSpecification.Parameters = append([]VideoParameterSpec{}, oldSpecification.Parameters...)
-	nextSpecification.Parameters[1].Options = nextRatios
-	nextSpecification.Parameters = append(nextSpecification.Parameters, VideoParameterSpec{
-		Key: "generate_audio", Label: "Generate audio", Control: VideoControlSwitch, Default: true,
-	})
-	defaults := map[string]any{
-		"duration": float64(5), "ratio": "16:9", "resolution": "720p", "generate_audio": true,
-	}
-
-	updated, err := UpdateVideoModelProfile(context.Background(), db, profile.ID, VideoModelProfileInput{
-		Model: profile.Model, DisplayName: profile.DisplayName, Specification: nextSpecification,
-		DefaultParameters: defaults, Enabled: true,
-	})
+	require.NoError(t, db.Create(&model.KKAIVideoSample{ModelProfileID: profile.ID, Title: "old", Prompt: "old", Mode: "text_to_video", ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`, VideoAssetID: 1, AspectRatio: 1, Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now}).Error)
+	next := old
+	next.Version = 2
+	_, err = UpdateVideoModelProfile(context.Background(), db, profile.ID, VideoModelProfileInput{Model: profile.Model, DisplayName: profile.DisplayName, Specification: next, DefaultParameters: map[string]any{}})
 	require.NoError(t, err)
-	assert.Equal(t, 2, updated.SpecificationVersion)
-	assert.Equal(t, 2, updated.Specification.Version)
-	assert.Equal(t, nextRatios, updated.Specification.Parameters[1].Options)
-	assert.False(t, updated.Specification.Parameters[3].Required)
-	assert.Equal(t, true, updated.Specification.Parameters[3].Default)
-	assert.Equal(t, defaults, updated.DefaultParameters)
-	assert.True(t, updated.Enabled)
-	require.NotNil(t, updated.HasPublishedSample)
-	assert.True(t, *updated.HasPublishedSample)
+}
+
+func TestUpdateVideoModelProfileRequiresVerifiedReferencePolicyWhenEnabled(t *testing.T) {
+	db := newVideoModelProfileTestDB(t)
+	specification := VideoModelSpec{Version: 1, Modes: []string{VideoModeReferenceToVideo}}
+	encoded, err := common.Marshal(specification)
+	require.NoError(t, err)
+	now := time.Now().Unix()
+	profile := model.KKAIVideoModelProfile{Model: "policy-required", DisplayName: "Policy required", SpecificationVersion: 1, Specification: string(encoded), DefaultParameters: `{}`, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&profile).Error)
+	_, err = UpdateVideoModelProfile(context.Background(), db, profile.ID, VideoModelProfileInput{Model: profile.Model, DisplayName: profile.DisplayName, Specification: specification, DefaultParameters: map[string]any{}, Enabled: true})
+	require.ErrorIs(t, err, ErrInvalidVideoModelSpec)
 }
 
 func TestCreateVideoSamplePersistsReferenceMappingSnapshot(t *testing.T) {
 	db := newVideoPipelineTestDB(t)
 	now := time.Now().Unix()
 	specification := VideoModelSpec{
-		Version: 1, Modes: []string{VideoModeFirstLastFrame}, ReferenceInputs: []VideoReferenceInputSpec{
-			{Role: model.VideoTaskAssetRoleLastFrame, RequestKey: "last_frame", Required: true},
-			{Role: model.VideoTaskAssetRoleFirstFrame, RequestKey: "first_frame", Required: true},
-		},
+		Version: 1, Modes: []string{VideoModeReferenceToVideo}, ReferencePolicy: &VideoReferencePolicy{MaxTotalCount: intPointer(2), RequiresVisual: true, Image: &VideoReferenceMediaPolicy{AllowedMIMETypes: []string{"image/png"}, MaxCount: 2, MaxSizeBytes: 2_000_000, MinWidth: 1, MaxWidth: 8192, MinHeight: 1, MaxHeight: 8192, MinAspectRatioExclusive: .1, MaxAspectRatioExclusive: 10}},
 	}
 	encodedSpec, err := common.Marshal(specification)
 	require.NoError(t, err)
@@ -376,32 +251,24 @@ func TestCreateVideoSamplePersistsReferenceMappingSnapshot(t *testing.T) {
 		{OwnerUserID: 7, Scope: model.VideoAssetScopeCatalog, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, ObjectKey: "last.png", MIMEType: "image/png", CreatedAt: now, UpdatedAt: now},
 	}
 	for index := range assets {
+		if assets[index].Kind == model.VideoAssetKindReference {
+			assets[index].Width, assets[index].Height, assets[index].SizeBytes, assets[index].MediaMetadata = 1280, 720, 100, `{"inspection_version":1,"container":"png"}`
+		}
 		require.NoError(t, db.Create(&assets[index]).Error)
 	}
 
 	created, err := CreateVideoSample(context.Background(), db, 7, VideoSampleInput{
-		ModelProfileID: profile.ID, Title: "Snapshot", Prompt: "prompt", Mode: VideoModeFirstLastFrame,
-		Parameters: map[string]any{}, ReferenceAssetIDs: []int64{assets[1].ID, assets[2].ID},
+		ModelProfileID: profile.ID, Title: "Snapshot", Prompt: "prompt", Mode: VideoModeReferenceToVideo,
+		Parameters: map[string]any{}, ReferenceAssets: []VideoStudioReferenceAssetInput{{AssetID: assets[1].ID, Role: model.VideoTaskAssetRoleReferenceImage, Position: intPointer(0)}, {AssetID: assets[2].ID, Role: model.VideoTaskAssetRoleReferenceImage, Position: intPointer(1)}},
 		VideoAssetID: assets[0].ID, AspectRatio: 16.0 / 9.0, Status: model.VideoSampleStatusDraft,
 	})
 	require.NoError(t, err)
 
 	var persisted model.KKAIVideoSample
 	require.NoError(t, db.First(&persisted, created.ID).Error)
-	var snapshots []struct {
-		AssetID    int64  `json:"asset_id"`
-		Role       string `json:"role"`
-		RequestKey string `json:"request_key"`
-	}
-	require.NoError(t, common.UnmarshalJsonStr(persisted.ReferenceAssetIDs, &snapshots))
-	require.Equal(t, []struct {
-		AssetID    int64  `json:"asset_id"`
-		Role       string `json:"role"`
-		RequestKey string `json:"request_key"`
-	}{
-		{AssetID: assets[1].ID, Role: model.VideoTaskAssetRoleFirstFrame, RequestKey: "first_frame"},
-		{AssetID: assets[2].ID, Role: model.VideoTaskAssetRoleLastFrame, RequestKey: "last_frame"},
-	}, snapshots)
+	var document videoSampleReferenceDocument
+	require.NoError(t, common.UnmarshalJsonStr(persisted.ReferenceAssetIDs, &document))
+	require.Equal(t, []VideoSampleReferenceSnapshot{{AssetID: assets[1].ID, Role: model.VideoTaskAssetRoleReferenceImage, Position: 0}, {AssetID: assets[2].ID, Role: model.VideoTaskAssetRoleReferenceImage, Position: 1}}, document.ReferenceAssets)
 }
 
 func newVideoModelProfileTestDB(t *testing.T) *gorm.DB {

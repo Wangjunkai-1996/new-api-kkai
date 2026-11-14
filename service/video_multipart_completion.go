@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/video_studio_setting"
 
@@ -147,6 +148,11 @@ func finalizeVideoAssetUpload(
 			updates["height"] = imageMetadata.Height
 			updates["duration_seconds"] = imageMetadata.DurationSeconds
 			updates["codec"] = imageMetadata.Codec
+			inspection, marshalErr := common.Marshal(imageMetadata.Inspection())
+			if marshalErr != nil {
+				return marshalErr
+			}
+			updates["media_metadata"] = string(inspection)
 			updates["failure_reason"] = ""
 		} else if imageInspectionErr != nil {
 			updates["state"] = model.VideoAssetStateFailed

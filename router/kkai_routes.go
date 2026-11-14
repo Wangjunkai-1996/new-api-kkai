@@ -77,6 +77,7 @@ func registerVideoStudioAPIRoutes(apiRouter *gin.RouterGroup) {
 		videoStudio.POST("/token", controller.EnsureVideoStudioToken)
 		videoStudio.GET("/samples", controller.ListVideoStudioSamples)
 		videoStudio.GET("/samples/:id", controller.GetVideoStudioSample)
+		videoStudio.GET("/submissions/by-key", controller.LookupVideoStudioSubmission)
 		videoStudio.POST("/uploads", controller.CreateVideoStudioUpload)
 		videoStudio.GET("/uploads/:id", controller.GetVideoStudioUpload)
 		videoStudio.POST("/uploads/:id/parts/:part_number", controller.SignVideoStudioUploadPart)

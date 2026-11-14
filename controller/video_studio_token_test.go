@@ -171,6 +171,27 @@ func TestVideoStudioCorruptSampleIsAnInternalError(t *testing.T) {
 	assert.Equal(t, "video_studio_internal_error", code)
 }
 
+func TestVideoStudioMultimodalErrorsHaveStableHTTPContract(t *testing.T) {
+	tests := []struct {
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{service.ErrIdempotencyConflict, http.StatusConflict, "video_idempotency_conflict"},
+		{service.ErrIdempotencyInProgress, http.StatusConflict, "video_submission_pending"},
+		{service.ErrVideoStudioQuoteExpired, http.StatusConflict, "quote_stale"},
+	}
+	for _, test := range tests {
+		status, code := videoStudioErrorStatus(errors.Join(errors.New("wrapped"), test.err))
+		assert.Equal(t, test.wantStatus, status)
+		assert.Equal(t, test.wantCode, code)
+	}
+	validation := &service.VideoStudioValidationError{Code: "video_reference_limit_exceeded", StatusCode: http.StatusBadRequest, Message: "limit"}
+	status, code := videoStudioErrorStatus(validation)
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.Equal(t, "video_reference_limit_exceeded", code)
+}
+
 func TestVideoStudioTokenControllersIgnoreStaleSessionAuthorization(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupVideoStudioTokenControllerTest(t)

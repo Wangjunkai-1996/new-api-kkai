@@ -47,18 +47,18 @@ func TestSoraSpecialSeedanceProjection(t *testing.T) {
 		forbidden []string
 	}{
 		{
-			name:  "video studio 2.0 payload uses metadata values and keeps false audio",
+			name:  "video studio multimodal payload preserves ordered references and false audio",
 			model: "sd_2.0_special_1080p",
 			request: map[string]any{
-				"model": "studio-alias", "prompt": "camera move", "mode": "text_to_video", "group": "video-studio",
-				"duration": 5, "image": "https://example.invalid/frame.jpg", "images": []any{"https://example.invalid/frame.jpg"},
-				"metadata": map[string]any{"duration": 5, "ratio": "16:9", "generate_audio": false, "image": "https://example.invalid/frame.jpg"},
+				"model": "studio-alias", "prompt": "camera move", "mode": "reference_to_video", "group": "video-studio",
+				"duration": 5,
+				"metadata": map[string]any{"duration": 5, "ratio": "16:9", "generate_audio": false, "reference_assets": []any{map[string]any{"role": "reference_image", "position": 0, "url": "https://example.invalid/frame.jpg"}}},
 			},
 			want: map[string]any{
 				"model": "sd_2.0_special_1080p", "prompt": "camera move", "duration": float64(5),
-				"ratio": "16:9", "reference_image": "https://example.invalid/frame.jpg", "generate_audio": false,
+				"ratio": "16:9", "reference_images": []any{"https://example.invalid/frame.jpg"}, "generate_audio": false,
 			},
-			forbidden: []string{"mode", "group", "metadata", "image", "images"},
+			forbidden: []string{"mode", "group", "metadata", "image", "images", "reference_image"},
 		},
 		{
 			name:  "2.5 video reference keeps canonical fields",
@@ -66,14 +66,34 @@ func TestSoraSpecialSeedanceProjection(t *testing.T) {
 			request: map[string]any{
 				"prompt": "reference motion", "metadata": map[string]any{
 					"seconds": "8", "ratio": "9:16", "resolution": "720p",
-					"reference_video": "https://example.invalid/reference.mp4", "generate_audio": true,
+					"reference_assets": []any{map[string]any{"role": "reference_video", "position": 0, "url": "https://example.invalid/reference.mp4"}}, "generate_audio": true,
 				},
 			},
 			want: map[string]any{
 				"model": "sd_2.5_special_720p_with_video_ref", "prompt": "reference motion", "duration": float64(8),
-				"ratio": "9:16", "resolution": "720p", "reference_video": "https://example.invalid/reference.mp4", "generate_audio": true,
+				"ratio": "9:16", "resolution": "720p", "reference_videos": []any{"https://example.invalid/reference.mp4"}, "generate_audio": true,
 			},
 			forbidden: []string{"metadata"},
+		},
+		{
+			name:  "reference order and frame references are projected",
+			model: "sd_2.5_special_720p",
+			request: map[string]any{
+				"prompt": "ordered references",
+				"metadata": map[string]any{"reference_assets": []any{
+					map[string]any{"role": "reference_image", "position": 1, "url": "https://example.invalid/b.jpg"},
+					map[string]any{"role": "reference_image", "position": 0, "url": "https://example.invalid/a.jpg"},
+					map[string]any{"role": "reference_audio", "position": 0, "url": "https://example.invalid/voice.mp3"},
+					map[string]any{"role": "first_frame", "position": 0, "url": "https://example.invalid/first.jpg"},
+					map[string]any{"role": "last_frame", "position": 0, "url": "https://example.invalid/last.jpg"},
+				}},
+			},
+			want: map[string]any{
+				"model": "sd_2.5_special_720p", "prompt": "ordered references", "duration": float64(4),
+				"reference_images": []any{"https://example.invalid/a.jpg", "https://example.invalid/b.jpg"},
+				"reference_audios": []any{"https://example.invalid/voice.mp3"},
+				"first_image":      "https://example.invalid/first.jpg", "last_image": "https://example.invalid/last.jpg",
+			},
 		},
 		{
 			name:    "compatibility alias is projected",
@@ -131,8 +151,16 @@ func TestSoraSpecialSeedanceProjection(t *testing.T) {
 	}{
 		{name: "conflicting duration fields", request: map[string]any{"prompt": "x", "duration": 5, "seconds": 8}},
 		{name: "conflicting top-level and metadata duration", request: map[string]any{"prompt": "x", "duration": 5, "metadata": map[string]any{"seconds": 8}}},
+		{name: "unknown metadata parameter is rejected", request: map[string]any{"prompt": "x", "metadata": map[string]any{"seed": 42}}},
+		{name: "unknown top-level parameter is rejected", request: map[string]any{"prompt": "x", "seed": 42}},
+		{name: "malformed metadata is rejected", request: map[string]any{"prompt": "x", "metadata": []any{}}},
+		{name: "conflicting audio fields are rejected", request: map[string]any{"prompt": "x", "generate_audio": false, "metadata": map[string]any{"generate_audio": true}}},
 		{name: "too long for 2.0", request: map[string]any{"prompt": "x", "duration": 16}},
-		{name: "multiple reference images", request: map[string]any{"prompt": "x", "images": []any{"a", "b"}}},
+		{name: "legacy reference fields", request: map[string]any{"prompt": "x", "images": []any{"a"}}},
+		{name: "invalid ordered reference", request: map[string]any{"prompt": "x", "metadata": map[string]any{"reference_assets": []any{map[string]any{"role": "reference_image", "position": -1, "url": "a"}}}}},
+		{name: "reference positions must start at zero", request: map[string]any{"prompt": "x", "metadata": map[string]any{"reference_assets": []any{map[string]any{"role": "reference_image", "position": 1, "url": "a"}}}}},
+		{name: "reference URL must be a string", request: map[string]any{"prompt": "x", "metadata": map[string]any{"reference_assets": []any{map[string]any{"role": "reference_image", "position": 0, "url": map[string]any{"url": "a"}}}}}},
+		{name: "only one first frame is supported", request: map[string]any{"prompt": "x", "metadata": map[string]any{"reference_assets": []any{map[string]any{"role": "first_frame", "position": 0, "url": "a"}, map[string]any{"role": "first_frame", "position": 1, "url": "b"}}}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, callErr := plugin.Engine.Call(t.Context(), "buildSubmitRequest", map[string]any{

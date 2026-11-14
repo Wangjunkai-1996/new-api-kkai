@@ -62,6 +62,16 @@ func ReserveIdempotencyKey(ctx context.Context, db *gorm.DB, request Idempotency
 			}
 		}
 	}
+	if request.Operation == model.VideoIdempotencyOperationSubmit {
+		var record model.KKAIIdempotencyKey
+		if err := expired.Session(&gorm.Session{}).First(&record).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("load expired video idempotency key: %w", err)
+		} else if err == nil {
+			if _, err := retainVideoIdempotencyBinding(ctx, db, record, now); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if err := expired.Delete(&model.KKAIIdempotencyKey{}).Error; err != nil {
 		return nil, fmt.Errorf("reclaim expired idempotency key: %w", err)
 	}
@@ -164,6 +174,9 @@ func cleanupExpiredIdempotencyKeysForOperation(
 	ids := make([]int64, 0, len(records))
 	for _, record := range records {
 		retained, err := retainImageIdempotencyBinding(ctx, db, record, cutoff)
+		if record.Operation == model.VideoIdempotencyOperationSubmit {
+			retained, err = retainVideoIdempotencyBinding(ctx, db, record, cutoff)
+		}
 		if err != nil {
 			return 0, err
 		}
@@ -183,6 +196,51 @@ func cleanupExpiredIdempotencyKeysForOperation(
 		return 0, fmt.Errorf("delete expired idempotency keys: %w", result.Error)
 	}
 	return int(result.RowsAffected), nil
+}
+
+// retainVideoIdempotencyBinding keeps an accepted or ambiguous video task
+// recoverable beyond the reservation TTL. Releasing a key while dispatch or
+// settlement is unresolved could charge the same request twice.
+func retainVideoIdempotencyBinding(ctx context.Context, db *gorm.DB, record model.KKAIIdempotencyKey, now int64) (bool, error) {
+	if record.Operation != model.VideoIdempotencyOperationSubmit || record.ResourceType != model.VideoIdempotencyResourceTask {
+		return false, nil
+	}
+	var task model.Task
+	err := db.WithContext(ctx).Select("id", "status", "finish_time", "private_data").
+		Where("task_id = ? AND user_id = ?", record.ResourceID, record.UserID).First(&task).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// A missing task is still ambiguous. Keep the binding recoverable until
+		// an operator or reconciliation worker establishes what happened.
+		retainUntil := now + int64(DefaultIdempotencyTTL/time.Second)
+		err = db.WithContext(ctx).Model(&model.KKAIIdempotencyKey{}).
+			Where("id = ? AND resource_type = ? AND resource_id = ? AND expires_at <= ?", record.ID, record.ResourceType, record.ResourceID, now).
+			Update("expires_at", retainUntil).Error
+		return err == nil, err
+	}
+	if err != nil {
+		return false, err
+	}
+	retainUntil := task.FinishTime + int64(DefaultIdempotencyTTL/time.Second)
+	if (task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure) && task.FinishTime <= 0 {
+		// A terminal task without a completion timestamp is an incomplete
+		// settlement record; retain the binding until reconciliation repairs it.
+		retainUntil = now + int64(DefaultIdempotencyTTL/time.Second)
+	}
+	if task.Status != model.TaskStatusSuccess && task.Status != model.TaskStatusFailure ||
+		task.PrivateData.BillingState == model.TaskBillingStatePending ||
+		task.PrivateData.BillingState == model.TaskBillingStateReserved ||
+		task.PrivateData.BillingState == model.TaskBillingStateDispatching ||
+		task.PrivateData.BillingState == model.TaskBillingStateAccepted ||
+		task.PrivateData.BillingState == model.TaskBillingStateAmbiguous {
+		retainUntil = now + int64(DefaultIdempotencyTTL/time.Second)
+	}
+	if retainUntil <= now {
+		return false, nil
+	}
+	err = db.WithContext(ctx).Model(&model.KKAIIdempotencyKey{}).
+		Where("id = ? AND resource_type = ? AND resource_id = ? AND expires_at <= ?", record.ID, record.ResourceType, record.ResourceID, now).
+		Update("expires_at", retainUntil).Error
+	return err == nil, err
 }
 
 // retainImageIdempotencyBinding protects an accepted task independently of its

@@ -24,42 +24,43 @@ var (
 )
 
 type VideoSampleInput struct {
-	ModelProfileID    int64          `json:"model_profile_id"`
-	Title             string         `json:"title"`
-	Prompt            string         `json:"prompt"`
-	Mode              string         `json:"mode"`
-	Parameters        map[string]any `json:"parameters"`
-	ReferenceAssetIDs []int64        `json:"reference_asset_ids"`
-	VideoAssetID      int64          `json:"video_asset_id"`
-	AspectRatio       float64        `json:"aspect_ratio"`
-	Category          string         `json:"category"`
-	Status            string         `json:"status"`
-	SortOrder         int            `json:"sort_order"`
+	ModelProfileID    int64                            `json:"model_profile_id"`
+	Title             string                           `json:"title"`
+	Prompt            string                           `json:"prompt"`
+	Mode              string                           `json:"mode"`
+	Parameters        map[string]any                   `json:"parameters"`
+	ReferenceAssetIDs []int64                          `json:"-"`
+	ReferenceAssets   []VideoStudioReferenceAssetInput `json:"reference_assets,omitempty"`
+	VideoAssetID      int64                            `json:"video_asset_id"`
+	AspectRatio       float64                          `json:"aspect_ratio"`
+	Category          string                           `json:"category"`
+	Status            string                           `json:"status"`
+	SortOrder         int                              `json:"sort_order"`
 }
 
 type VideoSampleView struct {
-	ID                   int64                          `json:"id"`
-	ModelProfileID       int64                          `json:"model_profile_id"`
-	Model                string                         `json:"model"`
-	ModelDisplayName     string                         `json:"model_display_name"`
-	Title                string                         `json:"title"`
-	Prompt               string                         `json:"prompt"`
-	Mode                 string                         `json:"mode"`
-	ModelVersion         int                            `json:"model_version"`
-	Parameters           map[string]any                 `json:"parameters"`
-	ReferenceAssetIDs    []int64                        `json:"reference_asset_ids"`
-	ReferenceAssets      []VideoSampleReferenceSnapshot `json:"reference_assets"`
-	ReferenceContentURLs []string                       `json:"reference_content_urls"`
-	VideoAssetID         int64                          `json:"video_asset_id"`
-	VideoURL             string                         `json:"video_url"`
-	PosterURL            string                         `json:"poster_url"`
-	PreviewURL           string                         `json:"preview_url"`
-	AspectRatio          float64                        `json:"aspect_ratio"`
-	Category             string                         `json:"category"`
-	Status               string                         `json:"status"`
-	SortOrder            int                            `json:"sort_order"`
-	CreatedAt            int64                          `json:"created_at"`
-	UpdatedAt            int64                          `json:"updated_at"`
+	ID                   int64                     `json:"id"`
+	ModelProfileID       int64                     `json:"model_profile_id"`
+	Model                string                    `json:"model"`
+	ModelDisplayName     string                    `json:"model_display_name"`
+	Title                string                    `json:"title"`
+	Prompt               string                    `json:"prompt"`
+	Mode                 string                    `json:"mode"`
+	ModelVersion         int                       `json:"model_version"`
+	Parameters           map[string]any            `json:"parameters"`
+	ReferenceAssetIDs    []int64                   `json:"-"`
+	ReferenceAssets      []VideoReferenceAssetView `json:"reference_assets"`
+	ReferenceContentURLs []string                  `json:"-"`
+	VideoAssetID         int64                     `json:"video_asset_id"`
+	VideoURL             string                    `json:"video_url"`
+	PosterURL            string                    `json:"poster_url"`
+	PreviewURL           string                    `json:"preview_url"`
+	AspectRatio          float64                   `json:"aspect_ratio"`
+	Category             string                    `json:"category"`
+	Status               string                    `json:"status"`
+	SortOrder            int                       `json:"sort_order"`
+	CreatedAt            int64                     `json:"created_at"`
+	UpdatedAt            int64                     `json:"updated_at"`
 }
 
 type VideoSamplePage struct {
@@ -124,7 +125,7 @@ func ListVideoSamples(
 		query = query.Where(
 			"kkai_video_samples.status = ? AND kkai_video_model_profiles.enabled = ?",
 			model.VideoSampleStatusPublished, true,
-		)
+		).Where("kkai_video_samples.reference_asset_ids LIKE ?", `{"reference_assets":%`)
 	}
 	if allowedModels != nil {
 		if len(allowedModels) == 0 {
@@ -180,7 +181,7 @@ func GetVideoSample(
 		Joins("JOIN kkai_video_model_profiles ON kkai_video_model_profiles.id = kkai_video_samples.model_profile_id").
 		Select(videoSampleSelectColumns()).Where("kkai_video_samples.id = ?", id)
 	if !includeDrafts {
-		query = query.Where("kkai_video_samples.status = ? AND kkai_video_model_profiles.enabled = ?", model.VideoSampleStatusPublished, true)
+		query = query.Where("kkai_video_samples.status = ? AND kkai_video_model_profiles.enabled = ?", model.VideoSampleStatusPublished, true).Where("kkai_video_samples.reference_asset_ids LIKE ?", `{"reference_assets":%`)
 	}
 	if allowedModels != nil {
 		if len(allowedModels) == 0 {
@@ -334,6 +335,13 @@ func prepareVideoSampleInput(
 		return preparedVideoSampleInput{}, nil, err
 	}
 	input.Category = category
+	if len(input.ReferenceAssetIDs) > 0 {
+		return preparedVideoSampleInput{}, nil, ErrInvalidVideoSample
+	}
+	input.ReferenceAssetIDs = make([]int64, 0, len(input.ReferenceAssets))
+	for _, reference := range input.ReferenceAssets {
+		input.ReferenceAssetIDs = append(input.ReferenceAssetIDs, reference.AssetID)
+	}
 	assetIDs := append([]int64{input.VideoAssetID}, input.ReferenceAssetIDs...)
 	lockAssetIDs := append([]int64{}, assetIDs...)
 	lockAssetIDs = append(lockAssetIDs, additionalAssetIDs...)
@@ -391,24 +399,13 @@ func prepareVideoSampleInput(
 	if err != nil {
 		return preparedVideoSampleInput{}, nil, err
 	}
-	expectedReferences := expectedVideoReferenceInputs(specification, input.Mode)
-	if len(input.ReferenceAssetIDs) != len(expectedReferences) {
-		return preparedVideoSampleInput{}, nil, ErrInvalidVideoSample
+	references, err := validateVideoReferenceAssets(specification, input.Mode, parameters, input.ReferenceAssets, assetsByID)
+	if err != nil {
+		return preparedVideoSampleInput{}, nil, err
 	}
 	videoAsset := assetsByID[input.VideoAssetID]
 	if videoAsset.State != model.VideoAssetStateReady || !strings.HasPrefix(videoAsset.MIMEType, "video/") {
 		return preparedVideoSampleInput{}, nil, ErrVideoSampleNotPublishable
-	}
-	for index, referenceID := range input.ReferenceAssetIDs {
-		reference := assetsByID[referenceID]
-		expectsVideo := expectedReferences[index].Role == model.VideoTaskAssetRoleReferenceVideo
-		validMIME := strings.HasPrefix(reference.MIMEType, "image/")
-		if expectsVideo {
-			validMIME = strings.HasPrefix(reference.MIMEType, "video/")
-		}
-		if reference.State != model.VideoAssetStateReady || !validMIME {
-			return preparedVideoSampleInput{}, nil, ErrVideoSampleNotPublishable
-		}
 	}
 	if input.Status == model.VideoSampleStatusPublished && (videoAsset.PosterObjectKey == "" || videoAsset.PreviewObjectKey == "") {
 		return preparedVideoSampleInput{}, nil, ErrVideoSampleNotPublishable
@@ -423,11 +420,11 @@ func prepareVideoSampleInput(
 	if err != nil {
 		return preparedVideoSampleInput{}, nil, err
 	}
-	referenceSnapshots, err := newVideoSampleReferenceSnapshots(input.ReferenceAssetIDs, expectedReferences)
-	if err != nil {
-		return preparedVideoSampleInput{}, nil, err
+	referenceSnapshots := make([]VideoSampleReferenceSnapshot, 0, len(references))
+	for _, reference := range references {
+		referenceSnapshots = append(referenceSnapshots, VideoSampleReferenceSnapshot{AssetID: reference.Asset.ID, Role: reference.Role, Position: reference.Position})
 	}
-	referenceJSON, err := common.Marshal(referenceSnapshots)
+	referenceJSON, err := common.Marshal(videoSampleReferenceDocument{ReferenceAssets: referenceSnapshots})
 	if err != nil {
 		return preparedVideoSampleInput{}, nil, err
 	}
@@ -480,23 +477,22 @@ func buildVideoSampleViews(ctx context.Context, db *gorm.DB, samples []model.KKA
 		if !hasProfile {
 			return nil, fmt.Errorf("video sample %d references missing profile %d", sample.ID, sample.ModelProfileID)
 		}
-		specification, _, err := decodeVideoModelProfile(profile)
-		if err != nil {
-			return nil, err
-		}
-		referenceSnapshots, err := decodeVideoSampleReferenceSnapshots(
-			sample.ReferenceAssetIDs, expectedVideoReferenceInputs(specification, sample.Mode),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("decode video sample %d reference snapshot: %w", sample.ID, err)
+		referenceSnapshots, snapshotErr := decodeVideoSampleReferenceSnapshots(sample.ReferenceAssetIDs, nil)
+		referenceViews := make([]VideoReferenceAssetView, 0, len(referenceSnapshots))
+		modelVersion := sample.ModelVersion
+		if snapshotErr != nil {
+			modelVersion = 0
 		}
 		references = make([]int64, 0, len(referenceSnapshots))
 		for _, snapshot := range referenceSnapshots {
 			references = append(references, snapshot.AssetID)
-		}
-		referenceURLs := make([]string, 0, len(references))
-		for _, assetID := range references {
-			referenceURLs = append(referenceURLs, videoAssetContentPath(assetID, ""))
+			item := VideoReferenceAssetView{AssetID: snapshot.AssetID, Role: snapshot.Role, Position: snapshot.Position, Unavailable: true}
+			if asset, exists := assetsByID[snapshot.AssetID]; exists && asset.DeletedAt == 0 && asset.State == model.VideoAssetStateReady && asset.Scope == model.VideoAssetScopeCatalog {
+				assetView := videoAssetView(asset)
+				item.Asset = &assetView
+				item.Unavailable = false
+			}
+			referenceViews = append(referenceViews, item)
 		}
 		videoAsset, hasVideoAsset := assetsByID[sample.VideoAssetID]
 		if !hasVideoAsset {
@@ -509,10 +505,9 @@ func buildVideoSampleViews(ctx context.Context, db *gorm.DB, samples []model.KKA
 		}
 		views = append(views, VideoSampleView{
 			ID: sample.ID, ModelProfileID: sample.ModelProfileID, Model: profile.Model, ModelDisplayName: profile.DisplayName,
-			Title: sample.Title, Prompt: sample.Prompt, Mode: sample.Mode, ModelVersion: sample.ModelVersion,
-			Parameters: parameters, ReferenceAssetIDs: references, ReferenceAssets: referenceSnapshots,
-			ReferenceContentURLs: referenceURLs,
-			VideoAssetID:         sample.VideoAssetID, VideoURL: assetView.ContentURL,
+			Title: sample.Title, Prompt: sample.Prompt, Mode: sample.Mode, ModelVersion: modelVersion,
+			Parameters: parameters, ReferenceAssetIDs: references, ReferenceAssets: referenceViews,
+			VideoAssetID: sample.VideoAssetID, VideoURL: assetView.ContentURL,
 			PosterURL: assetView.PosterURL, PreviewURL: assetView.PreviewURL,
 			AspectRatio: sample.AspectRatio, Category: category,
 			Status: sample.Status, SortOrder: sample.SortOrder,
@@ -539,41 +534,6 @@ func enqueueVideoSamplePreparation(ctx context.Context, tx *gorm.DB, sampleID in
 		VideoOutboxTopicSamplePrepare, strconv.FormatInt(sampleID, 10),
 		VideoSamplePrepareEventPayload{SampleID: sampleID},
 	)
-}
-
-func expectedVideoReferenceRoles(specification VideoModelSpec, mode string) []string {
-	inputs := expectedVideoReferenceInputs(specification, mode)
-	roles := make([]string, 0, len(inputs))
-	for _, input := range inputs {
-		roles = append(roles, input.Role)
-	}
-	return roles
-}
-
-func expectedVideoReferenceInputs(specification VideoModelSpec, mode string) []VideoReferenceInputSpec {
-	if mode == VideoModeTextToVideo {
-		return nil
-	}
-	if mode == VideoModeImageToVideo {
-		inputs := make([]VideoReferenceInputSpec, 0, 1)
-		for _, input := range specification.ReferenceInputs {
-			if input.Required && (input.Role == model.VideoTaskAssetRoleReference || input.Role == model.VideoTaskAssetRoleReferenceVideo) {
-				inputs = append(inputs, input)
-			}
-		}
-		return inputs
-	}
-	roles := []string{model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame}
-	inputs := make([]VideoReferenceInputSpec, 0, len(roles))
-	for _, role := range roles {
-		for _, input := range specification.ReferenceInputs {
-			if input.Role == role && input.Required {
-				inputs = append(inputs, input)
-				break
-			}
-		}
-	}
-	return inputs
 }
 
 func encodeVideoSampleCursor(cursor videoSampleCursor) (string, error) {

@@ -32,9 +32,9 @@ import {
   getVideoUploadFingerprint,
   getVideoUploadMaxBytes,
   sanitizeVideoUploadResumeRecords,
-  shouldDeleteVideoAssetOnRemove,
   VIDEO_ADMIN_SAMPLE_FALLBACK_MAX_BYTES,
   VIDEO_REFERENCE_FALLBACK_MAX_BYTES,
+  VIDEO_REFERENCE_AUDIO_FALLBACK_MAX_BYTES,
   VIDEO_REFERENCE_VIDEO_FALLBACK_MAX_BYTES,
 } from './video-upload-resume'
 import { prepareVideoUploadSelection } from './video-upload-selection'
@@ -417,9 +417,17 @@ test('each multipart signing attempt requests a fresh URL and preserves API erro
 test('persisted drafts keep scalar parameters and asset IDs, never File or Blob data', () => {
   const unsafeDraft = {
     model_profile_id: 1,
-    mode: 'image_to_video',
+    mode: 'reference_to_video',
     prompt: 'Animate the reference',
-    reference_asset_ids: [41],
+    references: [
+      {
+        client_id: 'ref-41',
+        asset_id: 41,
+        role: 'reference_image',
+        position: 0,
+        included: true,
+      },
+    ],
     parameters: {
       duration: 5,
       enhance_prompt: true,
@@ -430,9 +438,17 @@ test('persisted drafts keep scalar parameters and asset IDs, never File or Blob 
 
   assert.deepEqual(sanitizeVideoStudioDraft(unsafeDraft), {
     model_profile_id: 1,
-    mode: 'image_to_video',
+    mode: 'reference_to_video',
     prompt: 'Animate the reference',
-    reference_asset_ids: [41],
+    references: [
+      {
+        client_id: 'ref-41',
+        asset_id: 41,
+        role: 'reference_image',
+        position: 0,
+        included: true,
+      },
+    ],
     parameters: { duration: 5, enhance_prompt: true },
   })
 })
@@ -440,6 +456,8 @@ test('persisted drafts keep scalar parameters and asset IDs, never File or Blob 
 test('upload limits distinguish references from administrator sample videos', () => {
   const serverLimits = {
     reference_max_bytes: 7 * 1024 * 1024,
+    reference_video_max_bytes: 40_000_000,
+    audio_max_bytes: 10_000_000,
     sample_max_bytes: 384 * 1024 * 1024,
     archive_max_bytes: 2 * 1024 * 1024 * 1024,
   }
@@ -469,20 +487,51 @@ test('upload limits distinguish references from administrator sample videos', ()
   )
   assert.equal(
     getVideoUploadMaxBytes('reference_video', false, serverLimits),
-    serverLimits.archive_max_bytes
+    serverLimits.reference_video_max_bytes
   )
 })
 
-test('only completed user references use the user asset delete endpoint', () => {
-  assert.equal(shouldDeleteVideoAssetOnRemove(asset(), false), true)
+test('audio upload uses its own safety limit and keeps resumable metadata', () => {
   assert.equal(
-    shouldDeleteVideoAssetOnRemove({ ...asset(), scope: 'catalog' }, false),
-    false
+    getVideoUploadMaxBytes('reference_audio', false),
+    VIDEO_REFERENCE_AUDIO_FALLBACK_MAX_BYTES
   )
-  assert.equal(shouldDeleteVideoAssetOnRemove(asset(), true), false)
   assert.equal(
-    shouldDeleteVideoAssetOnRemove({ ...asset(), kind: 'output' }, false),
-    false
+    getVideoUploadMaxBytes('reference_audio', false, {
+      reference_max_bytes: 20_971_520,
+      reference_video_max_bytes: 49_999_999,
+      audio_max_bytes: 10_000_000,
+      archive_max_bytes: 1_073_741_824,
+      sample_max_bytes: 1_073_741_824,
+    }),
+    10_000_000
+  )
+  const fingerprint = getVideoUploadFingerprint({
+    name: 'music.mp3',
+    type: 'audio/mpeg',
+    size: 1024,
+    lastModified: 123,
+  })
+  const records = sanitizeVideoUploadResumeRecords([
+    {
+      assetId: 59,
+      admin: false,
+      purpose: 'reference_audio',
+      uploadMode: 'multipart',
+      partSize: 1024,
+      expiresAt: 500,
+      maxSizeBytes: 14_999_999,
+      fingerprint,
+    },
+  ])
+  assert.equal(
+    findVideoUploadResume(records, fingerprint, 'reference_audio', false, 100)
+      ?.assetId,
+    59
+  )
+  assert.equal(
+    findVideoUploadResume(records, fingerprint, 'reference_video', false, 100),
+    undefined
   )
 })
 

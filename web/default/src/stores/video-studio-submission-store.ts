@@ -29,6 +29,8 @@ const submissionRecordSchema = z
     userId: z.number().int().positive().safe(),
     operationId: z.string().min(1).max(128),
     requestFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    // Canonical request snapshot is retained for by-key recovery and audit.
+    requestSnapshot: z.string().max(1_000_000).optional(),
     createdAt: z.number().int().positive().safe(),
     updatedAt: z.number().int().positive().safe(),
     state: z.enum(['sending', 'unknown', 'accepted']),

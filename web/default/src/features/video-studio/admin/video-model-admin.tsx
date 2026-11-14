@@ -60,7 +60,6 @@ import {
   createVideoModelProfileFormValues,
   filterVideoModelCandidates,
   getVideoModelCandidateLabel,
-  getVideoModelPreset,
   parseVideoModelProfileForm,
   VIDEO_MODEL_DESCRIPTION_MAX_LENGTH,
   VIDEO_MODEL_DISPLAY_NAME_MAX_LENGTH,
@@ -88,7 +87,6 @@ export function VideoModelAdmin() {
   })
   // oxlint-disable-next-line react/incompatible-library -- React Hook Form exposes mutable form state by design.
   const modelName = form.watch('model')
-  const candidatePreset = getVideoModelPreset(modelName)
   const candidateQueriesReady =
     modelsQuery.isSuccess && candidatesQuery.isSuccess
   const candidateQueriesFailed = modelsQuery.isError || candidatesQuery.isError
@@ -106,7 +104,7 @@ export function VideoModelAdmin() {
   )
   const candidateAvailable =
     candidateQueriesReady && candidates.includes(modelName)
-  const canSave = selected ? Boolean(candidatePreset) : candidateAvailable
+  const canSave = selected ? true : candidateAvailable
 
   useEffect(() => {
     form.reset(createVideoModelProfileFormValues(selected ?? undefined))

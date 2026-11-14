@@ -22,7 +22,11 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { videoSubmissionReceiptSchema, videoTaskIdSchema } from './schemas'
 import type { VideoQuoteRequest, VideoSubmissionReceipt } from './types'
-import { getVideoSubmissionRequestKey, trimVideoInput } from './video-domain'
+import {
+  canonicalVideoReferences,
+  getVideoSubmissionRequestKey,
+  trimVideoInput,
+} from './video-domain'
 
 export type VideoSubmissionIdentity = Readonly<{
   userId: number
@@ -54,12 +58,12 @@ export const isCurrentVideoSubmissionIdentity = (
 export const normalizeVideoSubmissionRequest = (
   request: VideoQuoteRequest
 ): VideoQuoteRequest => {
-  const references = [...request.reference_assets]
-  if (
-    new Set(references.map((reference) => reference.role)).size !==
-    references.length
-  ) {
-    throw new Error('Duplicate video reference role')
+  const references = canonicalVideoReferences(request.reference_assets)
+  const seen = new Set<string>()
+  for (const reference of references) {
+    const key = `${reference.role}:${reference.position}`
+    if (seen.has(key)) throw new Error('Duplicate video reference position')
+    seen.add(key)
   }
   return {
     ...request,
@@ -126,6 +130,10 @@ const rejectedVideoCodes: Readonly<Record<number, ReadonlySet<string>>> = {
     'idempotency_key_required',
     'invalid_video_studio_request',
     'video_token_required',
+    'video_request_contract_invalid',
+    'video_reference_combination_invalid',
+    'video_reference_limit_exceeded',
+    'video_audio_output_required',
   ]),
   403: new Set([
     'video_token_invalid',
@@ -135,7 +143,11 @@ const rejectedVideoCodes: Readonly<Record<number, ReadonlySet<string>>> = {
     'video_token_group_unavailable',
     'video_studio_access_denied',
   ]),
-  409: new Set(['quote_stale']),
+  409: new Set([
+    'quote_stale',
+    'video_capabilities_stale',
+    'video_reference_unavailable',
+  ]),
 }
 
 // Only call for the current POST /pg/videos; quote/token errors are not evidence.

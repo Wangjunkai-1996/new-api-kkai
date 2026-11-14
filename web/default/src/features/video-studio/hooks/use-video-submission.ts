@@ -236,6 +236,7 @@ export function useVideoSubmission(options: VideoSubmissionOptions) {
         userId: identity.userId,
         operationId,
         requestFingerprint: fingerprint,
+        requestSnapshot: JSON.stringify(submissionRequest),
         createdAt: submittedAt,
         updatedAt: submittedAt,
         state: 'sending',

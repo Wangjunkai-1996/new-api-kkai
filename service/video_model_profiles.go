@@ -69,6 +69,14 @@ func ListVideoModelProfiles(ctx context.Context, db *gorm.DB, includeDisabled bo
 		if err != nil {
 			return nil, err
 		}
+		if !includeDisabled {
+			if err := ValidateVideoModelSpec(view.Specification, view.DefaultParameters); err != nil {
+				continue
+			}
+			if err := validateEnabledVideoReferencePolicy(view.Specification); err != nil {
+				continue
+			}
+		}
 		views = append(views, view)
 	}
 	if err := hydrateVideoModelPublishedSampleState(ctx, db, views); err != nil {
@@ -118,6 +126,12 @@ func ListEffectiveVideoModelProfiles(
 		view, err := videoModelProfileView(profile)
 		if err != nil {
 			return nil, err
+		}
+		if err := ValidateVideoModelSpec(view.Specification, view.DefaultParameters); err != nil {
+			continue
+		}
+		if err := validateEnabledVideoReferencePolicy(view.Specification); err != nil {
+			continue
 		}
 		views = append(views, view)
 	}
@@ -181,6 +195,12 @@ func resolveVideoModelProfile(
 	specification, defaults, err := decodeVideoModelProfile(profile)
 	if err != nil {
 		return 0, 0, "", VideoModelSpec{}, nil, err
+	}
+	if err := ValidateVideoModelSpec(specification, defaults); err != nil {
+		return 0, 0, "", VideoModelSpec{}, nil, videoStudioValidationError("video_model_capability_unavailable", 503, "the model capability contract is unavailable")
+	}
+	if err := validateEnabledVideoReferencePolicy(specification); err != nil {
+		return 0, 0, "", VideoModelSpec{}, nil, videoStudioValidationError("video_model_capability_unavailable", 503, "the model capability contract is unavailable")
 	}
 	return profile.ID, profile.SpecificationVersion, profile.Model, specification, defaults, nil
 }
@@ -319,6 +339,11 @@ func normalizeVideoModelProfileInput(input VideoModelProfileInput) (VideoModelPr
 	if err := ValidateVideoModelSpec(input.Specification, input.DefaultParameters); err != nil {
 		return VideoModelProfileInput{}, "", "", err
 	}
+	if input.Enabled {
+		if err := validateEnabledVideoReferencePolicy(input.Specification); err != nil {
+			return VideoModelProfileInput{}, "", "", err
+		}
+	}
 	specification, err := common.Marshal(input.Specification)
 	if err != nil {
 		return VideoModelProfileInput{}, "", "", err
@@ -328,6 +353,15 @@ func normalizeVideoModelProfileInput(input VideoModelProfileInput) (VideoModelPr
 		return VideoModelProfileInput{}, "", "", err
 	}
 	return input, string(specification), string(defaults), nil
+}
+
+func validateEnabledVideoReferencePolicy(spec VideoModelSpec) error {
+	if containsVideoMode(spec.Modes, VideoModeReferenceToVideo) || containsVideoMode(spec.Modes, VideoModeFirstFrameToVideo) || containsVideoMode(spec.Modes, VideoModeFirstLastFrame) {
+		if spec.ReferencePolicy == nil || spec.ReferencePolicy.MaxTotalCount == nil || *spec.ReferencePolicy.MaxTotalCount <= 0 {
+			return fmt.Errorf("%w: enabled reference modes require a verified max_total_count", ErrInvalidVideoModelSpec)
+		}
+	}
+	return nil
 }
 
 func videoModelProfileView(profile model.KKAIVideoModelProfile) (VideoModelProfileView, error) {
@@ -400,12 +434,16 @@ func decodeVideoModelProfile(profile model.KKAIVideoModelProfile) (VideoModelSpe
 	return specification, defaults, nil
 }
 
-func validatePublishedSamplesAgainstSpec(tx *gorm.DB, profileID int64, previous VideoModelSpec, next VideoModelSpec) error {
+func validatePublishedSamplesAgainstSpec(tx *gorm.DB, profileID int64, _ VideoModelSpec, next VideoModelSpec) error {
 	var samples []model.KKAIVideoSample
 	if err := tx.Where("model_profile_id = ? AND status = ?", profileID, model.VideoSampleStatusPublished).Find(&samples).Error; err != nil {
 		return err
 	}
 	for _, sample := range samples {
+		snapshots, err := decodeVideoSampleReferenceSnapshots(sample.ReferenceAssetIDs, nil)
+		if err != nil {
+			continue
+		} // Historical samples remain stored but are not reusable.
 		parameters := map[string]any{}
 		if err := common.UnmarshalJsonStr(sample.Parameters, &parameters); err != nil {
 			return fmt.Errorf("decode published sample %d parameters: %w", sample.ID, err)
@@ -413,15 +451,22 @@ func validatePublishedSamplesAgainstSpec(tx *gorm.DB, profileID int64, previous 
 		if _, err := ValidateVideoParameters(next, sample.Mode, parameters, false); err != nil {
 			return fmt.Errorf("published sample %d is incompatible with specification: %w", sample.ID, err)
 		}
-		previousInputs := expectedVideoReferenceInputs(previous, sample.Mode)
-		referenceSnapshots, err := decodeVideoSampleReferenceSnapshots(sample.ReferenceAssetIDs, previousInputs)
-		if err != nil {
-			return fmt.Errorf("%w: published sample %d has an invalid reference snapshot: %v", ErrInvalidVideoModelSpec, sample.ID, err)
+		ids := make([]int64, 0, len(snapshots))
+		for _, snapshot := range snapshots {
+			ids = append(ids, snapshot.AssetID)
 		}
-		nextInputs := expectedVideoReferenceInputs(next, sample.Mode)
-		if !videoSampleReferenceSnapshotsMatch(referenceSnapshots, previousInputs) ||
-			!videoSampleReferenceSnapshotsMatch(referenceSnapshots, nextInputs) {
-			return fmt.Errorf("%w: published sample %d reference schema changed", ErrInvalidVideoModelSpec, sample.ID)
+		var assets []model.KKAIVideoAsset
+		if len(ids) > 0 {
+			if err := tx.Where("id IN ?", ids).Find(&assets).Error; err != nil {
+				return err
+			}
+		}
+		assetsByID := make(map[int64]model.KKAIVideoAsset, len(assets))
+		for _, asset := range assets {
+			assetsByID[asset.ID] = asset
+		}
+		if _, err := validateVideoReferenceAssets(next, sample.Mode, parameters, sampleReferenceInputs(snapshots), assetsByID); err != nil {
+			return fmt.Errorf("published sample %d is incompatible with specification: %w", sample.ID, err)
 		}
 	}
 	return nil

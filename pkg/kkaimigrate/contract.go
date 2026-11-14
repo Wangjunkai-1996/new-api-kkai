@@ -48,7 +48,10 @@ func ContractForDialect(dialect string) (SchemaContract, error) {
 		MigrationKind:          MigrationKindNone,
 		MigrationSetDigest:     migrationSetDigest(dialect, planItemsForDialect(dialect, target)),
 		CompatiblePrefixes:     prefixes,
-		RequiredExpansions:     map[string]string{RC49OnlineExpansion: RC49OnlineExpansionDigest()},
+		RequiredExpansions: map[string]string{
+			RC49OnlineExpansion:         RC49OnlineExpansionDigest(),
+			VideoMediaMetadataExpansion: VideoMediaMetadataExpansionDigest(),
+		},
 	}, nil
 }
 

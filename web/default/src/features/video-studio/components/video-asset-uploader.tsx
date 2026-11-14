@@ -28,11 +28,13 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Volume2,
 } from 'lucide-react'
 import {
   type Ref,
   useEffect,
   useId,
+  useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
@@ -48,11 +50,7 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 import { useVideoStudioDraftStore } from '@/stores/video-studio-draft-store'
 
-import {
-  deleteVideoAsset,
-  getVideoAssetContentUrl,
-  getVideoUpload,
-} from '../api'
+import { getVideoAssetContentUrl, getVideoUpload } from '../api'
 import { videoStudioQueryKeys } from '../queries'
 import type { VideoAsset, VideoUploadPurpose } from '../types'
 import {
@@ -69,11 +67,12 @@ import {
   VideoUploadProtocolError,
   type VideoUploadResponseBody,
 } from '../video-upload-protocol'
-import {
-  getVideoUploadMaxBytes,
-  shouldDeleteVideoAssetOnRemove,
-} from '../video-upload-resume'
+import { getVideoUploadMaxBytes } from '../video-upload-resume'
 import { prepareVideoUploadSelection } from '../video-upload-selection'
+
+export type VideoAssetUploaderHandle = {
+  cancel: () => Promise<boolean>
+}
 
 type VideoAssetUploaderProps = {
   assets: VideoAsset[]
@@ -86,6 +85,10 @@ type VideoAssetUploaderProps = {
   compact?: boolean
   adminUpload?: boolean
   inputRef?: Ref<HTMLInputElement>
+  onBusyChange?: (busy: boolean) => void
+  maxSizeBytes?: number
+  disabled?: boolean
+  cancelRef?: Ref<VideoAssetUploaderHandle>
 }
 
 export function VideoAssetUploader(props: VideoAssetUploaderProps) {
@@ -119,12 +122,6 @@ function VideoAssetUploadSession({
     (state) => state.removeUploadResume
   )
   const [completionError, setCompletionError] = useState<string | null>(null)
-  const [assetDeleteErrors, setAssetDeleteErrors] = useState<
-    Record<number, string>
-  >({})
-  const [deletingAssetIds, setDeletingAssetIds] = useState<Set<number>>(
-    new Set()
-  )
   const inspectionStartedAtRef = useRef(new Map<number, number>())
   const [inspectionClock, setInspectionClock] = useState(() => ({
     now: Date.now(),
@@ -151,10 +148,13 @@ function VideoAssetUploadSession({
   const processingAvailable =
     status?.video_studio?.processing_available ??
     status?.data?.video_studio?.processing_available
-  const maxUploadBytes = getVideoUploadMaxBytes(
-    props.purpose,
-    Boolean(props.adminUpload),
-    uploadLimits
+  const maxUploadBytes = Math.min(
+    props.maxSizeBytes ?? Number.POSITIVE_INFINITY,
+    getVideoUploadMaxBytes(
+      props.purpose,
+      Boolean(props.adminUpload),
+      uploadLimits
+    )
   )
   const getUploadFailureMessage = (error: unknown) => {
     if (error instanceof VideoUploadProtocolError) {
@@ -212,9 +212,11 @@ function VideoAssetUploadSession({
       restrictions: {
         ...uppy.opts.restrictions,
         maxFileSize: maxUploadBytes,
+        allowedFileTypes: props.accept,
+        maxNumberOfFiles: props.maxFiles,
       },
     })
-  }, [maxUploadBytes, uppy])
+  }, [maxUploadBytes, props.accept, props.maxFiles, uppy])
 
   const files = useUppyState(uppy, (state) => Object.values(state.files))
   const totalProgress = useUppyState(uppy, (state) => state.totalProgress)
@@ -294,11 +296,12 @@ function VideoAssetUploadSession({
   }, [inspectionClock, props.assets])
 
   const commitUploadedAsset = (asset: VideoAsset, fileId: string) => {
+    if (!uppy.getFile(fileId)) return
     const latestProps = propsRef.current
     const nextAssets = [
       ...assetsRef.current.filter((current) => current.id !== asset.id),
       asset,
-    ].slice(-latestProps.maxFiles)
+    ]
     assetsRef.current = nextAssets
     latestProps.onAssetsChange(nextAssets)
     useVideoStudioDraftStore.getState().removeUploadResume(asset.id)
@@ -354,11 +357,24 @@ function VideoAssetUploadSession({
     (file) => !file.error && !file.progress.uploadComplete
   )
   const hasFailedUploads = files.some((file) => Boolean(file.error))
+  const busy =
+    isUploading ||
+    hasFailedUploads ||
+    inspectedAssets.some(isVideoAssetInspectionPending)
+  useEffect(() => {
+    propsRef.current.onBusyChange?.(busy)
+  }, [busy])
+  useEffect(() => () => propsRef.current.onBusyChange?.(false), [])
   const canAdd =
+    !props.disabled &&
     processingAvailable !== false &&
     props.assets.length + files.length < props.maxFiles
 
   const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (props.disabled) {
+      event.target.value = ''
+      return
+    }
     if (processingAvailable === false) {
       event.target.value = ''
       toast.error(t('videoStudio.processingUnavailable'))
@@ -368,8 +384,12 @@ function VideoAssetUploadSession({
       0,
       props.maxFiles - props.assets.length - files.length
     )
-    const selectedFiles = [...(event.target.files ?? [])].slice(0, remaining)
+    const selectedFiles = [...(event.target.files ?? [])]
     event.target.value = ''
+    if (selectedFiles.length > remaining) {
+      toast.error(t('videoStudio.validation.referenceLimitExceeded'))
+      return
+    }
     const preparedFileIds: Array<string | null> = []
     const claimedResumeAssetIds = new Set<number>()
     for (const file of selectedFiles) {
@@ -393,6 +413,12 @@ function VideoAssetUploadSession({
           protocol: uploadProtocol,
           removeUploadResume,
         })
+        if (!uppy.getFile(fileId)) {
+          if (selection.kind === 'upload') {
+            await uploadProtocol.abortUpload({ meta: selection.meta })
+          }
+          continue
+        }
         if (selection.kind === 'completed') {
           commitUploadedAsset(selection.asset, fileId)
           preparedFileIds.push(null)
@@ -426,48 +452,12 @@ function VideoAssetUploadSession({
     }
   }
 
-  const removeAsset = async (asset: VideoAsset) => {
-    if (!shouldDeleteVideoAssetOnRemove(asset, Boolean(props.adminUpload))) {
-      const nextAssets = inspectedAssets.filter(
-        (current) => current.id !== asset.id
-      )
-      assetsRef.current = nextAssets
-      props.onAssetsChange(nextAssets)
-      return
-    }
-
-    setDeletingAssetIds((current) => new Set(current).add(asset.id))
-    setAssetDeleteErrors((current) => {
-      const next = { ...current }
-      delete next[asset.id]
-      return next
-    })
-    try {
-      await deleteVideoAsset(asset.id)
-      const nextAssets = assetsRef.current.filter(
-        (current) => current.id !== asset.id
-      )
-      assetsRef.current = nextAssets
-      propsRef.current.onAssetsChange(nextAssets)
-    } catch (error) {
-      let message = t('videoStudio.deleteFailed')
-      if (isAxiosError<{ message?: string }>(error)) {
-        message = error.response?.data?.message || error.message || message
-      } else if (error instanceof Error) {
-        message = error.message
-      }
-      setAssetDeleteErrors((current) => ({
-        ...current,
-        [asset.id]: message,
-      }))
-      toast.error(message)
-    } finally {
-      setDeletingAssetIds((current) => {
-        const next = new Set(current)
-        next.delete(asset.id)
-        return next
-      })
-    }
+  const removeAsset = (asset: VideoAsset) => {
+    const nextAssets = assetsRef.current.filter(
+      (current) => current.id !== asset.id
+    )
+    assetsRef.current = nextAssets
+    propsRef.current.onAssetsChange(nextAssets)
   }
 
   const retryFailedUploads = () => {
@@ -500,6 +490,27 @@ function VideoAssetUploadSession({
     if (!discardFailed) setCompletionError(null)
   }
 
+  useImperativeHandle(props.cancelRef, () => ({
+    cancel: async () => {
+      uppy.pauseAll()
+      const results = await Promise.allSettled(
+        uppy.getFiles().map(async (file) => {
+          if (file.meta.assetId) {
+            await uploadProtocol.abortUpload(file)
+            removeUploadResume(file.meta.assetId)
+          }
+          uppy.removeFile(file.id)
+        })
+      )
+      const rejected = results.find((result) => result.status === 'rejected')
+      if (rejected?.status === 'rejected') {
+        setCompletionError(getUploadFailureMessage(rejected.reason))
+        return false
+      }
+      return true
+    },
+  }))
+
   return (
     <div className='video-studio-assets space-y-2'>
       {props.assetLabels && (
@@ -512,6 +523,7 @@ function VideoAssetUploadSession({
       <div className='video-studio-asset-grid grid grid-cols-2 gap-2'>
         {inspectedAssets.map((asset, index) => {
           const isVideo = asset.mime_type?.startsWith('video/')
+          const isAudio = asset.mime_type?.startsWith('audio/')
           const showMedia = shouldRenderVideoAssetMedia(asset)
           const startedAt =
             inspectionClock.startedAt.get(asset.id) ?? inspectionClock.now
@@ -539,13 +551,20 @@ function VideoAssetUploadSession({
             !showMedia ||
             (!assetUrl && !(isVideo && props.purpose === 'sample' && posterUrl))
           ) {
+            let placeholderIcon = (
+              <FileImage className='size-8' aria-hidden='true' />
+            )
+            if (isVideo) {
+              placeholderIcon = <Film className='size-8' aria-hidden='true' />
+            }
+            if (isAudio) {
+              placeholderIcon = (
+                <Volume2 className='size-8' aria-hidden='true' />
+              )
+            }
             mediaContent = (
               <div className='text-muted-foreground flex size-full items-center justify-center'>
-                {isVideo ? (
-                  <Film className='size-8' aria-hidden='true' />
-                ) : (
-                  <FileImage className='size-8' aria-hidden='true' />
-                )}
+                {placeholderIcon}
               </div>
             )
           } else if (isVideo && props.purpose === 'sample' && posterUrl) {
@@ -566,6 +585,12 @@ function VideoAssetUploadSession({
                 preload='metadata'
                 aria-label={asset.original_filename || props.label}
               />
+            )
+          } else if (isAudio) {
+            mediaContent = (
+              <div className='text-muted-foreground flex size-full items-center justify-center'>
+                <Volume2 className='size-8' aria-hidden='true' />
+              </div>
             )
           } else {
             mediaContent = (
@@ -624,16 +649,9 @@ function VideoAssetUploadSession({
                       size='xs'
                       variant='destructive'
                       onClick={() => void removeAsset(asset)}
-                      disabled={deletingAssetIds.has(asset.id)}
+                      disabled={props.disabled}
                     >
-                      {deletingAssetIds.has(asset.id) ? (
-                        <LoaderCircle
-                          className='animate-spin motion-reduce:animate-none'
-                          aria-hidden='true'
-                        />
-                      ) : (
-                        <Trash2 aria-hidden='true' />
-                      )}
+                      <Trash2 aria-hidden='true' />
                       {t('videoStudio.removeAsset')}
                     </Button>
                   </div>
@@ -644,21 +662,14 @@ function VideoAssetUploadSession({
                 size='icon-xs'
                 variant='destructive'
                 className={cn(
-                  'absolute top-1 right-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100',
+                  'absolute top-1 right-1',
                   inspectionTakingLong && 'hidden'
                 )}
                 onClick={() => void removeAsset(asset)}
-                disabled={deletingAssetIds.has(asset.id)}
+                disabled={props.disabled}
                 aria-label={t('videoStudio.removeAsset')}
               >
-                {deletingAssetIds.has(asset.id) ? (
-                  <LoaderCircle
-                    className='animate-spin motion-reduce:animate-none'
-                    aria-hidden='true'
-                  />
-                ) : (
-                  <Trash2 aria-hidden='true' />
-                )}
+                <Trash2 aria-hidden='true' />
               </Button>
             </div>
           )
@@ -681,11 +692,17 @@ function VideoAssetUploadSession({
               multiple={props.maxFiles > 1}
               onChange={handleFiles}
             />
-            {props.accept.some((type) => type.startsWith('video')) ? (
+            {props.accept.some((type) => type.startsWith('video')) && (
               <Film className='size-4' aria-hidden='true' />
-            ) : (
-              <FileImage className='size-4' aria-hidden='true' />
             )}
+            {!props.accept.some((type) => type.startsWith('video')) &&
+              props.accept.some((type) => type.startsWith('audio')) && (
+                <Volume2 className='size-4' aria-hidden='true' />
+              )}
+            {!props.accept.some((type) => type.startsWith('video')) &&
+              !props.accept.some((type) => type.startsWith('audio')) && (
+                <FileImage className='size-4' aria-hidden='true' />
+              )}
             <span className='text-xs font-medium'>
               {props.assetLabels?.[props.assets.length] ?? props.label}
             </span>
@@ -699,31 +716,6 @@ function VideoAssetUploadSession({
           {t('videoStudio.processingUnavailable')}
         </p>
       )}
-
-      {Object.entries(assetDeleteErrors).map(([assetId, message]) => {
-        const asset = inspectedAssets.find(
-          (candidate) => candidate.id === Number(assetId)
-        )
-        if (!asset) return null
-        return (
-          <div
-            key={assetId}
-            className='text-destructive flex items-center justify-between gap-2 text-xs'
-            role='alert'
-          >
-            <span>{message}</span>
-            <Button
-              type='button'
-              size='xs'
-              variant='outline'
-              onClick={() => void removeAsset(asset)}
-              disabled={deletingAssetIds.has(asset.id)}
-            >
-              {t('videoStudio.retry')}
-            </Button>
-          </div>
-        )
-      })}
 
       {isUploading && (
         <div

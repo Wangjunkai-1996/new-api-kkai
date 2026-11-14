@@ -20,6 +20,7 @@ import type {
   CreateVideoRequest,
   VideoAsset,
   VideoComposerValues,
+  VideoComposerReference,
   VideoGeneration,
   VideoGenerationMode,
   VideoModelProfile,
@@ -72,18 +73,22 @@ export const shouldAutoLoadNextVideoSamplePage = ({
 
 export const VIDEO_MODE_LABEL_KEYS: Record<VideoGenerationMode, string> = {
   text_to_video: 'videoStudio.mode.text',
-  image_to_video: 'videoStudio.mode.image',
+  reference_to_video: 'videoStudio.mode.reference',
+  first_frame_to_video: 'videoStudio.mode.firstFrame',
   first_last_frame: 'videoStudio.mode.firstLast',
+  image_to_video: 'videoStudio.mode.image',
 }
 
 export const VIDEO_REFERENCE_ROLE_LABEL_KEYS: Record<
   VideoReferenceRole,
   string
 > = {
-  reference: 'videoStudio.referenceImage',
+  reference_image: 'videoStudio.referenceImage',
   reference_video: 'videoStudio.referenceVideo',
+  reference_audio: 'videoStudio.referenceAudio',
   first_frame: 'videoStudio.firstFrame',
   last_frame: 'videoStudio.lastFrame',
+  reference: 'videoStudio.referenceImage',
 }
 
 export const getVideoReferenceRoles = (
@@ -92,20 +97,19 @@ export const getVideoReferenceRoles = (
 ): VideoReferenceRole[] => {
   if (mode === 'text_to_video') return []
 
-  const requiredRoles = new Set(
-    (profile.specification.reference_inputs ?? [])
-      .filter((input) => input.required)
-      .map((input) => input.role)
-  )
-  if (mode === 'image_to_video') {
-    if (requiredRoles.has('reference_video')) return ['reference_video']
-    return requiredRoles.has('reference') ? ['reference'] : []
+  if (mode === 'reference_to_video') {
+    const policy = profile.specification.reference_policy
+    const roles: VideoReferenceRole[] = []
+    if (policy?.image) roles.push('reference_image')
+    if (policy?.video) roles.push('reference_video')
+    if (policy?.audio) roles.push('reference_audio')
+    return roles
   }
 
-  const roles: VideoReferenceRole[] = []
-  if (requiredRoles.has('first_frame')) roles.push('first_frame')
-  if (requiredRoles.has('last_frame')) roles.push('last_frame')
-  return roles
+  if (mode === 'image_to_video') return []
+  if (mode === 'first_frame_to_video') return ['first_frame']
+  if (mode === 'first_last_frame') return ['first_frame', 'last_frame']
+  return []
 }
 
 export const normalizeVideoStudioAccessMode = (
@@ -201,59 +205,107 @@ export const restoreVideoComposerDraft = (
   profiles: VideoModelProfile[],
   draft: VideoComposerValues | null
 ): VideoComposerValues | null => {
-  const profile =
-    profiles.find((candidate) => candidate.id === draft?.model_profile_id) ??
-    profiles[0]
-  if (!profile) return null
-  if (!draft || draft.model_profile_id !== profile.id) {
-    return buildVideoComposerValues(profile)
+  const fallback = profiles[0]
+  if (!draft) return fallback ? buildVideoComposerValues(fallback) : null
+  const references = draft?.references
+  const validDraft = Boolean(
+    draft &&
+    [
+      'text_to_video',
+      'reference_to_video',
+      'first_frame_to_video',
+      'first_last_frame',
+    ].includes(draft.mode) &&
+    Array.isArray(references) &&
+    references.every(
+      (reference) =>
+        [
+          'reference_image',
+          'reference_video',
+          'reference_audio',
+          'first_frame',
+          'last_frame',
+        ].includes(reference.role) &&
+        Number.isSafeInteger(reference.position) &&
+        reference.position >= 0
+    )
+  )
+  if (!validDraft) {
+    return fallback ? buildVideoComposerValues(fallback) : null
   }
-
-  const mode = profile.specification.modes.includes(draft.mode)
-    ? draft.mode
-    : (profile.specification.modes[0] ?? 'text_to_video')
-  const referenceLimit = getVideoReferenceRoles(profile, mode).length
-  return {
-    model_profile_id: profile.id,
-    mode,
-    prompt: draft.prompt,
-    reference_asset_ids: draft.reference_asset_ids.slice(0, referenceLimit),
-    parameters: getVideoParametersForMode(profile, mode, draft.parameters),
-  }
+  return { ...draft, references }
 }
 
 export const buildClearedVideoComposerValues = (
   profile: VideoModelProfile,
-  mode: VideoGenerationMode
-): VideoComposerValues => ({
-  model_profile_id: profile.id,
-  mode,
-  prompt: '',
-  reference_asset_ids: [],
-  parameters: getVideoParametersForMode(profile, mode),
-})
+  _mode?: VideoGenerationMode
+): VideoComposerValues => {
+  const mode = profile.specification.modes.includes('text_to_video')
+    ? 'text_to_video'
+    : (profile.specification.modes[0] ?? 'text_to_video')
+  return {
+    model_profile_id: profile.id,
+    mode,
+    prompt: '',
+    references: [],
+    parameters: getVideoParametersForMode(profile, mode),
+  }
+}
 
 export const getSampleReferenceAssets = (
   sample: VideoSample,
-  profile?: VideoModelProfile
-): VideoAsset[] => {
-  const roles = profile ? getVideoReferenceRoles(profile, sample.mode) : []
-  return sample.reference_asset_ids.map((id, index) => ({
-    id,
-    scope: 'catalog',
-    kind: 'reference',
-    state: 'ready',
-    original_filename: `reference-${index + 1}`,
-    mime_type: roles[index] === 'reference_video' ? 'video/mp4' : 'image/jpeg',
-    size_bytes: 0,
-    width: 0,
-    height: 0,
-    duration_seconds: 0,
-    codec: '',
-    content_url: sample.reference_content_urls[index],
-    created_at: sample.created_at,
-    updated_at: sample.updated_at,
-  }))
+  _profile?: VideoModelProfile
+): VideoAsset[] =>
+  (sample.reference_assets ?? []).flatMap((reference) =>
+    reference.asset ? [reference.asset] : []
+  )
+
+export const getVideoComposerMode = (
+  references: VideoComposerReference[]
+): VideoGenerationMode => {
+  const included = references.filter((reference) => reference.included)
+  if (
+    included.some(
+      (reference) =>
+        reference.role === 'first_frame' || reference.role === 'last_frame'
+    )
+  ) {
+    return included.some((reference) => reference.role === 'last_frame')
+      ? 'first_last_frame'
+      : 'first_frame_to_video'
+  }
+  return included.length > 0 ? 'reference_to_video' : 'text_to_video'
+}
+
+export const VIDEO_REFERENCE_ROLE_ORDER: VideoReferenceRole[] = [
+  'reference_image',
+  'reference_video',
+  'reference_audio',
+  'first_frame',
+  'last_frame',
+]
+
+export const canonicalVideoReferences = (
+  references: VideoReferenceAssetInput[]
+): VideoReferenceAssetInput[] =>
+  [...references].sort(
+    (left, right) =>
+      VIDEO_REFERENCE_ROLE_ORDER.indexOf(left.role) -
+        VIDEO_REFERENCE_ROLE_ORDER.indexOf(right.role) ||
+      (left.position ?? 0) - (right.position ?? 0)
+  )
+
+export const getIncludedVideoReferences = (
+  references: VideoComposerReference[]
+): VideoReferenceAssetInput[] => {
+  const positions = new Map<VideoReferenceRole, number>()
+  return canonicalVideoReferences(
+    references.filter((reference) => reference.included)
+  ).map((reference) => {
+    const position = positions.get(reference.role) ?? 0
+    positions.set(reference.role, position + 1)
+    return { asset_id: reference.asset_id, role: reference.role, position }
+  })
 }
 
 export const getSampleVideoAsset = (sample: VideoSample): VideoAsset => ({
@@ -279,19 +331,19 @@ export const buildVideoComposerValues = (
   profile: VideoModelProfile,
   sample?: VideoSample
 ): VideoComposerValues => {
-  const preferredMode =
-    sample?.mode ?? profile.specification.modes[0] ?? 'text_to_video'
-  const mode = profile.specification.modes.includes(preferredMode)
-    ? preferredMode
-    : (profile.specification.modes[0] ?? 'text_to_video')
-  const referenceLimit = getVideoReferenceRoles(profile, mode).length
-
+  const references: VideoComposerReference[] = (
+    sample?.reference_assets ?? []
+  ).map((reference) => ({
+    ...reference,
+    client_id: `asset-${reference.asset_id}`,
+    included: true,
+  }))
+  const mode = getVideoComposerMode(references)
   return {
     model_profile_id: profile.id,
     mode,
     prompt: sample?.prompt ?? '',
-    reference_asset_ids:
-      sample?.reference_asset_ids.slice(0, referenceLimit) ?? [],
+    references,
     parameters: getVideoParametersForMode(profile, mode, sample?.parameters),
   }
 }
@@ -301,26 +353,16 @@ export const buildVideoQuoteRequest = (
   profile: VideoModelProfile,
   tokenId: number,
   sampleId?: number
-): VideoQuoteRequest => {
-  const roles = getVideoReferenceRoles(profile, values.mode)
-  const referenceAssets = values.reference_asset_ids.reduce<
-    VideoReferenceAssetInput[]
-  >((result, assetId, index) => {
-    const role = roles[index]
-    if (role) result.push({ asset_id: assetId, role })
-    return result
-  }, [])
-
-  return {
-    token_id: tokenId,
-    model: trimVideoInput(profile.model),
-    mode: values.mode,
-    prompt: trimVideoInput(values.prompt),
-    parameters: values.parameters,
-    reference_assets: referenceAssets,
-    sample_id: sampleId,
-  }
-}
+): VideoQuoteRequest => ({
+  token_id: tokenId,
+  model: trimVideoInput(profile.model),
+  specification_version: profile.specification_version,
+  mode: getVideoComposerMode(values.references ?? []),
+  prompt: trimVideoInput(values.prompt),
+  parameters: values.parameters,
+  reference_assets: getIncludedVideoReferences(values.references ?? []),
+  sample_id: sampleId,
+})
 
 export const buildCreateVideoRequest = (
   quoteRequest: VideoQuoteRequest,
@@ -338,16 +380,14 @@ export const getVideoSubmissionRequestKey = (
   JSON.stringify({
     token_id: request.token_id,
     model: request.model,
+    specification_version: request.specification_version,
     mode: request.mode,
     prompt: request.prompt,
     parameters: Object.entries(request.parameters).sort(([left], [right]) => {
       if (left === right) return 0
       return left < right ? -1 : 1
     }),
-    reference_assets: [...request.reference_assets].sort((left, right) => {
-      if (left.role === right.role) return left.asset_id - right.asset_id
-      return left.role < right.role ? -1 : 1
-    }),
+    reference_assets: canonicalVideoReferences(request.reference_assets),
     sample_id: request.sample_id ?? null,
   })
 

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/require"
 )
 
@@ -240,6 +241,57 @@ func TestParseVideoProbeOutputAcceptsSingleImageFrameDuration(t *testing.T) {
 	require.Equal(t, 960, metadata.Width)
 	require.Equal(t, 540, metadata.Height)
 	require.Zero(t, metadata.DurationSeconds)
+}
+
+func TestParseVideoProbeOutputAcceptsMP3ReferenceAudio(t *testing.T) {
+	metadata, err := parseVideoProbeOutput([]byte(`{
+		"streams":[{"codec_type":"audio","codec_name":"mp3","duration":"4.5"}],
+		"format":{"format_name":"mp3","duration":"4.5"}
+	}`))
+
+	require.NoError(t, err)
+	require.Equal(t, "audio/mpeg", metadata.MIMEType)
+	require.Equal(t, "mp3", metadata.Codec)
+	require.Zero(t, metadata.Width)
+	require.Zero(t, metadata.Height)
+	require.Equal(t, 4.5, metadata.DurationSeconds)
+	require.Equal(t, "mp3", metadata.Container)
+}
+
+func TestParseVideoProbeOutputAcceptsWAVReferenceAudio(t *testing.T) {
+	metadata, err := parseVideoProbeOutput([]byte(`{
+		"streams":[{"codec_type":"audio","codec_name":"pcm_s16le","duration":"2"}],
+		"format":{"format_name":"wav","duration":"2"}
+	}`))
+
+	require.NoError(t, err)
+	require.Equal(t, "audio/wav", metadata.MIMEType)
+	require.Equal(t, "pcm_s16le", metadata.Codec)
+	require.Zero(t, metadata.Width)
+	require.Zero(t, metadata.Height)
+}
+
+func TestParseVideoProbeOutputRejectsAudioVideoReferenceAsAudioOnly(t *testing.T) {
+	_, err := parseVideoProbeOutput([]byte(`{
+		"streams":[
+			{"codec_type":"video","codec_name":"h264","width":1920,"height":1080,"duration":"5"},
+			{"codec_type":"audio","codec_name":"mp3","duration":"5"}
+		],
+		"format":{"format_name":"mov,mp4,m4a,3gp,3g2,mj2","duration":"5"}
+	}`))
+
+	require.NoError(t, err)
+}
+
+func TestDecodeVideoMediaInspectionRequiresCurrentVersion(t *testing.T) {
+	asset := model.KKAIVideoAsset{MediaMetadata: `{"inspection_version":1,"container":"mp3"}`}
+	inspection, err := DecodeVideoMediaInspection(asset)
+	require.NoError(t, err)
+	require.Equal(t, VideoMediaInspectionVersion, inspection.InspectionVersion)
+
+	asset.MediaMetadata = `{"inspection_version":2,"container":"mp3"}`
+	_, err = DecodeVideoMediaInspection(asset)
+	require.ErrorIs(t, err, ErrVideoMediaInvalid)
 }
 
 func TestFFmpegVideoMediaProcessorCommandDeadlineStopsHungRunner(t *testing.T) {
