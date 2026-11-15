@@ -1,6 +1,6 @@
 # 图片失败协议与诊断交付记录
 
-状态：两端实现与独立代码审查完成；NewAPI 后端、前端及发布门禁完成，本次临时清理完成，受保护历史资产已记录保留处置；Sub2API 源码已提交，串行构建发布中。记录开始：2026-11-15；更新：2026-11-16（Asia/Shanghai）。整体交付尚未完成。
+状态：两端实现与独立代码审查完成；NewAPI 后端、前端及发布门禁完成，本次临时清理完成，受保护历史资产已记录保留处置；Sub2API 候选已构建并完成 10%/50% 观察，因 50% 达到 1800 秒仍无自然业务样本而按官方控制器回退，当前回到旧槽。记录开始：2026-11-15；更新：2026-11-16（Asia/Shanghai）。本次修复代码已完成审查和发布尝试，但未形成 Sub2API 生产上线结论。
 
 ## 文档链与范围
 
@@ -50,6 +50,20 @@ Sub2API 命令在其 `backend/` 执行，使用开发文档记录的 Go1.27.3 �
 | Sub2API image | `855bdb83bc422e4385938846b2b9a64864559a84`，`release/v0.2.21-kkai` | 已提交并通过 clean/commit-object/git-archive 门禁；生产结果待实际发布后填写。 |
 
 后续仅文档提交不改变已部署二进制来源，不为文档重建上述不可变制品。全部构建位于 Mac；两端生产事务串行。原任务7734不改状态、不再扣款、不重放。
+
+## Sub2API 发布结果
+
+| 项目 | 结果 |
+| --- | --- |
+| 构建 | 唯一 Mac 构建成功，版本 `v0.2.21-kkai-image-errors-20261116`，镜像 `sha256:80d76634e087ffa7e9742bc1275dd2933b9c40a3bd90123687d75daad46962e1`，归档 SHA256 `aa52d379a256b469a0df386fbb0a281ccc2a93ea2493e2f38497b6043f80b6c6`。 |
+| 计划/stage | `staged_0`；release `sub2api-v0.2.21-kkai-image-errors-20261116-855bdb83bc-text-green-image-green-20261115T164622Z`；plan SHA `12a78fee51432e48d7194e17277399fcf63154de5fe11329408f3c9da516817c`。 |
+| 灰度 | 10% 正常通过：累计 412 秒，新旧槽各 1 个自然完成请求，HTTP 200 但业务终态为 unknown；没有失败重试、进程错误、尾部错误或 pending。50% 观察达到 1800 秒，新旧槽均无完成样本、无错误；按门禁不晋级 100%。 |
+| 回退 | 官方 rollback 返回 `status=rolled_back`。立即和延迟快照确认 image/account-test 回到 blue、text 保持 green，旧 `apps-current`、router inode/hash、四槽健康、restart=0、OOM=false。 |
+| 清理 | 官方 cleanup-plan 在回退后因 state 已移除且要求 `phase=complete` 被拒；未删除任何候选镜像、归档或历史证据，均保留并记录 deferred。禁止用 Docker prune/rmi 绕过控制器。 |
+
+采集器 `passive-image-window.py` SHA256 为 `cbf29027278b578d8969ab0f825087cd173508114eb731dff3541864fe9519ff`，13 个离线 fixture 通过。它按应用完成时间、1 小时 carry-in、迟到日志、HTTP 200 内嵌失败、未知重试和 60 秒写入保护收集证据；业务成功固定为 0，HTTP 200 不被写成图片成功。10% 与 50% 的完整观察文件和回退证据保存在 ignored evidence 根目录。
+
+Sub2API 本次未完成生产上线，不能声称该协议已通过真实图片 E2E 或已修复用户原始图片任务。用户接手登录、管理员日志交互、真实图片生成/编辑和退款业务验收，代理未验证；未创建账号/Key、未发送付费模型请求。
 
 ## 工具链
 
