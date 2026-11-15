@@ -1,6 +1,6 @@
 # 图片失败协议修复：执行发布计划
 
-日期：2026-11-15。状态：发布前只读准备；命令尚未代表执行成功。专业审查见 `review-release.md`，现场证据与时间见 `release-preparation.md`。本文件由发布/SRE角色维护，真正构建、提交和生产写操作由主执行者串行完成。
+日期：2026-11-15；执行修订：2026-11-16。状态：已批准的串行发布操作方案；实际结果以 `acceptance.md` 和对应发布记录为准，命令本身不代表执行成功。专业审查见 `review-release.md`，准备证据见 `release-preparation.md`。构建和生产变更由发布/SRE角色串行执行，主协调者负责源码冻结、提交和独立复核。
 
 ## 1. 冻结范围、顺序与边界
 
@@ -80,11 +80,13 @@ test "${target_slot}" = blue || test "${target_slot}" = green
 candidate_tunnel_socket="/tmp/kkai-newapi-image-failure-$$.sock"
 test ! -e "${candidate_tunnel_socket}"
 ssh "${ssh_options[@]}" -M -S "${candidate_tunnel_socket}" -fN -L "127.0.0.1:4322:${candidate_target}" sys1
-curl --retry 3 --retry-connrefused --retry-delay 1 --fail --silent --show-error http://127.0.0.1:4322/api/status |
+curl --retry 3 --retry-connrefused --retry-delay 1 --fail --silent --show-error -H 'Host: api.kkrich.ltd' http://127.0.0.1:4322/api/status |
   jq -e --arg version "${expected_version}" '.success == true and .data.version == $version'
 ssh "${ssh_options[@]}" -S "${candidate_tunnel_socket}" -O exit sys1
 unset candidate_tunnel_socket
 ```
+
+候选 tunnel 必须带实际业务 Host；租户路由已启用时以 localhost Host 请求会返回404，不能将其当作版本异常，也不能跳过实际Host下的健康核验。stage/promote前若官方membership recovery门禁要求paused，使用runbook32的既有控制入口暂停并取得ack；事务结束且candidate/rollout清空、健康通过后，以新generation恢复原mode并验证各角色同步。
 
 记录业务测试交接。candidate 为 serving且无后台作业；其健康不能证明 async worker，worker依赖本地回归和promote后writer自然证据。不调用图片生成接口制造数据。
 
