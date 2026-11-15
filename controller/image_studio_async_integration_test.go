@@ -34,6 +34,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func enableImageAsyncGroupMetrics(t *testing.T) {
@@ -90,6 +91,8 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 	t.Setenv("VIDEO_STUDIO_R2_SECRET_ACCESS_KEY", "test-secret-key")
 	t.Setenv("VIDEO_STUDIO_R2_ACCESS_KEY_ID_FILE", "")
 	t.Setenv("VIDEO_STUDIO_R2_SECRET_ACCESS_KEY_FILE", "")
+	const providerDiagnostic = "抱歉，刚才图片生成服务出现错误，这次没能成功生成 BLG 夺冠海报。目前无法提供成品图片。"
+	const providerFailureBody = `{"error":{"type":"upstream_error","code":"image_provider_error","message":"` + providerDiagnostic + ` api_key:test-provider-secret {{upstream_url}}/v1/images/generations?key=test-query-secret"}}`
 	for _, tc := range []struct {
 		name             string
 		status           int
@@ -102,7 +105,9 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 		{"http_policy", http.StatusBadRequest, `{"error":{"type":"invalid_request_error","code":"content_policy","message":"private-provider-diagnostic"}}`, true, "", service.ImageExecutionFailureContentPolicy, 1},
 		{"in_band_policy", http.StatusOK, `{"error":{"type":"invalid_request_error","code":"content_policy_violation","message":"private-provider-diagnostic"}}`, true, "", service.ImageExecutionFailureContentPolicy, 1},
 		{"mapped_in_band_policy_uses_original_status", http.StatusOK, `{"error":{"type":"upstream_error","code":"content_policy","message":"private-provider-diagnostic"}}`, true, `{"200":"502"}`, service.ImageExecutionFailureContentPolicy, 1},
-		{"provider_error", http.StatusBadGateway, `{"error":{"type":"upstream_error","code":"image_provider_error","message":"private-provider-diagnostic"}}`, true, "", "image_service_unavailable", 1},
+		{"provider_error", http.StatusBadGateway, providerFailureBody, true, "", "image_service_unavailable", 1},
+		{"provider_error_log_failure", http.StatusBadGateway, providerFailureBody, true, "", "image_service_unavailable", 0},
+		{"ambiguous_gateway_error", http.StatusBadGateway, strings.Replace(providerFailureBody, `"code":"image_provider_error"`, `"code":"upstream_error"`, 1), false, "", "image_service_unavailable", 1},
 		{"provider_error_after_keepalive", http.StatusOK, `{"error":{"type":"upstream_error","code":"image_provider_error","message":"private-provider-diagnostic"}}`, true, "", "image_service_unavailable", 1},
 		{"mapped_provider_error_uses_original_status", http.StatusBadGateway, `{"error":{"type":"upstream_error","code":"image_provider_error","message":"private-provider-diagnostic"}}`, true, `{"502":"400"}`, "image_service_unavailable", 1},
 		{"mapped_keepalive_provider_error_uses_original_status", http.StatusOK, `{"error":{"type":"upstream_error","code":"image_provider_error","message":"private-provider-diagnostic"}}`, true, `{"200":"502"}`, "image_service_unavailable", 1},
@@ -130,6 +135,7 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 				model.LOG_DB, constant.ErrorLogEnabled, common.MemoryCacheEnabled = previousLogDB, previousErrorLog, previousMemoryCache
 			})
 			var calls atomic.Int32
+			var upstreamURL string
 			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				calls.Add(1)
 				if tc.status == 0 {
@@ -142,10 +148,11 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 				}
 				writer.Header().Set("Content-Type", "application/json")
 				writer.WriteHeader(tc.status)
-				_, _ = writer.Write([]byte(tc.body))
+				_, _ = writer.Write([]byte(strings.ReplaceAll(tc.body, "{{upstream_url}}", upstreamURL)))
 			}))
 			t.Cleanup(upstream.Close)
-			require.NoError(t, db.Model(&model.Channel{}).Where("1 = 1").Updates(map[string]any{"base_url": upstream.URL, "status_code_mapping": tc.mapping}).Error)
+			upstreamURL = strings.Replace(upstream.URL, "127.0.0.1", "localhost", 1)
+			require.NoError(t, db.Model(&model.Channel{}).Where("1 = 1").Updates(map[string]any{"base_url": upstreamURL, "status_code_mapping": tc.mapping}).Error)
 			generation, err := service.AcceptAsyncImageSubmission(context.Background(), db, request, normalized, "policy-test", "policy-request", "127.0.0.1")
 			require.NoError(t, err)
 			leader := model.KKAIJobLease{LeaseName: "image-policy-worker", Holder: "writer", Fence: 1, LeaseUntil: time.Now().Add(time.Minute).Unix()}
@@ -153,6 +160,13 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 			ctx := service.WithImageWorkerLease(context.Background(), leader)
 			processor := service.NewKKAIOutboxProcessor(db, "image-policy-test")
 			require.NoError(t, processor.Register(service.ImageGenerateTopic, runImageGenerationEvent))
+			if tc.name == "provider_error_log_failure" {
+				require.NoError(t, db.Callback().Create().Before("gorm:create").Register("image-test:fail-error-log", func(tx *gorm.DB) {
+					if tx.Statement.Table == "logs" {
+						tx.AddError(errors.New("log storage unavailable"))
+					}
+				}))
+			}
 			beforeSignals := perfmetrics.QueryKKAIGroupRecentSignals([]string{service.ImageStudioTokenGroup}, 60).Events
 			batch, err := processor.ProcessBatch(ctx, 1)
 			require.NoError(t, err)
@@ -167,6 +181,7 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 			require.NoError(t, db.First(generation, generation.ID).Error)
 			assert.Equal(t, tc.wantCode, generation.ErrorCode)
 			assert.NotContains(t, generation.ErrorMessage, "private-provider-diagnostic")
+			assert.NotContains(t, generation.ErrorMessage, providerDiagnostic)
 			var execution model.KKAIImageExecution
 			require.NoError(t, db.First(&execution, "generation_id = ?", generation.ID).Error)
 			var user model.User
@@ -191,9 +206,28 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 			var logs []model.Log
 			require.NoError(t, db.Where("type = ?", model.LogTypeError).Find(&logs).Error)
 			require.Len(t, logs, tc.errorLogs)
-			for _, log := range logs {
-				assert.NotContains(t, log.Content, "private-provider-diagnostic")
+			if strings.Contains(tc.body, providerDiagnostic) && tc.errorLogs > 0 {
+				require.Len(t, logs, 1)
+				assert.Equal(t, "status_code=502, image provider request failed", logs[0].Content)
+				var other struct {
+					Admin struct {
+						Diagnostic struct {
+							Message    string `json:"message"`
+							StatusCode int    `json:"status_code"`
+						} `json:"image_upstream_error"`
+					} `json:"admin_info"`
+				}
+				require.NoError(t, common.UnmarshalJsonStr(logs[0].Other, &other))
+				assert.Contains(t, other.Admin.Diagnostic.Message, providerDiagnostic)
+				assert.Equal(t, tc.status, other.Admin.Diagnostic.StatusCode)
+				for _, secret := range []string{"test-provider-secret", "test-query-secret", upstreamURL} {
+					assert.NotContains(t, logs[0].Other, secret)
+				}
 			}
+			var event model.KKAIOutboxEvent
+			require.NoError(t, db.First(&event, "id = ?", execution.EventID).Error)
+			assert.NotContains(t, event.LastError, providerDiagnostic)
+			assert.NotContains(t, event.LastError, "test-provider-secret")
 			replay, err := service.AcceptAsyncImageSubmission(ctx, db, request, normalized, "policy-test", "policy-retry", "127.0.0.1")
 			require.NoError(t, err)
 			assert.Equal(t, generation.ID, replay.ID)

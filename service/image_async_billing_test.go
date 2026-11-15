@@ -75,31 +75,42 @@ func TestImageAsyncPolicyCompletionPreservesResultAndFence(t *testing.T) {
 		t.Skip("legacy fixture runs with membership disabled")
 	}
 	for _, tc := range []struct {
-		name        string
-		readyResult bool
-		staleFence  bool
+		name, failureCode, wantStatus        string
+		requested, ready, staging, accounted int
+		staleFence                           bool
 	}{
-		{name: "confirmed_rejection_refunds"},
-		{name: "durable_result_still_settles", readyResult: true},
-		{name: "old_worker_cannot_refund", staleFence: true},
+		{name: "confirmed_rejection_refunds", failureCode: ImageExecutionFailureContentPolicy, wantStatus: model.ImageGenerationStatusFailed},
+		{name: "durable_result_still_settles", failureCode: ImageExecutionFailureContentPolicy, ready: 1, accounted: 1, wantStatus: model.ImageGenerationStatusSucceeded},
+		{name: "old_worker_cannot_refund", failureCode: ImageExecutionFailureContentPolicy, staleFence: true},
+		{name: "provider_error_preserves_result", failureCode: ImageExecutionFailureProviderError, ready: 1, accounted: 1, wantStatus: model.ImageGenerationStatusSucceeded},
+		{name: "provider_error_preserves_partial", failureCode: ImageExecutionFailureProviderError, requested: 2, ready: 1, accounted: 1, wantStatus: model.ImageGenerationStatusPartial},
+		{name: "provider_error_with_staging_refunds", failureCode: ImageExecutionFailureProviderError, requested: 2, ready: 1, staging: 1, accounted: 1, wantStatus: model.ImageGenerationStatusFailed},
+		{name: "provider_error_with_count_mismatch_refunds", failureCode: ImageExecutionFailureProviderError, requested: 2, ready: 1, accounted: 2, wantStatus: model.ImageGenerationStatusFailed},
+		{name: "provider_error_without_accounting_refunds", failureCode: ImageExecutionFailureProviderError, ready: 1, wantStatus: model.ImageGenerationStatusFailed},
+		{name: "provider_error_old_worker_cannot_refund", failureCode: ImageExecutionFailureProviderError, staleFence: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := newImageAccountingRecoveryTestDB(t)
 			require.NoError(t, db.AutoMigrate(&model.KKAIImageGenerationReference{}))
 			require.NoError(t, db.Create(&model.User{Id: 74, Username: "async-policy", Password: "password", Quota: 1000}).Error)
-			generation := seedRecoverableImageGeneration(t, db, 74, 1)
+			generation := seedRecoverableImageGeneration(t, db, 74, max(1, tc.requested))
 			_, err := model.ReserveImageGenerationBilling(context.Background(), db, generation.ID, model.TaskBillingSourceWallet, 300)
 			require.NoError(t, err)
 			fence := imageExecutionFenceFixture(t, db, generation)
 			require.NoError(t, db.Model(&model.KKAIImageExecution{}).Where("generation_id = ?", generation.ID).Update("state", model.ImageGenerationExecutionDispatching).Error)
-			if tc.readyResult {
-				require.NoError(t, model.PrepareImageGenerationAccounting(context.Background(), db, generation.ID, model.ImageGenerationAccountingPayload{TargetQuota: 200, OutputCount: 1, LogParams: model.RecordConsumeLogParams{ChannelId: 3, ModelName: generation.Model, TokenId: generation.TokenID, Quota: 200}}))
-				require.NoError(t, db.Create(&model.KKAIImageAsset{GenerationID: &generation.ID, OwnerUserID: generation.UserID, Kind: model.ImageAssetKindOutput, State: model.ImageAssetStateReady, ObjectKey: "durable-policy-result"}).Error)
+			if tc.accounted > 0 {
+				require.NoError(t, model.PrepareImageGenerationAccounting(context.Background(), db, generation.ID, model.ImageGenerationAccountingPayload{TargetQuota: 200, OutputCount: tc.accounted, LogParams: model.RecordConsumeLogParams{ChannelId: 3, ModelName: generation.Model, TokenId: generation.TokenID, Quota: 200}}))
+			}
+			if tc.ready > 0 {
+				require.NoError(t, db.Create(&model.KKAIImageAsset{GenerationID: &generation.ID, OwnerUserID: generation.UserID, Kind: model.ImageAssetKindOutput, State: model.ImageAssetStateReady, ObjectKey: "durable-result"}).Error)
+			}
+			if tc.staging > 0 {
+				require.NoError(t, db.Create(&model.KKAIImageAsset{GenerationID: &generation.ID, OwnerUserID: generation.UserID, Kind: model.ImageAssetKindOutput, State: model.ImageAssetStateStaging, ObjectKey: "staging-result"}).Error)
 			}
 			if tc.staleFence {
 				require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where("id = ?", fence.EventID).Update("locked_by", "new-worker").Error)
 			}
-			err = CompleteImageExecution(context.Background(), db, generation.ID, fence, ImageExecutionFailureContentPolicy)
+			err = CompleteImageExecution(context.Background(), db, generation.ID, fence, tc.failureCode)
 			var user model.User
 			if tc.staleFence {
 				require.ErrorIs(t, err, model.ErrImageExecutionFenceLost)
@@ -110,9 +121,10 @@ func TestImageAsyncPolicyCompletionPreservesResultAndFence(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, db.First(&generation, generation.ID).Error)
 			require.NoError(t, db.First(&user, generation.UserID).Error)
-			if tc.readyResult {
-				assert.Equal(t, model.ImageGenerationStatusSucceeded, generation.Status)
+			assert.Equal(t, tc.wantStatus, generation.Status)
+			if tc.wantStatus != model.ImageGenerationStatusFailed {
 				assert.Equal(t, model.ImageGenerationBillingStateSettled, generation.BillingState)
+				assert.Equal(t, tc.ready, generation.SucceededCount)
 				assert.EqualValues(t, 800, user.Quota)
 			} else {
 				assert.Equal(t, model.ImageGenerationStatusFailed, generation.Status)

@@ -36,21 +36,28 @@ func TestGetAllLogsProjectsDiagnosticsForOperatorRole(t *testing.T) {
 		require.NoError(t, closeErr)
 		require.NoError(t, sqlDB.Close())
 	})
-	require.NoError(t, db.Create(&model.Log{Type: model.LogTypeConsume, Other: `{"admin_info":{"stream_status":{"status":"error","end_reason":"scanner_error","error_count":1,"end_error":"private diagnosis"}},"root_info":{"secret":"root-only"}}`}).Error)
+	require.NoError(t, db.Create(&model.Log{UserId: 7, Type: model.LogTypeError, Other: `{"admin_info":{"image_upstream_error":{"message":"safe provider reason","type":"upstream_error","code":"image_provider_error","status_code":502,"truncated":false},"stream_status":{"status":"error","end_reason":"scanner_error","error_count":1,"end_error":"private diagnosis"}},"root_info":{"secret":"root-only"}}`}).Error)
 	for _, test := range []struct {
 		name string
 		role int
 		root bool
+		self bool
 	}{
-		{"admin", common.RoleAdminUser, false},
-		{"root", common.RoleRootUser, true},
+		{"admin", common.RoleAdminUser, false, false},
+		{"root", common.RoleRootUser, true, false},
+		{"self", common.RoleCommonUser, false, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			ctx, _ := gin.CreateTestContext(recorder)
 			ctx.Request = httptest.NewRequest(http.MethodGet, "/api/log/?p=1&page_size=10", nil)
 			ctx.Set("role", test.role)
-			GetAllLogs(ctx)
+			ctx.Set("id", 7)
+			if test.self {
+				GetUserLogs(ctx)
+			} else {
+				GetAllLogs(ctx)
+			}
 			assert.Equal(t, http.StatusOK, recorder.Code)
 			var response struct {
 				Success bool `json:"success"`
@@ -63,7 +70,16 @@ func TestGetAllLogsProjectsDiagnosticsForOperatorRole(t *testing.T) {
 			require.Len(t, response.Data.Items, 1)
 			other, err := common.StrToMap(response.Data.Items[0].Other)
 			require.NoError(t, err)
-			assert.Contains(t, other, "admin_info")
+			if test.self {
+				assert.NotContains(t, other, "admin_info")
+				assert.NotContains(t, response.Data.Items[0].Other, "image_upstream_error")
+				assert.NotContains(t, response.Data.Items[0].Other, "safe provider reason")
+			} else {
+				require.Contains(t, other, "admin_info")
+				admin, ok := other["admin_info"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, map[string]any{"message": "safe provider reason", "type": "upstream_error", "code": "image_provider_error", "status_code": float64(502), "truncated": false}, admin["image_upstream_error"])
+			}
 			assert.Equal(t, map[string]any{"status": "error", "end_reason": "scanner_error", "error_count": float64(1)}, other["stream_status"])
 			if test.root {
 				assert.Contains(t, other, "root_info")

@@ -40,7 +40,8 @@ func TestLogProjectionProtectsTenantPricingAndStreamDiagnostics(t *testing.T) {
 	other := common.MapToJsonStr(map[string]any{
 		"expr_b64": "display-expression",
 		"admin_info": map[string]any{
-			"actual_expr_b64": "actual-expression",
+			"actual_expr_b64":      "actual-expression",
+			"image_upstream_error": map[string]any{"message": "safe image provider diagnosis", "status_code": 502, "truncated": false},
 			"stream_status": map[string]any{
 				"status": "error", "end_reason": "scanner_error", "response_status": "failed", "error_count": 1,
 				"end_error": "secret endpoint", "errors": []string{"private upstream response"}, "unexpected": "secret",
@@ -56,6 +57,8 @@ func TestLogProjectionProtectsTenantPricingAndStreamDiagnostics(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotContains(t, parsed, "admin_info")
 			assert.NotContains(t, parsed, "root_info")
+			assert.NotContains(t, logs[0].Other, "image_upstream_error")
+			assert.NotContains(t, logs[0].Other, "safe image provider diagnosis")
 			assert.Equal(t, map[string]any{"status": "error", "end_reason": "scanner_error", "response_status": "failed", "error_count": float64(1)}, parsed["stream_status"])
 			assert.Empty(t, logs[0].ChannelName)
 			if tenantID > PlatformTenantID {
@@ -72,6 +75,7 @@ func TestLogProjectionProtectsTenantPricingAndStreamDiagnostics(t *testing.T) {
 	parsed, err := common.StrToMap(logs[0].Other)
 	require.NoError(t, err)
 	assert.Contains(t, parsed, "admin_info")
+	assert.Contains(t, logs[0].Other, "safe image provider diagnosis")
 	assert.NotContains(t, parsed, "root_info")
 	assert.Equal(t, "display-expression", parsed["expr_b64"])
 }

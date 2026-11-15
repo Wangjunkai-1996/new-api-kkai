@@ -175,7 +175,11 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		if showBodyWhenFail {
 			newApiErr.Err = buildErrWithBody("")
 		} else {
-			logger.LogError(ctx, common.LogText("bad response status code %d, body: %s", resp.StatusCode, responseBodyPreview))
+			if _, _, imageExecution := ImageExecutionFenceFromContext(ctx); imageExecution {
+				logger.LogError(ctx, fmt.Sprintf("bad image response status code %d; response body omitted", resp.StatusCode))
+			} else {
+				logger.LogError(ctx, common.LogText("bad response status code %d, body: %s", resp.StatusCode, responseBodyPreview))
+			}
 			newApiErr.Err = fmt.Errorf("bad response status code %d", resp.StatusCode)
 		}
 		return

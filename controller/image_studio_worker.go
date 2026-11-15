@@ -293,11 +293,9 @@ func executeAsyncImage(runCtx, workerCtx context.Context, generation *model.KKAI
 	}
 	logger.LogInfo(c, fmt.Sprintf("event=image_async_upstream_finished generation_id=%d request_id=%q elapsed_ms=%d channel_id=%d code=%s status_code=%d upstream_status=%d error_class=%s", generation.ID, generation.RequestID, time.Since(upstreamStarted).Milliseconds(), c.GetInt("channel_id"), upstreamCode, statusCode, upstreamStatus, errorClass))
 	if relayErr != nil {
-		// Preserve normal channel/policy auditing without copying a provider's
-		// free-form message into the background worker's logs.
-		auditErr := *relayErr
-		auditErr.SetMessage("image provider request failed")
-		service.ProcessChannelErrorAfterPolicy(c, *relaytypes.NewChannelError(info.ChannelId, info.ChannelType, c.GetString("channel_name"), info.ChannelIsMultiKey, info.ApiKey, false), &auditErr, info, false)
+		// The shared logger keeps a public summary and an independently sanitized
+		// admin diagnostic; the original error still controls outcome and billing.
+		service.ProcessChannelErrorAfterPolicy(c, *relaytypes.NewChannelError(info.ChannelId, info.ChannelType, c.GetString("channel_name"), info.ChannelIsMultiKey, info.ApiKey, false), relayErr, info, false)
 		if contentPolicyRejected {
 			return service.CompleteImageExecution(workerCtx, model.DB, generation.ID, fence, service.ImageExecutionFailureContentPolicy)
 		}

@@ -117,6 +117,13 @@ export interface ToolSurchargeItem {
 
 export interface LogOtherData {
   admin_info?: {
+    image_upstream_error?: {
+      message?: string
+      type?: string
+      code?: string
+      status_code?: number
+      truncated: boolean
+    }
     stream_status?: {
       status?: string
       end_reason?: string

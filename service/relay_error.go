@@ -108,7 +108,15 @@ func ProcessChannelErrorAfterPolicy(c *gin.Context, channelError types.ChannelEr
 	}
 	requestCancelled := IsRequestCancelled(c, err)
 	upstreamURLs := common.UpstreamAddresses(c)
-	message := err.MaskSensitiveErrorWithStatusCode(upstreamURLs...)
+	var message string
+	var imageDiagnostic *imageUpstreamErrorDiagnostic
+	if relayInfo != nil && relayInfo.DurableImageExecution {
+		diagnostic := imageGenerationDiagnostic(err, channelError.UsingKey, upstreamURLs, policyDetected)
+		imageDiagnostic = &diagnostic
+		message = fmt.Sprintf("status_code=%d, image provider request failed", err.StatusCode)
+	} else {
+		message = err.MaskSensitiveErrorWithStatusCode(upstreamURLs...)
+	}
 	if policyDetected {
 		message = fmt.Sprintf("status_code=%d, policy event detected", err.StatusCode)
 	}
@@ -138,7 +146,15 @@ func ProcessChannelErrorAfterPolicy(c *gin.Context, channelError types.ChannelEr
 			other.SetPublic("status", "cancelled")
 		} else {
 			other.SetPublic("error_type", err.GetErrorType())
-			other.SetPublic("error_code", err.GetErrorCode())
+			code := string(err.GetErrorCode())
+			if imageDiagnostic != nil {
+				code = ClassifyImageGenerationError(err)
+				if code == "" {
+					code = "image_generation_failed"
+				}
+				other.SetAdmin("image_upstream_error", imageDiagnostic)
+			}
+			other.SetPublic("error_code", code)
 			other.SetPublic("status_code", err.StatusCode)
 		}
 		other.SetAdmin("channel_id", channelError.ChannelId)

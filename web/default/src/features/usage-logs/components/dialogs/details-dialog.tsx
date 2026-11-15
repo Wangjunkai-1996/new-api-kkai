@@ -577,6 +577,22 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const showAdminIp =
     !!props.log.ip && (showTiming || (props.isAdmin && isTopup))
   const adminInfo = other?.admin_info
+  const imageUpstreamError = props.isAdmin
+    ? adminInfo?.image_upstream_error
+    : undefined
+  const imageUpstreamErrorText = imageUpstreamError
+    ? JSON.stringify(
+        {
+          message: imageUpstreamError.message,
+          type: imageUpstreamError.type,
+          code: imageUpstreamError.code,
+          status_code: imageUpstreamError.status_code,
+          truncated: imageUpstreamError.truncated,
+        },
+        null,
+        2
+      )
+    : ''
   const streamDiagnostics = props.isAdmin ? adminInfo?.stream_status : undefined
   const topupAuditFields =
     isTopup && props.isAdmin && adminInfo
@@ -919,6 +935,58 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           </DetailSection>
         )}
+
+        {imageUpstreamError ? (
+          <DetailSection
+            icon={<AlertTriangle className='size-3.5' aria-hidden='true' />}
+            label={t('Image upstream error details')}
+            variant='danger'
+          >
+            {imageUpstreamError.message ? (
+              <p className='min-w-0 text-xs break-all whitespace-pre-wrap sm:wrap-break-word'>
+                {imageUpstreamError.message}
+              </p>
+            ) : null}
+            {imageUpstreamError.type ? (
+              <DetailRow
+                label={t('Type')}
+                value={imageUpstreamError.type}
+                mono
+              />
+            ) : null}
+            {imageUpstreamError.code ? (
+              <DetailRow
+                label={t('Error code')}
+                value={imageUpstreamError.code}
+                mono
+              />
+            ) : null}
+            {imageUpstreamError.status_code != null ? (
+              <DetailRow
+                label={t('Status Code')}
+                value={String(imageUpstreamError.status_code)}
+                mono
+              />
+            ) : null}
+            {imageUpstreamError.truncated ? (
+              <p className='text-muted-foreground text-xs'>
+                {t('Error details were truncated.')}
+              </p>
+            ) : null}
+            <Button
+              variant='ghost'
+              size='sm'
+              onClick={() => copyToClipboard(imageUpstreamErrorText)}
+            >
+              {copiedText === imageUpstreamErrorText ? (
+                <Check className='size-3' aria-hidden='true' />
+              ) : (
+                <Copy className='size-3' aria-hidden='true' />
+              )}
+              {t('Copy error details')}
+            </Button>
+          </DetailSection>
+        ) : null}
 
         {/* Reject reason (admin only) */}
         {props.isAdmin && adminInfo?.reject_reason && (
