@@ -188,7 +188,7 @@ func GetMembershipCatalog(c *gin.Context) {
 		if self.Account != nil && self.Account.ActiveAt(self.ServerTime) {
 			switch {
 			case tier.ID == self.Account.TierID:
-				eligibility = membershipEligibility{Action: "current", Reason: "current_tier"}
+				eligibility.Action = "renew"
 			case tier.Rank <= self.Account.Rank:
 				eligibility = membershipEligibility{Action: "unavailable", Reason: "downgrade_not_available"}
 			default:

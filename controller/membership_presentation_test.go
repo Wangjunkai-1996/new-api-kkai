@@ -123,3 +123,62 @@ func TestMembershipPresentationAPIsExposePricesOnlyForAccessibleGroups(t *testin
 		assert.InDelta(t, 1-coefficient, selfResponse.Data.Discounts[0].Savings, 1e-9)
 	}
 }
+
+func TestMembershipCatalogAllowsSameTierRenewalWithRemainingQuota(t *testing.T) {
+	if !model.MembershipEnabled() {
+		t.Skip("requires KKAI_MEMBERSHIP_ENABLED=true")
+	}
+	db, fixtureOrder := membershipControllerFixture(t, model.PaymentProviderStripe, "CNY")
+	confirmPaymentComplianceForTest(t)
+	oldSecret, oldWebhook := setting.StripeApiSecret, setting.StripeWebhookSecret
+	setting.StripeApiSecret, setting.StripeWebhookSecret = "sk_test_membership", "whsec_membership"
+	t.Cleanup(func() { setting.StripeApiSecret, setting.StripeWebhookSecret = oldSecret, oldWebhook })
+	catalog, err := model.PublishMembershipCatalog(model.MembershipCatalog{
+		SalesEnabled: true,
+		Tiers: []model.MembershipTier{
+			{ID: "silver", Name: "Silver", Rank: 1, PriceMinor: 5000, Quota: 500, Currency: "CNY", Enabled: true},
+			{ID: "gold", Name: "Gold", Rank: 2, PriceMinor: 9900, Quota: 1000, Currency: "CNY", Enabled: true},
+			{ID: "diamond", Name: "Diamond", Rank: 3, PriceMinor: 19900, Quota: 2000, Currency: "CNY", Enabled: true},
+		},
+	}, fixtureOrder.ReleaseID, 1)
+	require.NoError(t, err)
+	now := common.GetTimestamp()
+	account := model.MembershipAccount{UserID: 7, TierID: "gold", Rank: 2, ReleaseID: catalog.ReleaseID, AmountTotal: 1000, AmountUsed: 999, ExpiresAt: now + 3600, Status: model.MembershipActive, Revision: 1}
+	require.NoError(t, db.Create(&account).Error)
+	require.NoError(t, db.Create(&model.MembershipUserState{UserID: 7, CurrentAccountID: account.ID}).Error)
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("id", 7) })
+	router.GET("/catalog", GetMembershipCatalog)
+	for _, tc := range []struct {
+		name        string
+		used, held  int64
+		sales       bool
+		wantActions []string
+	}{
+		{"tail balance", 999, 0, true, []string{"unavailable", "renew", "upgrade"}},
+		{"all remaining quota reserved", 999, 1, true, []string{"unavailable", "renew", "upgrade"}},
+		{"exhausted", 1000, 0, true, []string{"purchase", "purchase", "purchase"}},
+		{"sales closed", 999, 0, false, []string{"unavailable", "unavailable", "unavailable"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, db.Model(&account).Updates(map[string]any{"amount_used": tc.used, "amount_reserved": tc.held, "status": model.MembershipActive}).Error)
+			require.NoError(t, db.Model(&model.MembershipCatalogState{}).Where("id = ?", 1).Update("sales_enabled", tc.sales).Error)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/catalog", nil))
+			var response struct {
+				Success bool `json:"success"`
+				Data    struct {
+					Tiers []membershipTierView `json:"tiers"`
+				} `json:"data"`
+			}
+			require.Equal(t, http.StatusOK, recorder.Code)
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			require.True(t, response.Success)
+			require.Len(t, response.Data.Tiers, len(tc.wantActions))
+			for i, tier := range response.Data.Tiers {
+				assert.Equal(t, tc.wantActions[i], tier.Eligibility.Action, tier.ID)
+				assert.NotEmpty(t, tier.PaymentMethods)
+			}
+		})
+	}
+}

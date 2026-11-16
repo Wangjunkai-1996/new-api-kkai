@@ -9,25 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The compatibility release can fulfill frozen renewal orders before public
-// checkout starts creating them. Fixtures exercise that payment contract.
-func createFrozenMembershipRenewalTestOrder(t *testing.T, catalog *MembershipCatalog, account *MembershipAccount) *MembershipOrder {
-	t.Helper()
-	terms, err := common.Marshal(MembershipOrderTerms{
-		Tier: catalog.Tiers[0], ReleaseID: catalog.ReleaseID, DurationSeconds: MembershipDurationSeconds,
-		Action: "renew", ExpectedAccountID: account.ID, ExpectedRevision: account.Revision,
-	})
-	require.NoError(t, err)
-	order := MembershipOrder{
-		TradeNo: "renewal", UserID: account.UserID, TierID: account.TierID, ReleaseID: catalog.ReleaseID,
-		AmountMinor: catalog.Tiers[0].PriceMinor, Currency: catalog.Tiers[0].Currency, Provider: PaymentProviderEpay,
-		Status: MembershipOrderPending, ExpiresAt: common.GetTimestamp() + 600, Terms: string(terms), CreatedAt: common.GetTimestamp(),
-	}
-	require.NoError(t, DB.Create(&order).Error)
-	require.NoError(t, DB.Model(&MembershipUserState{}).Where("user_id = ?", account.UserID).Update("pending_order_id", order.ID).Error)
-	return &order
-}
-
 func TestMembershipRenewalCarriesTailQuotaAndOriginalReservationsOnce(t *testing.T) {
 	user, catalog := setupMembershipTest(t)
 	_, original := buyMembershipTest(t, user.Id, catalog, "gold", "original")
@@ -38,23 +19,7 @@ func TestMembershipRenewalCarriesTailQuotaAndOriginalReservationsOnce(t *testing
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, reserved.RemainingQuota)
 
-	_, err = CreateMembershipOrder(MembershipOrderInput{
-		UserID: user.Id, TierID: "gold", ReleaseID: catalog.ReleaseID, Provider: PaymentProviderEpay,
-		TradeNo: "same-tier-checkout", ExpiresAt: common.GetTimestamp() + 600,
-		ExpectedAccountID: original.ID, ExpectedRevision: original.Revision,
-	})
-	require.ErrorIs(t, err, ErrMembershipConflict, "public checkout must keep renewal disabled during the compatibility release")
-	order := createFrozenMembershipRenewalTestOrder(t, catalog, original)
-	order, err = CompleteMembershipPayment(MembershipPaymentInput{
-		TradeNo: order.TradeNo, Provider: order.Provider, ReceiptID: "renewal-receipt",
-		AmountMinor: order.AmountMinor, Currency: order.Currency, OneTime: true, Paid: true,
-	})
-	require.NoError(t, err)
-	require.Equal(t, MembershipOrderSuccess, order.Status)
-	self, err := GetMembershipSelf(user.Id)
-	require.NoError(t, err)
-	renewed := self.Account
-	require.NotNil(t, renewed)
+	order, renewed := buyMembershipTest(t, user.Id, catalog, "gold", "renewal")
 	var terms MembershipOrderTerms
 	require.NoError(t, common.UnmarshalJsonStr(order.Terms, &terms))
 	assert.Equal(t, "renew", terms.Action)
@@ -90,8 +55,12 @@ func TestMembershipRenewalRechecksAccountAtPayment(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			user, catalog := setupMembershipTest(t)
 			_, original := buyMembershipTest(t, user.Id, catalog, "gold", "original")
-			order := createFrozenMembershipRenewalTestOrder(t, catalog, original)
-			var err error
+			order, err := CreateMembershipOrder(MembershipOrderInput{
+				UserID: user.Id, TierID: "gold", ReleaseID: catalog.ReleaseID, Provider: PaymentProviderEpay,
+				TradeNo: "renewal", ExpiresAt: common.GetTimestamp() + 600,
+				ExpectedAccountID: original.ID, ExpectedRevision: original.Revision,
+			})
+			require.NoError(t, err)
 			switch scenario {
 			case "exhausted":
 				_, err = ReserveMembershipBilling(membershipReservation(t, user.Id, "consume-rest", 100, 100))

@@ -60,11 +60,16 @@ export function MembershipPurchaseDialog(props: {
       (method) => `${method.provider}:${method.method}` === methodKey
     ) ?? methods[0]
   const upgrade = props.tier.eligibility?.action === 'upgrade'
+  const renewal = props.tier.eligibility?.action === 'renew'
+  const carriesQuota = upgrade || renewal
   const account = props.membership.account
   const carry =
-    upgrade && account
+    carriesQuota && account
       ? Math.max(0, account.amount_total - account.amount_used)
       : 0
+  let title = t('Confirm membership purchase')
+  if (upgrade) title = t('Upgrade membership')
+  else if (renewal) title = t('Renew membership')
   const purchase = useMutation({
     mutationFn: createMembershipOrder,
     onSuccess: (order) => {
@@ -91,9 +96,7 @@ export function MembershipPurchaseDialog(props: {
             className='size-16 shrink-0 object-contain'
           />
           <span className='min-w-0 leading-snug'>
-            {upgrade
-              ? t('Upgrade membership')
-              : t('Confirm membership purchase')}
+            {title}{' '}
             <span className='mt-1 block text-base font-medium'>
               {props.tier.name}
             </span>
@@ -121,7 +124,7 @@ export function MembershipPurchaseDialog(props: {
               {formatQuota(props.tier.quota)}
             </dd>
           </div>
-          {upgrade && (
+          {carriesQuota && (
             <div className='flex items-baseline justify-between gap-3'>
               <dt className='text-muted-foreground'>
                 {t('Estimated carried quota')}
@@ -139,7 +142,7 @@ export function MembershipPurchaseDialog(props: {
               {formatQuota(props.tier.quota + carry)}
             </dd>
           </div>
-          {upgrade && account && account.amount_reserved > 0 && (
+          {carriesQuota && account && account.amount_reserved > 0 && (
             <div className='flex items-baseline justify-between gap-3 text-xs'>
               <dt className='text-muted-foreground'>
                 {t('Reserved by requests')}
@@ -154,6 +157,13 @@ export function MembershipPurchaseDialog(props: {
           <Clock3 className='mt-0.5 size-4 shrink-0' aria-hidden='true' />
           <div>
             <p>{t('A new 30-day period starts when payment is confirmed.')}</p>
+            {renewal && (
+              <p className='mt-1'>
+                {t(
+                  'Renewal adds the new plan quota to your unexpired remaining quota. Reserved requests keep their original pricing. Final carried quota is calculated when payment is confirmed.'
+                )}
+              </p>
+            )}
             {upgrade && (
               <p className='mt-1'>
                 {t(

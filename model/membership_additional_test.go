@@ -376,7 +376,7 @@ func TestMembershipGrantDoesNotDismissAnAdditionalPayment(t *testing.T) {
 	assert.Empty(t, outstanding)
 }
 
-func TestMembershipRankChangeCannotRepurchaseSameActiveTier(t *testing.T) {
+func TestMembershipRankChangeRenewsSameTierWithoutReinterpretingUpgradeOrders(t *testing.T) {
 	user, catalog := setupMembershipTest(t)
 	_, account := buyMembershipTest(t, user.Id, catalog, "gold", "original-gold")
 	for i := range catalog.Tiers {
@@ -384,14 +384,16 @@ func TestMembershipRankChangeCannotRepurchaseSameActiveTier(t *testing.T) {
 	}
 	updated, err := PublishMembershipCatalog(*catalog, catalog.ReleaseID, 1)
 	require.NoError(t, err)
-	_, err = CreateMembershipOrder(MembershipOrderInput{
+	renewal, err := CreateMembershipOrder(MembershipOrderInput{
 		UserID: user.Id, TierID: "gold", ReleaseID: updated.ReleaseID, Provider: PaymentProviderEpay,
 		TradeNo: "same-gold", ExpiresAt: common.GetTimestamp() + 600,
 		ExpectedAccountID: account.ID, ExpectedRevision: account.Revision,
 	})
-	assert.ErrorIs(t, err, ErrMembershipConflict)
-	// A checkout created before this guard existed still cannot issue a second
-	// quota grant when the verified payment arrives after the fix.
+	require.NoError(t, err)
+	var renewalTerms MembershipOrderTerms
+	require.NoError(t, common.UnmarshalJsonStr(renewal.Terms, &renewalTerms))
+	assert.Equal(t, "renew", renewalTerms.Action)
+	// Historical same-tier upgrade orders must not be treated as renewals.
 	terms, err := common.Marshal(MembershipOrderTerms{
 		Tier: updated.Tiers[0], ReleaseID: updated.ReleaseID, DurationSeconds: MembershipDurationSeconds,
 		Action: "upgrade", ExpectedAccountID: account.ID, ExpectedRevision: account.Revision,

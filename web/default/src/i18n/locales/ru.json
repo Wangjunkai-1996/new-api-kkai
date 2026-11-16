@@ -6835,6 +6835,8 @@
     "Renamed an access token": "Переименован токен доступа",
     "Renamed successfully": "Успешно переименовано",
     "Renaming metadata does not rename channel models or move pricing. Existing prices stay with the original model name.": "Переименование метаданных не меняет имена моделей каналов и не переносит цены. Цены остаются у исходного имени модели.",
+    "Renew membership": "Продлить подписку",
+    "Renewal adds the new plan quota to your unexpired remaining quota. Reserved requests keep their original pricing. Final carried quota is calculated when payment is confirmed.": "При продлении квота нового плана добавляется к остатку с неистёкшим сроком действия. Запросы с зарезервированной квотой сохраняют исходные цены. Переносимый остаток рассчитывается при подтверждении оплаты.",
     "Reopen": "Reopen",
     "Reopen payment page": "Открыть страницу оплаты снова",
     "Reorder channel {{id}}": "Изменить порядок канала {{id}}",

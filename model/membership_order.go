@@ -134,10 +134,13 @@ func CreateMembershipOrder(input MembershipOrderInput) (*MembershipOrder, error)
 			terms.VerificationVersion = 1
 		}
 		if account != nil && account.ActiveAt(now) {
-			if selected.ID == account.TierID || selected.Rank <= account.Rank {
-				return fmt.Errorf("%w: an active membership can only upgrade", ErrMembershipConflict)
+			if selected.ID != account.TierID && selected.Rank <= account.Rank {
+				return fmt.Errorf("%w: an active membership can only renew or upgrade", ErrMembershipConflict)
 			}
 			terms.Action, terms.ExpectedAccountID, terms.ExpectedRevision = "upgrade", account.ID, account.Revision
+			if selected.ID == account.TierID {
+				terms.Action = "renew"
+			}
 		}
 		if terms.ExpectedAccountID != input.ExpectedAccountID || terms.ExpectedRevision != input.ExpectedRevision {
 			return ErrMembershipConflict

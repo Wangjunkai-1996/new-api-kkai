@@ -6835,6 +6835,8 @@
     "Renamed an access token": "重命名了访问令牌",
     "Renamed successfully": "重命名成功",
     "Renaming metadata does not rename channel models or move pricing. Existing prices stay with the original model name.": "修改元信息名称不会重命名渠道模型或迁移定价，已有价格仍归原模型名称。",
+    "Renew membership": "续购会员",
+    "Renewal adds the new plan quota to your unexpired remaining quota. Reserved requests keep their original pricing. Final carried quota is calculated when payment is confirmed.": "续购后，新套餐额度将与未过期的剩余额度叠加。已预留的请求保持原计价规则，最终结转额度以付款确认时为准。",
     "Reopen": "重新打开",
     "Reopen payment page": "重新打开支付页面",
     "Reorder channel {{id}}": "调整渠道 {{id}} 的优先级",

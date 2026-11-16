@@ -85,7 +85,7 @@ export function canPurchaseMembership(
   return (
     salesEnabled &&
     tier.enabled &&
-    (action === 'purchase' || action === 'upgrade') &&
+    (action === 'purchase' || action === 'renew' || action === 'upgrade') &&
     !!tier.payment_methods?.length
   )
 }

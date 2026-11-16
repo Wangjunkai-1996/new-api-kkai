@@ -6835,6 +6835,8 @@
     "Renamed an access token": "Đã đổi tên token truy cập",
     "Renamed successfully": "Đổi tên thành công",
     "Renaming metadata does not rename channel models or move pricing. Existing prices stay with the original model name.": "Đổi tên siêu dữ liệu không đổi tên mô hình trong kênh hay chuyển giá. Giá hiện có vẫn gắn với tên mô hình ban đầu.",
+    "Renew membership": "Mua tiếp gói thành viên",
+    "Renewal adds the new plan quota to your unexpired remaining quota. Reserved requests keep their original pricing. Final carried quota is calculated when payment is confirmed.": "Mua tiếp sẽ cộng hạn mức của gói mới vào hạn mức còn lại chưa hết hạn. Các yêu cầu đã giữ hạn mức vẫn áp dụng mức giá ban đầu. Hạn mức chuyển tiếp được tính khi xác nhận thanh toán.",
     "Reopen": "Reopen",
     "Reopen payment page": "Mở lại trang thanh toán",
     "Reorder channel {{id}}": "Đổi thứ tự kênh {{id}}",

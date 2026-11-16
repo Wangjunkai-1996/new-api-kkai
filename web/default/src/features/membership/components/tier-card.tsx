@@ -60,9 +60,11 @@ export function MembershipTierCard(props: {
 }) {
   const { t, i18n } = useTranslation()
   const style = appearances[props.tier.style] ?? appearances.gold
-  const current = props.tier.eligibility?.action === 'current'
+  const renewal = props.tier.eligibility?.action === 'renew'
+  const current = renewal || props.tier.eligibility?.action === 'current'
   let actionLabel = t('Choose membership')
-  if (current) actionLabel = t('Current membership')
+  if (renewal) actionLabel = t('Renew membership')
+  else if (current) actionLabel = t('Current membership')
   else if (props.tier.eligibility?.action === 'upgrade') {
     actionLabel = t('Upgrade membership')
   } else if (!canPurchaseMembership(props.tier, props.salesEnabled)) {

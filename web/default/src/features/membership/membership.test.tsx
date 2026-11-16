@@ -284,6 +284,23 @@ describe('membership purchase and benefits', () => {
     ).toBeDisabled()
     rerender(
       <MembershipTierCard
+        tier={{ ...tier, eligibility: { action: 'renew' } }}
+        salesEnabled
+        onPurchase={onPurchase}
+      />
+    )
+    expect(screen.getByText('Current membership')).toBeVisible()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Renew membership' })
+    )
+    expect(onPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'level-a',
+        eligibility: { action: 'renew' },
+      })
+    )
+    rerender(
+      <MembershipTierCard
         tier={{
           ...tier,
           name: 'Custom level',
@@ -494,62 +511,100 @@ describe('membership purchase and benefits', () => {
     }
   )
 
-  it('submits the shown release and account revision and keeps a failed payment unactivated', async () => {
-    vi.mocked(createMembershipOrder).mockRejectedValue(
-      new Error('Membership changed')
-    )
-    const onCreated = vi.fn()
-    const client = new QueryClient({
-      defaultOptions: {
-        mutations: { retry: false },
-        queries: { retry: false },
-      },
-    })
-    render(
-      <QueryClientProvider client={client}>
-        <MembershipPurchaseDialog
-          tier={{ ...tier, id: 'level-b', eligibility: { action: 'upgrade' } }}
-          membership={membership}
-          releaseId={3}
-          salesEnabled
-          onClose={vi.fn()}
-          onOrderCreated={onCreated}
-        />
-      </QueryClientProvider>
-    )
-    const dialog = screen.getByRole('dialog')
-    expect(
-      within(dialog).queryByText('Pay with Balance')
-    ).not.toBeInTheDocument()
-    expect(within(dialog).getByText('Estimated carried quota')).toBeVisible()
-    const continueButton = within(dialog).getByRole('button', {
-      name: 'Continue to payment',
-    })
-    expect(continueButton).toBeDisabled()
-    await userEvent.click(
-      within(dialog).getByRole('checkbox', {
-        name: 'I understand that quota expires, does not transfer to my wallet, and does not renew automatically.',
-      })
-    )
-    await userEvent.click(continueButton)
-    expect(createMembershipOrder).toHaveBeenCalledWith(
-      {
-        tier_id: 'level-b',
-        payment_provider: 'stripe',
-        payment_method: 'card',
-        release_id: 3,
-        expected_account_id: 20,
-        expected_revision: 4,
-      },
-      expect.anything()
-    )
-    expect(
-      await screen.findByText(
-        'Payment could not be started. Refresh your membership before trying again.'
+  it.each(['upgrade', 'renew'] as const)(
+    'submits the shown %s terms and account revision and keeps a failed payment unactivated',
+    async (action) => {
+      vi.mocked(createMembershipOrder).mockRejectedValue(
+        new Error('Membership changed')
       )
-    ).toBeVisible()
-    expect(onCreated).not.toHaveBeenCalled()
-  })
+      const onCreated = vi.fn()
+      const selectedTier = {
+        ...tier,
+        id: action === 'renew' ? 'level-a' : 'level-b',
+        eligibility: { action },
+      }
+      const remainingQuota = 14800
+      const client = new QueryClient({
+        defaultOptions: {
+          mutations: { retry: false },
+          queries: { retry: false },
+        },
+      })
+      render(
+        <QueryClientProvider client={client}>
+          <MembershipPurchaseDialog
+            tier={selectedTier}
+            membership={{
+              ...membership,
+              account: membership.account && {
+                ...membership.account,
+                amount_used: membership.account.amount_total - remainingQuota,
+                amount_reserved: 0,
+              },
+            }}
+            releaseId={3}
+            salesEnabled
+            onClose={vi.fn()}
+            onOrderCreated={onCreated}
+          />
+        </QueryClientProvider>
+      )
+      const dialog = screen.getByRole('dialog')
+      expect(
+        within(dialog).queryByText('Pay with Balance')
+      ).not.toBeInTheDocument()
+      expect(within(dialog).getByText('Estimated carried quota')).toBeVisible()
+      expect(
+        within(dialog).getByText(`+ ${formatQuota(remainingQuota)}`)
+      ).toBeVisible()
+      expect(
+        within(dialog).getByText(formatQuota(tier.quota + remainingQuota))
+      ).toBeVisible()
+      expect(
+        within(dialog).getByText(
+          'A new 30-day period starts when payment is confirmed.'
+        )
+      ).toBeVisible()
+      if (action === 'renew') {
+        expect(dialog).toHaveAccessibleName('Renew membership Gold')
+        expect(
+          within(dialog).queryByText('Upgrade membership')
+        ).not.toBeInTheDocument()
+        expect(
+          within(dialog).getByText(
+            'Renewal adds the new plan quota to your unexpired remaining quota. Reserved requests keep their original pricing. Final carried quota is calculated when payment is confirmed.'
+          )
+        ).toBeVisible()
+      }
+      const continueButton = within(dialog).getByRole('button', {
+        name: 'Continue to payment',
+      })
+      expect(continueButton).toBeDisabled()
+      await userEvent.click(
+        within(dialog).getByRole('checkbox', {
+          name: 'I understand that quota expires, does not transfer to my wallet, and does not renew automatically.',
+        })
+      )
+      await userEvent.click(continueButton)
+      expect(createMembershipOrder).toHaveBeenCalledWith(
+        {
+          tier_id: selectedTier.id,
+          payment_provider: 'stripe',
+          payment_method: 'card',
+          release_id: 3,
+          expected_account_id: 20,
+          expected_revision: 4,
+        },
+        expect.anything()
+      )
+      expect(
+        await screen.findByText(
+          'Payment could not be started. Refresh your membership before trying again.'
+        )
+      ).toBeVisible()
+      expect(onCreated).not.toHaveBeenCalled()
+    }
+  )
 })
 
 describe('membership publication validation', () => {

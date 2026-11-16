@@ -36,7 +36,7 @@ export interface MembershipTier {
   discounts: Record<string, number>
   payment_products?: Record<string, string>
   eligibility?: {
-    action: 'purchase' | 'upgrade' | 'current' | 'unavailable'
+    action: 'purchase' | 'renew' | 'upgrade' | 'current' | 'unavailable'
     reason?: string
   }
   payment_methods?: MembershipPaymentMethod[]
