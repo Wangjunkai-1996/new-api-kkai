@@ -2,6 +2,16 @@
 
 日期：2026-11-15；执行修订：2026-11-16。状态：已批准的串行发布操作方案；实际结果以 `acceptance.md` 和对应发布记录为准，命令本身不代表执行成功。专业审查见 `review-release.md`，准备证据见 `release-preparation.md`。构建和生产变更由发布/SRE角色串行执行，主协调者负责源码冻结、提交和独立复核。
 
+## 2026-11-16 样本要求修订
+
+首轮 Sub2API 发布因 50% 阶段 1800 秒无自然样本回退后，用户明确要求：**“不用管样本 直接上线啊”**。以下第 6、7 节的正样本要求、为样本延长至 30 分钟及到时回退，仅记录首轮执行规则；本次重试不再采用这些样本等待条件。此前回退和零样本证据原样保留，NewAPI 已完成的发布不重复执行。
+
+原正式 CLI 强制校验正样本，不能靠省略 `--error-window` 或直接调用内部 Python 绕过。已对唯一必要的控制器变更独立实施、审查并验证：基础设施提交 `b8b622e564a50d765f78cd745327573d41cd8e60`，在现有 v1 人工接受路径增加显式 `waive_image_samples: true`。它仅适用于 image scope、两侧真实非负整数样本且至少一侧为零、两侧错误列表均为空；绑定当前 release、source phase、destination、entered_at、router SHA 和整份证据文件 SHA。正常路径及 text/both 行为不变。此独立控制器安装是本修订对第 1 节“不得更新控制器”的唯一例外，NewAPI 控制器 pin 不变。
+
+重试复用原 Sub2API 应用源码 `855bdb83bc422e4385938846b2b9a64864559a84`、原不可变镜像和归档，不重新构建。实际安装身份和 capability 验收后生成新 plan/release；按 10%→50%→100%→complete 推进，各档观察至少 120 秒，并保留至少 60 秒日志写入保护。两侧均有正样本时走原正常门禁；符合空样本例外时，审阅最终文件并向相应 promote 添加 `--accept-error-window-sha256 "$EVIDENCE_SHA256"`，结果保留 `passed:false / classification:operator_accepted` 与真实样本，不记为自动通过。
+
+样本豁免不覆盖已发现错误、采集失效、迁移或身份不符、健康/CAS/回滚失败，也不替代立即、五分钟延迟验收和受控清理。用户未要求代理登录或发起真实图片请求，相关业务 E2E 仍未验证。本次实现、安装、每档审阅和清理证据单独保存在 `.local-releases/image-failure-contract-20261115/sub2-waiver-20261116/`，最终结果见 `acceptance-sub2-release.md`。
+
 ## 1. 冻结范围、顺序与边界
 
 顺序固定为 **NewAPI backend → NewAPI frontend → NewAPI 完整验收/收尾 → Sub2API image → Sub2API 完整验收/收尾**。先交付安全诊断，使 Sub2API marker 生效时已有诊断能力。两端协议兼容且各自可回退；没有跨服务原子切换。Sub2API 灰度期间禁止其他应用发布，否则非目标服务生命周期保护会检测到漂移。
