@@ -592,10 +592,22 @@ func activateMembershipOrderTx(tx *gorm.DB, order *MembershipOrder, state *Membe
 		return err
 	}
 	active := account != nil && account.ActiveAt(now)
-	if terms.Action == "upgrade" {
-		if !active || account.ID != terms.ExpectedAccountID || account.Revision != terms.ExpectedRevision || terms.Tier.ID == account.TierID || terms.Tier.Rank <= account.Rank {
+	if terms.Action == "upgrade" || terms.Action == "renew" {
+		if account == nil || account.ID != terms.ExpectedAccountID || account.Revision != terms.ExpectedRevision {
 			return ErrMembershipConflict
 		}
+		if terms.Action == "renew" {
+			if terms.Tier.ID != account.TierID || (account.Status != MembershipActive && account.Status != MembershipExhausted && !(account.Status == MembershipExpired && account.ExpiresAt <= now)) {
+				return ErrMembershipConflict
+			}
+		} else if !active || terms.Tier.ID == account.TierID || terms.Tier.Rank <= account.Rank {
+			return ErrMembershipConflict
+		}
+	}
+	// A renewal can finish after the original quota is exhausted. Once the old
+	// period expires, open a separate account so expired quota and its in-flight
+	// refunds cannot be carried into the new period.
+	if terms.Action == "upgrade" || (terms.Action == "renew" && account.ExpiresAt > now) {
 		if account.AmountTotal > math.MaxInt64-terms.Tier.Quota {
 			return fmt.Errorf("%w: membership quota capacity exceeded", ErrMembershipInvalidInput)
 		}
