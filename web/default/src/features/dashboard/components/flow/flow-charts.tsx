@@ -36,6 +36,7 @@ import { useTranslation } from 'react-i18next'
 
 import { MultiSelect } from '@/components/multi-select'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import {
   Empty,
   EmptyDescription,
@@ -60,9 +61,9 @@ import {
   buildQueryParams,
   flowNodeFilterFromSankeyDatum,
   flowSankeyDatumValue,
-  getDefaultDays,
   getFlowStages,
 } from '@/features/dashboard/lib'
+import { resolveDashboardTimeRange } from '@/features/dashboard/lib/filters'
 import {
   compactFlowSelectionLabel,
   flowDisplayState,
@@ -77,16 +78,19 @@ import type {
   FlowOverflowMode,
   FlowRole,
 } from '@/features/dashboard/types'
+import { useSiteConfig } from '@/features/site-config'
 import { formatQuota } from '@/lib/format'
+import { getCurrentHost } from '@/lib/host-scope'
+import { privateUserQueryKey } from '@/lib/private-query-cache'
 import { ROLE } from '@/lib/roles'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { useThemeColor } from '@/lib/theme-color'
-import { computeTimeRange } from '@/lib/time'
 import { useChartTheme } from '@/lib/use-chart-theme'
 import { cn } from '@/lib/utils'
 import { VCHART_OPTION } from '@/lib/vchart'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { canViewAdminData as resolveCanViewAdminData } from '../../lib/permissions'
 import { FlowNodeFilterControl } from './flow-node-filter'
 
 interface FlowChartsProps {
@@ -253,8 +257,11 @@ export function FlowCharts(props: FlowChartsProps) {
   const textColor = useThemeColor('--foreground')
   const chartInstanceRef = useRef<IVChart | null>(null)
   const user = useAuthStore((state) => state.auth.user)
-  const isRoot = Boolean(user?.role && user.role >= ROLE.SUPER_ADMIN)
-  const isAdmin = Boolean(user?.role && user.role >= ROLE.ADMIN)
+  const { data: site } = useSiteConfig()
+  const canViewAdminData = resolveCanViewAdminData(user, site)
+  const isRoot =
+    canViewAdminData && Boolean(user?.role && user.role >= ROLE.SUPER_ADMIN)
+  const isAdmin = canViewAdminData
   let flowRole: FlowRole = 'user'
   if (isRoot) {
     flowRole = 'root'
@@ -311,20 +318,15 @@ export function FlowCharts(props: FlowChartsProps) {
   }
 
   const timeRange = useMemo(
-    () =>
-      computeTimeRange(
-        getDefaultDays(props.filters?.time_granularity),
-        props.filters?.start_timestamp,
-        props.filters?.end_timestamp
-      ),
-    [
-      props.filters?.end_timestamp,
-      props.filters?.start_timestamp,
-      props.filters?.time_granularity,
-    ]
+    () => resolveDashboardTimeRange(props.filters),
+    [props.filters]
   )
   const flowQueryParams = useMemo(
-    () => buildQueryParams(timeRange, props.filters),
+    () =>
+      buildQueryParams(timeRange, {
+        ...props.filters,
+        time_granularity: 'hour',
+      }),
     [props.filters, timeRange]
   )
 
@@ -333,10 +335,19 @@ export function FlowCharts(props: FlowChartsProps) {
     error: flowError,
     isError,
     isLoading,
+    refetch,
   } = useQuery({
-    queryKey: ['dashboard', 'flow', flowQueryParams, flowRole],
+    queryKey: privateUserQueryKey(
+      user?.id ?? 0,
+      getCurrentHost(),
+      'dashboard',
+      'flow',
+      flowQueryParams,
+      flowRole
+    ),
     queryFn: async () =>
       requireServerSuccess(await getFlowQuotaDates(flowQueryParams, isAdmin)),
+    enabled: Boolean(user?.id),
     select: (res) =>
       requireSuccessfulFlowRows(res, t('Please try again later.')),
     staleTime: 60_000,
@@ -519,6 +530,14 @@ export function FlowCharts(props: FlowChartsProps) {
           <CircleAlert />
           <AlertTitle>{t('Failed to load')}</AlertTitle>
           <AlertDescription>{flowErrorMessage}</AlertDescription>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            onClick={() => void refetch()}
+          >
+            {t('Retry')}
+          </Button>
         </Alert>
       </div>
     )

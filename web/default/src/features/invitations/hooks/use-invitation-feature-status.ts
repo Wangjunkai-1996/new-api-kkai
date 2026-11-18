@@ -33,10 +33,25 @@ export const INVITATION_STATUS_QUERY_KEY = ['kkai', 'invitations', 'status']
 
 export const useInvitationFeatureStatus = (enabled = true) => {
   const userId = useAuthStore((state) => state.auth.user?.id)
+  const hasUser =
+    userId !== undefined && Number.isSafeInteger(userId) && userId > 0
   const query = useQuery({
     queryKey: INVITATION_STATUS_QUERY_KEY,
-    queryFn: async () =>
-      normalizeInvitationStatus(await getInvitationFeatureStatus()),
+    queryFn: async () => {
+      const response = await getInvitationFeatureStatus()
+      const data = requireInvitationData(
+        response,
+        'Failed to load invitation settings'
+      )
+      const status = normalizeInvitationStatus(response)
+      return {
+        ...status,
+        confirmedOrderRebateEnabled:
+          status.available && typeof data?.orderRebateEnabled === 'boolean'
+            ? data.orderRebateEnabled
+            : undefined,
+      }
+    },
     enabled,
     meta: { errorToast: false },
     retry: false,
@@ -44,7 +59,7 @@ export const useInvitationFeatureStatus = (enabled = true) => {
     gcTime: 5 * 60_000,
   })
   const status = (enabled && query.data) || DISABLED_INVITATION_STATUS
-  const profileEnabled = status.available && Boolean(userId)
+  const profileEnabled = status.available && hasUser
   const profileQuery = useQuery({
     queryKey: ['kkai', 'invitations', 'sales-profile', userId],
     queryFn: async () =>
@@ -65,6 +80,11 @@ export const useInvitationFeatureStatus = (enabled = true) => {
     query.isPending || (profileEnabled && profileQuery.isPending)
 
   return {
+    userId: hasUser ? userId : undefined,
+    confirmedOrderRebateEnabled:
+      enabled && query.isSuccess
+        ? query.data.confirmedOrderRebateEnabled
+        : undefined,
     query,
     accessError,
     retryAccess: () =>
@@ -72,11 +92,11 @@ export const useInvitationFeatureStatus = (enabled = true) => {
     isPending,
     status,
     ...access,
-    userVisible: access.userVisible && !isPending && !accessError,
+    userVisible: hasUser && access.userVisible && !isPending && !accessError,
     userNavigationVisible:
       access.userVisible ||
       (enabled &&
-        Boolean(userId) &&
+        hasUser &&
         (query.isError || (profileEnabled && !profileQuery.isSuccess))),
   }
 }

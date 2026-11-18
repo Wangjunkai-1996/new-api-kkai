@@ -895,7 +895,7 @@ export const STATIC_I18N_KEYS = [
   'Sync from the public upstream metadata repository.',
   'Upload or reference a local configuration file.',
 
-  // Subscription constants (dynamic labelKey)
+  // Subscription and dashboard time options (dynamic labels)
   'years',
   'months',
   'days',
@@ -904,9 +904,19 @@ export const STATIC_I18N_KEYS = [
   'minutes',
   'Custom (seconds)',
   'No Reset',
+  'Hourly',
   'Daily',
   'Weekly',
   'Monthly',
+  'Last 24 hours',
+  'Last 7 days',
+  'Last 14 days',
+  'Last 30 days',
+  'Bar Chart',
+  'Area Chart',
+  'Call Trend',
+  'Call Count Distribution',
+  'Call Count Ranking',
 
   // CC Switch dialog
   'Import to CC Switch',

@@ -21,6 +21,7 @@ import { Eye, EyeOff } from 'lucide-react'
 import { useState, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
 import { FadeIn } from '@/components/page-transition'
 import { Button } from '@/components/ui/button'
@@ -31,6 +32,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useSiteConfig } from '@/features/site-config'
+import { getCurrentHost } from '@/lib/host-scope'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -43,9 +46,11 @@ import {
   buildDefaultDashboardFilters,
   getDefaultDays,
   getSavedChartPreferences,
-  getSavedGranularity,
+  getSavedUserGranularity,
   saveChartPreferences,
 } from './lib'
+import { resolveDashboardTimeRange } from './lib/filters'
+import { canViewAdminData as resolveCanViewAdminData } from './lib/permissions'
 import {
   type DashboardSectionId,
   DASHBOARD_DEFAULT_SECTION,
@@ -197,23 +202,44 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
 }
 
 export function Dashboard() {
+  const user = useAuthStore((state) => state.auth.user)
+  const { data: site } = useSiteConfig()
+  const canViewAdminData = resolveCanViewAdminData(user, site)
+  const host = getCurrentHost()
+  return (
+    <DashboardSections
+      key={`${user?.id ?? 0}:${user?.role ?? ROLE.GUEST}:${host}:${site?.tenant_id ?? 'unknown'}:${canViewAdminData}`}
+      canViewAdminData={canViewAdminData}
+    />
+  )
+}
+
+function DashboardSections({
+  canViewAdminData,
+}: {
+  canViewAdminData: boolean
+}) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const params = route.useParams()
-  const userRole = useAuthStore((state) => state.auth.user?.role)
   const activeSection = (params.section ??
     DASHBOARD_DEFAULT_SECTION) as DashboardSectionId
 
   const [modelData, setModelData] = useState<QuotaDataItem[]>([])
-  const [dataLoading, setDataLoading] = useState(false)
+  const [dataLoading, setDataLoading] = useState(true)
+  const [dataError, setDataError] = useState(false)
+  const [dataRetryToken, setDataRetryToken] = useState(0)
   const [chartPreferences, setChartPreferences] =
     useState<DashboardChartPreferences>(() => getSavedChartPreferences())
   const [modelFilters, setModelFilters] = useState<DashboardFilters>(() =>
-    buildDefaultDashboardFilters(getSavedChartPreferences())
+    buildDefaultDashboardFilters(chartPreferences)
+  )
+  const [flowFilters, setFlowFilters] = useState<DashboardFilters>(() =>
+    buildDefaultDashboardFilters(chartPreferences)
   )
   const [userChartsFilters, setUserChartsFilters] = useState<UserChartsFilters>(
     () => {
-      const granularity = getSavedGranularity()
+      const granularity = getSavedUserGranularity()
       return {
         timeGranularity: granularity,
         selectedRange: getDefaultDays(granularity),
@@ -223,18 +249,19 @@ export function Dashboard() {
   )
   const [flowSensitiveVisible, setFlowSensitiveVisible] = useState(true)
 
-  const handleFilterChange = useCallback((filters: DashboardFilters) => {
-    setModelFilters(filters)
-  }, [])
-
   const handleResetFilters = useCallback(() => {
     setModelFilters(buildDefaultDashboardFilters(chartPreferences))
   }, [chartPreferences])
 
+  const handleResetFlowFilters = useCallback(() => {
+    setFlowFilters(buildDefaultDashboardFilters(chartPreferences))
+  }, [chartPreferences])
+
   const handleDataUpdate = useCallback(
-    (data: QuotaDataItem[], loading: boolean) => {
+    (data: QuotaDataItem[], loading: boolean, error = false) => {
       setModelData(data)
       setDataLoading(loading)
+      setDataError(error)
     },
     []
   )
@@ -249,13 +276,25 @@ export function Dashboard() {
   )
 
   const meta = SECTION_META[activeSection] ?? SECTION_META.overview
-  const isAdmin = Boolean(userRole && userRole >= ROLE.ADMIN)
+  const modelQuery = useMemo(() => {
+    if (activeSection !== 'models') return null
+    const timeRange = resolveDashboardTimeRange(modelFilters)
+    return {
+      timeRange,
+      filters: {
+        ...modelFilters,
+        start_timestamp: new Date(timeRange.start_timestamp * 1000),
+        end_timestamp: new Date(timeRange.end_timestamp * 1000),
+      },
+    }
+  }, [activeSection, modelFilters])
   const visibleSections = useMemo(
     () =>
       DASHBOARD_SECTION_IDS.filter(
-        (section) => section !== 'overview' && (section !== 'users' || isAdmin)
+        (section) =>
+          section !== 'overview' && (section !== 'users' || canViewAdminData)
       ),
-    [isAdmin]
+    [canViewAdminData]
   )
   const handleSectionChange = useCallback(
     (section: string) => {
@@ -277,8 +316,9 @@ export function Dashboard() {
         />
         <ModelsFilter
           preferences={chartPreferences}
+          allowUsernameFilter={canViewAdminData}
           currentFilters={modelFilters}
-          onFilterChange={handleFilterChange}
+          onFilterChange={setModelFilters}
           onReset={handleResetFilters}
         />
       </>
@@ -312,9 +352,10 @@ export function Dashboard() {
         </Tooltip>
         <ModelsFilter
           preferences={chartPreferences}
-          currentFilters={modelFilters}
-          onFilterChange={handleFilterChange}
-          onReset={handleResetFilters}
+          allowUsernameFilter={canViewAdminData}
+          currentFilters={flowFilters}
+          onFilterChange={setFlowFilters}
+          onReset={handleResetFlowFilters}
           titleKey='Flow Filters'
           descriptionKey='Filter the traffic flow view by time range and user.'
         />
@@ -322,7 +363,10 @@ export function Dashboard() {
     ) : null
   const sectionActions = modelActions ?? flowActions
 
-  if (activeSection === 'overview') {
+  if (
+    activeSection === 'overview' ||
+    (activeSection === 'users' && !canViewAdminData)
+  ) {
     return <OverviewDashboard />
   }
 
@@ -351,49 +395,68 @@ export function Dashboard() {
               </div>
             )}
           </div>
-          {activeSection === 'models' && (
+          {modelQuery && (
             <>
               <FadeIn>
                 <Suspense fallback={<LogStatCardsFallback />}>
                   <LazyLogStatCards
-                    filters={modelFilters}
+                    filters={modelQuery.filters}
+                    timeRange={modelQuery.timeRange}
+                    retryToken={dataRetryToken}
                     onDataUpdate={handleDataUpdate}
                   />
                 </Suspense>
               </FadeIn>
-              {isAdmin && (
+              {canViewAdminData && (
                 <FadeIn delay={0.05}>
                   <Suspense fallback={<PerformanceOverviewFallback />}>
                     <LazyPerformanceOverview />
                   </Suspense>
                 </FadeIn>
               )}
-              <FadeIn delay={0.1}>
-                <Suspense fallback={<ModelChartsFallback />}>
-                  <LazyConsumptionDistributionChart
-                    data={modelData}
-                    loading={dataLoading}
-                    defaultChartType={
-                      chartPreferences.consumptionDistributionChart
-                    }
-                    timeGranularity={
-                      modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
-                    }
+              {dataError ? (
+                <FadeIn delay={0.1}>
+                  <ErrorState
+                    title={t('Failed to load usage statistics')}
+                    onRetry={() => setDataRetryToken((value) => value + 1)}
                   />
-                </Suspense>
-              </FadeIn>
-              <FadeIn delay={0.15}>
-                <Suspense fallback={<ModelChartsFallback />}>
-                  <LazyModelCharts
-                    data={modelData}
-                    loading={dataLoading}
-                    defaultChartTab={chartPreferences.modelAnalyticsChart}
-                    timeGranularity={
-                      modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
-                    }
-                  />
-                </Suspense>
-              </FadeIn>
+                </FadeIn>
+              ) : (
+                <>
+                  <FadeIn delay={0.1}>
+                    <Suspense fallback={<ModelChartsFallback />}>
+                      <LazyConsumptionDistributionChart
+                        key={chartPreferences.consumptionDistributionChart}
+                        data={modelData}
+                        loading={dataLoading}
+                        defaultChartType={
+                          chartPreferences.consumptionDistributionChart
+                        }
+                        timeGranularity={
+                          modelFilters.time_granularity ||
+                          DEFAULT_TIME_GRANULARITY
+                        }
+                        timeRange={modelQuery.timeRange}
+                      />
+                    </Suspense>
+                  </FadeIn>
+                  <FadeIn delay={0.15}>
+                    <Suspense fallback={<ModelChartsFallback />}>
+                      <LazyModelCharts
+                        key={chartPreferences.modelAnalyticsChart}
+                        data={modelData}
+                        loading={dataLoading}
+                        defaultChartTab={chartPreferences.modelAnalyticsChart}
+                        timeGranularity={
+                          modelFilters.time_granularity ||
+                          DEFAULT_TIME_GRANULARITY
+                        }
+                        timeRange={modelQuery.timeRange}
+                      />
+                    </Suspense>
+                  </FadeIn>
+                </>
+              )}
             </>
           )}
           {activeSection === 'users' && (
@@ -410,7 +473,7 @@ export function Dashboard() {
             <FadeIn>
               <Suspense fallback={<ModelChartsFallback />}>
                 <LazyFlowCharts
-                  filters={modelFilters}
+                  filters={flowFilters}
                   sensitiveVisible={flowSensitiveVisible}
                 />
               </Suspense>

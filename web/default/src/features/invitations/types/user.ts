@@ -34,6 +34,10 @@ export type InvitationStats = {
   completedRebate: number
   pendingRebate: number
   confirmingRebate: number
+  topupRebatePolicy?:
+    | { state: 'available'; ratio: number }
+    | { state: 'not_configured' | 'disabled' | 'unavailable' }
+    | null
 }
 
 export type RebateStatus =

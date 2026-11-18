@@ -72,6 +72,7 @@ import { FAQPanel } from './faq-panel'
 import { PerformanceHealthPanel } from './performance-health-panel'
 import { SummaryCards } from './summary-cards'
 import { UptimePanel } from './uptime-panel'
+import { UsageTrendPanel } from './usage-trend-panel'
 
 const SETUP_GUIDE_VISIBILITY_STORAGE_KEY =
   'dashboard_overview_setup_guide_expanded'
@@ -468,9 +469,13 @@ export function OverviewDashboard() {
   const { t } = useTranslation()
   const { data: site } = useSiteConfig()
   const isTenant = (site?.tenant_id ?? 0) > 0
+  const host = getCurrentHost()
   const setupGuideId = useId()
   const setupGuideToggleRef = useRef<HTMLButtonElement>(null)
   const user = useAuthStore((state) => state.auth.user)
+  const authReady = useAuthStore(
+    (state) => state.auth.bootstrapState === 'complete'
+  )
   const { items: apiInfoItems } = useApiInfo()
   const {
     apiInfo: showApiInfoPanel,
@@ -490,7 +495,7 @@ export function OverviewDashboard() {
   const apiKeysQuery = useQuery({
     queryKey: privateUserQueryKey(
       user?.id ?? 0,
-      getCurrentHost(),
+      host,
       'dashboard',
       'overview',
       'api-keys'
@@ -506,7 +511,7 @@ export function OverviewDashboard() {
   const modelsQuery = useQuery({
     queryKey: privateUserQueryKey(
       user?.id ?? 0,
-      getCurrentHost(),
+      host,
       'dashboard',
       'overview',
       'user-models'
@@ -816,6 +821,15 @@ export function OverviewDashboard() {
           )}
 
           <SummaryCards />
+          {authReady && user && (!isAdmin || site) && (
+            <UsageTrendPanel
+              key={`${host}:${user.id}:${user.role}:${isAdmin}`}
+              host={host}
+              userId={user.id}
+              role={user.role}
+              isAdmin={isAdmin}
+            />
+          )}
 
           {showContentPanels && (
             <CardStaggerContainer

@@ -16,10 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import type { UseQueryResult } from '@tanstack/react-query'
 import { Copy, QrCode, Users } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -31,29 +30,20 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { generateAffiliateLink } from '@/features/wallet/lib/affiliate'
 
-import { getMyInvitationCode } from '../../api'
-import { requireInvitationData } from '../../api/result'
 import { formatRebateAmount } from '../../format'
+import type { InvitationStats } from '../../types'
 
-export const InvitationSummary = (props: { showRebates: boolean }) => {
+export const InvitationSummary = (props: {
+  query: UseQueryResult<InvitationStats, Error>
+  showRebates: boolean
+}) => {
   const { t } = useTranslation()
-  const [showQrCode, setShowQrCode] = useState(false)
-  const query = useQuery({
-    queryKey: ['kkai', 'invitations', 'my-code'],
-    queryFn: async () =>
-      requireInvitationData(
-        await getMyInvitationCode(),
-        'Failed to load invitation code'
-      ),
-  })
-  const invitationLink = query.data?.invitationCode
-    ? generateAffiliateLink(query.data.invitationCode)
-    : ''
 
   const copy = async (value: string, message: string) => {
     try {
@@ -64,20 +54,23 @@ export const InvitationSummary = (props: { showRebates: boolean }) => {
     }
   }
 
-  if (query.isPending) return <InvitationSummarySkeleton />
-  if (query.isError || !query.data) {
+  if (props.query.isPending) return <InvitationSummarySkeleton />
+  if (props.query.isError || !props.query.data) {
     return (
       <ErrorState
         title={t('Failed to load invitation code')}
-        description={query.error?.message}
-        onRetry={() => void query.refetch()}
+        description={props.query.error?.message}
+        onRetry={() => void props.query.refetch()}
       />
     )
   }
 
-  const stats = query.data
+  const stats = props.query.data
+  const invitationLink = stats.invitationCode
+    ? generateAffiliateLink(stats.invitationCode)
+    : ''
   return (
-    <>
+    <Dialog key={invitationLink}>
       <Card>
         <CardHeader>
           <CardTitle>{t('My Invitation')}</CardTitle>
@@ -92,6 +85,7 @@ export const InvitationSummary = (props: { showRebates: boolean }) => {
                 type='button'
                 size='icon'
                 variant='outline'
+                disabled={!stats.invitationCode}
                 aria-label={t('Copy invitation code')}
                 title={t('Copy invitation code')}
                 onClick={() =>
@@ -100,16 +94,14 @@ export const InvitationSummary = (props: { showRebates: boolean }) => {
               >
                 <Copy />
               </Button>
-              <Button
-                type='button'
-                size='icon'
-                variant='outline'
+              <DialogTrigger
+                render={<Button type='button' size='icon' variant='outline' />}
+                disabled={!invitationLink}
                 aria-label={t('Show invitation QR code')}
                 title={t('Show invitation QR code')}
-                onClick={() => setShowQrCode(true)}
               >
                 <QrCode />
-              </Button>
+              </DialogTrigger>
             </div>
             <div className='flex min-w-0 items-center gap-2'>
               <Input value={invitationLink} readOnly className='font-mono' />
@@ -117,6 +109,7 @@ export const InvitationSummary = (props: { showRebates: boolean }) => {
                 type='button'
                 size='icon'
                 variant='outline'
+                disabled={!invitationLink}
                 aria-label={t('Copy invitation link')}
                 title={t('Copy invitation link')}
                 onClick={() =>
@@ -156,7 +149,7 @@ export const InvitationSummary = (props: { showRebates: boolean }) => {
           </div>
         </CardContent>
       </Card>
-      <Dialog open={showQrCode} onOpenChange={setShowQrCode}>
+      {invitationLink && (
         <DialogContent className='sm:max-w-sm'>
           <DialogHeader>
             <DialogTitle>{t('Invitation QR Code')}</DialogTitle>
@@ -167,8 +160,8 @@ export const InvitationSummary = (props: { showRebates: boolean }) => {
             </div>
           </div>
         </DialogContent>
-      </Dialog>
-    </>
+      )}
+    </Dialog>
   )
 }
 

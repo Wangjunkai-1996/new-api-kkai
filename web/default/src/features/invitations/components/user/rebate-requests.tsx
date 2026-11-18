@@ -34,9 +34,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getMyRebateRequests } from '../../api'
-import { requireInvitationData } from '../../api/result'
+import { requireInvitationPage } from '../../api/result'
 import {
   formatInvitationDate,
   formatRebateAmount,
@@ -46,22 +47,46 @@ import {
   rebateRequestStatusLabel,
   rebateStatusVariant,
 } from '../../status-label'
+import type { RebateRequest } from '../../types'
 import { PaginationControls } from '../pagination-controls'
 
 const PAGE_SIZE = 10
 
+const isRebateRequest = (value: unknown): value is RebateRequest => {
+  if (value === null || typeof value !== 'object') return false
+  const request = value as Partial<RebateRequest>
+  return (
+    typeof request.id === 'number' &&
+    Number.isSafeInteger(request.id) &&
+    typeof request.userId === 'number' &&
+    Number.isSafeInteger(request.userId) &&
+    typeof request.amount === 'number' &&
+    Number.isFinite(request.amount) &&
+    typeof request.status === 'string' &&
+    Array.isArray(request.rebateRecordIds) &&
+    request.rebateRecordIds.every(
+      (id) => typeof id === 'number' && Number.isSafeInteger(id)
+    )
+  )
+}
+
 export const RebateRequests = () => {
   const { t } = useTranslation()
+  const userId = useAuthStore((state) => state.auth.user?.id)
   const [page, setPage] = useState(1)
   const query = useQuery({
     refetchInterval: 30_000,
-    queryKey: ['kkai', 'invitations', 'rebate-requests', page],
-    queryFn: async () =>
-      requireInvitationData(
-        await getMyRebateRequests({ page, pageSize: PAGE_SIZE }),
-        'Failed to load rebate requests'
+    queryKey: ['kkai', 'invitations', 'rebate-requests', userId, page],
+    enabled: !!userId,
+    queryFn: async ({ signal }) =>
+      requireInvitationPage(
+        await getMyRebateRequests({ page, pageSize: PAGE_SIZE }, signal),
+        'Failed to load rebate requests',
+        isRebateRequest
       ),
   })
+
+  if (!userId) return null
 
   return (
     <Card>

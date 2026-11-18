@@ -19,10 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import type { DashboardChartPreferences, DashboardFilters } from './types'
 
 export const TIME_GRANULARITY_STORAGE_KEY = 'data_export_default_time'
+export const USER_TIME_GRANULARITY_STORAGE_KEY =
+  'dashboard_users_time_granularity'
 export const DASHBOARD_CHART_PREFERENCES_STORAGE_KEY =
   'dashboard_models_chart_preferences'
 export const DEFAULT_TIME_GRANULARITY = 'hour' as const
+export const TIME_RANGE_30_DAYS = 30
 export const MAX_CHART_TREND_POINTS = 7
+export const MAX_DENSE_CHART_BUCKETS = 2048
 
 export const DEFAULT_DASHBOARD_CHART_PREFERENCES: DashboardChartPreferences = {
   consumptionDistributionChart: 'bar',
@@ -31,23 +35,31 @@ export const DEFAULT_DASHBOARD_CHART_PREFERENCES: DashboardChartPreferences = {
   defaultTimeGranularity: DEFAULT_TIME_GRANULARITY,
 }
 
+export const OVERVIEW_CHART_PREFERENCES: DashboardChartPreferences = {
+  ...DEFAULT_DASHBOARD_CHART_PREFERENCES,
+  defaultTimeRangeDays: 7,
+  defaultTimeGranularity: 'day',
+}
+
 export const TIME_RANGE_BY_GRANULARITY = {
   hour: 1,
   day: 7,
-  week: 29,
+  week: TIME_RANGE_30_DAYS,
+  month: TIME_RANGE_30_DAYS,
 } as const
 
 export const TIME_GRANULARITY_OPTIONS = [
-  { label: 'Hour', value: 'hour' },
-  { label: 'Day', value: 'day' },
-  { label: 'Week', value: 'week' },
+  { label: 'Hourly', value: 'hour' },
+  { label: 'Daily', value: 'day' },
+  { label: 'Weekly', value: 'week' },
+  { label: 'Monthly', value: 'month' },
 ] as const
 
 export const TIME_RANGE_PRESETS = [
-  { label: '1 Day', days: 1 },
-  { label: '7 Days', days: 7 },
-  { label: '14 Days', days: 14 },
-  { label: '29 Days', days: 29 },
+  { label: 'Last 24 hours', days: 1 },
+  { label: 'Last 7 days', days: 7 },
+  { label: 'Last 14 days', days: 14 },
+  { label: 'Last 30 days', days: TIME_RANGE_30_DAYS },
 ] as const
 
 export const CONSUMPTION_DISTRIBUTION_CHART_OPTIONS = [

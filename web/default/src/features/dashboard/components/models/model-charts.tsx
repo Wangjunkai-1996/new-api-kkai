@@ -33,6 +33,7 @@ import type {
   ModelAnalyticsChartTab,
   QuotaDataItem,
 } from '@/features/dashboard/types'
+import { toIntlLocale } from '@/i18n/languages'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
@@ -42,6 +43,23 @@ let themeManagerPromise: Promise<
 > | null = null
 
 type ChartSpecKey = 'spec_model_line' | 'spec_pie' | 'spec_rank_bar'
+
+type ModelTrendRow = {
+  TimeKey: number
+  Time: string
+  Model: string
+  Count: number
+}
+
+type ModelCountRow = {
+  Model: string
+  Count: number
+}
+
+type ModelDistributionRow = {
+  type: string
+  value: number
+}
 
 const CHART_SPEC_KEYS: Record<ModelAnalyticsChartTab, ChartSpecKey> = {
   trend: 'spec_model_line',
@@ -54,10 +72,14 @@ interface ModelChartsProps {
   loading?: boolean
   timeGranularity?: TimeGranularity
   defaultChartTab?: ModelAnalyticsChartTab
+  timeRange?: {
+    start_timestamp: number
+    end_timestamp: number
+  }
 }
 
 export function ModelCharts(props: ModelChartsProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { resolvedTheme } = useTheme()
   const { customization } = useThemeCustomization()
   const chartRadius = useThemeRadiusPx(
@@ -74,13 +96,7 @@ export function ModelCharts(props: ModelChartsProps) {
   const timeGranularity = props.timeGranularity ?? DEFAULT_TIME_GRANULARITY
 
   useEffect(() => {
-    if (props.defaultChartTab) setActiveTab(props.defaultChartTab)
-  }, [props.defaultChartTab])
-
-  useEffect(() => {
     const updateTheme = async () => {
-      setThemeReady(false)
-
       if (!themeManagerPromise) {
         themeManagerPromise = import('@visactor/vchart').then(
           (m) => m.ThemeManager
@@ -102,18 +118,39 @@ export function ModelCharts(props: ModelChartsProps) {
         props.loading ? [] : props.data,
         timeGranularity,
         t,
-        chartRadius
+        chartRadius,
+        props.timeRange,
+        toIntlLocale(i18n.resolvedLanguage || i18n.language)
       ),
-    [props.data, props.loading, timeGranularity, t, chartRadius]
+    [
+      props.data,
+      props.loading,
+      timeGranularity,
+      t,
+      chartRadius,
+      props.timeRange,
+      i18n.language,
+      i18n.resolvedLanguage,
+    ]
   )
 
   const spec = chartData[CHART_SPEC_KEYS[activeTab]]
   const specType = typeof spec?.type === 'string' ? spec.type : activeTab
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const trendRows = (chartData.spec_model_line.data?.[0]?.values ??
+    []) as ModelTrendRow[]
+  const distributionRows = (chartData.spec_pie.data?.[0]?.values ??
+    []) as ModelDistributionRow[]
+  const rankingRows = (chartData.spec_rank_bar.data?.[0]?.values ??
+    []) as ModelCountRow[]
+  const formatCount = (value: number) => value.toLocaleString(locale)
   const chartKey = [
     activeTab,
     specType,
     props.loading ? 'loading' : 'ready',
     props.data.length,
+    props.timeRange?.start_timestamp,
+    props.timeRange?.end_timestamp,
     resolvedTheme,
     customization.preset,
   ].join('-')
@@ -133,13 +170,18 @@ export function ModelCharts(props: ModelChartsProps) {
           </span>
         </div>
 
-        <div className='bg-muted/60 inline-flex h-7 w-full overflow-x-auto rounded-lg border p-0.5 sm:h-8 sm:w-auto'>
+        <div
+          role='group'
+          aria-label={t('Model Call Analytics')}
+          className='bg-muted/60 inline-flex h-7 w-full overflow-x-auto rounded-lg border p-0.5 sm:h-8 sm:w-auto'
+        >
           {MODEL_ANALYTICS_CHART_OPTIONS.map((tab) => (
             <button
               key={tab.value}
               type='button'
+              aria-pressed={activeTab === tab.value}
               onClick={() => setActiveTab(tab.value)}
-              className={`shrink-0 rounded-md px-3 text-xs font-medium transition-colors ${
+              className={`focus-visible:ring-ring shrink-0 rounded-md px-3 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none ${
                 activeTab === tab.value
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
@@ -164,6 +206,94 @@ export function ModelCharts(props: ModelChartsProps) {
           />
         )}
       </div>
+      <details className='border-t text-sm'>
+        <summary className='focus-visible:ring-ring cursor-pointer px-3 py-2 font-medium focus-visible:ring-2 focus-visible:outline-none sm:px-5'>
+          {t('Table view')}
+        </summary>
+        <div className='max-h-72 overflow-auto px-3 pb-3 sm:px-5' tabIndex={0}>
+          {activeTab === 'trend' && (
+            <table className='w-full min-w-[28rem] text-left'>
+              <caption className='sr-only'>{t('Call Trend')}</caption>
+              <thead>
+                <tr>
+                  <th scope='col' className='px-3 py-2 font-medium'>
+                    {t('Time')}
+                  </th>
+                  <th scope='col' className='px-3 py-2 font-medium'>
+                    {t('Model')}
+                  </th>
+                  <th scope='col' className='px-3 py-2 text-right font-medium'>
+                    {t('Count')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {trendRows.map((row) => (
+                  <tr key={`${row.TimeKey}-${row.Model}`}>
+                    <td className='px-3 py-1.5'>{row.Time}</td>
+                    <td className='px-3 py-1.5'>{row.Model}</td>
+                    <td className='px-3 py-1.5 text-right tabular-nums'>
+                      {formatCount(row.Count)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {activeTab === 'proportion' && (
+            <table className='w-full min-w-[16rem] text-left'>
+              <caption className='sr-only'>
+                {t('Call Count Distribution')}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope='col' className='px-3 py-2 font-medium'>
+                    {t('Model')}
+                  </th>
+                  <th scope='col' className='px-3 py-2 text-right font-medium'>
+                    {t('Count')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {distributionRows.map((row) => (
+                  <tr key={row.type}>
+                    <td className='px-3 py-1.5'>{row.type}</td>
+                    <td className='px-3 py-1.5 text-right tabular-nums'>
+                      {formatCount(row.value)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {activeTab === 'top' && (
+            <table className='w-full min-w-[16rem] text-left'>
+              <caption className='sr-only'>{t('Call Count Ranking')}</caption>
+              <thead>
+                <tr>
+                  <th scope='col' className='px-3 py-2 font-medium'>
+                    {t('Model')}
+                  </th>
+                  <th scope='col' className='px-3 py-2 text-right font-medium'>
+                    {t('Count')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rankingRows.map((row) => (
+                  <tr key={row.Model}>
+                    <td className='px-3 py-1.5'>{row.Model}</td>
+                    <td className='px-3 py-1.5 text-right tabular-nums'>
+                      {formatCount(row.Count)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </details>
     </div>
   )
 }

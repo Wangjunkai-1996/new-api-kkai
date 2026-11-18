@@ -16,12 +16,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { toIntlLocale } from '@/i18n/languages'
 import { formatCurrencyUSD } from '@/lib/format'
 
 const GENERIC_AXIOS_ERROR = /^Request failed with status code \d+$/
 
 export const formatRebateAmount = (amountCents: number): string =>
   formatCurrencyUSD(amountCents / 100)
+
+export const formatRebateRate = (
+  value: unknown,
+  language?: string
+): string | null => {
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 1
+  ) {
+    return null
+  }
+  return new Intl.NumberFormat(toIntlLocale(language), {
+    style: 'percent',
+    maximumSignificantDigits: 15,
+  }).format(value === 0 ? 0 : value)
+}
 
 export const formatInvitationDate = (value?: string | null): string => {
   if (!value) return '-'

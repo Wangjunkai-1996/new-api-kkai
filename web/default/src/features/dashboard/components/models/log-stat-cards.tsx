@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { IconBadge } from '@/components/ui/icon-badge'
@@ -26,21 +26,32 @@ import { useModelStatCardsConfig } from '@/features/dashboard/hooks/use-dashboar
 import {
   buildQueryParams,
   calculateDashboardStats,
-  getDefaultDays,
 } from '@/features/dashboard/lib'
+import { resolveDashboardTimeRange } from '@/features/dashboard/lib/filters'
+import { canViewAdminData as resolveCanViewAdminData } from '@/features/dashboard/lib/permissions'
 import type {
   QuotaDataItem,
   DashboardFilters,
 } from '@/features/dashboard/types'
+import { useSiteConfig } from '@/features/site-config'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatCompactNumber, formatNumber, formatQuota } from '@/lib/format'
-import { computeTimeRange } from '@/lib/time'
+import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 interface LogStatCardsProps {
   filters?: DashboardFilters
-  onDataUpdate?: (data: QuotaDataItem[], loading: boolean) => void
+  timeRange?: {
+    start_timestamp: number
+    end_timestamp: number
+  }
+  retryToken?: number
+  onDataUpdate?: (
+    data: QuotaDataItem[],
+    loading: boolean,
+    error?: boolean
+  ) => void
 }
 
 const MAX_INLINE_STAT_CHARS = 7
@@ -62,16 +73,22 @@ export function LogStatCards(props: LogStatCardsProps) {
   const { i18n } = useTranslation()
   const statCardsConfig = useModelStatCardsConfig()
   const user = useAuthStore((state) => state.auth.user)
-  const isAdmin = !!(user?.role && user.role >= 10)
+  const { data: site } = useSiteConfig()
+  const canViewAdminData = resolveCanViewAdminData(user, site)
   const [stats, setStats] = useState<ReturnType<
     typeof calculateDashboardStats
   > | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
 
-  const [timeRangeMinutes, setTimeRangeMinutes] = useState(0)
-
   const { filters, onDataUpdate } = props
+  const timeRange = useMemo(
+    () => props.timeRange ?? resolveDashboardTimeRange(filters),
+    [filters, props.timeRange]
+  )
+  const username = filters?.username
+  const { start_timestamp: rangeStart, end_timestamp: rangeEnd } = timeRange
+  const timeRangeMinutes = (rangeEnd - rangeStart) / 60
 
   useEffect(() => {
     const abortController = new AbortController()
@@ -79,28 +96,30 @@ export function LogStatCards(props: LogStatCardsProps) {
     setLoading(true)
 
     setError(false)
-    onDataUpdate?.([], true)
+    onDataUpdate?.([], true, false)
 
-    const timeRange = computeTimeRange(
-      getDefaultDays(filters?.time_granularity),
-      filters?.start_timestamp,
-      filters?.end_timestamp
+    void getUserQuotaDates(
+      buildQueryParams(
+        { start_timestamp: rangeStart, end_timestamp: rangeEnd },
+        { username }
+      ),
+      canViewAdminData,
+      abortController.signal
     )
-    const timeDiff = (timeRange.end_timestamp - timeRange.start_timestamp) / 60
-    setTimeRangeMinutes(timeDiff)
-
-    void getUserQuotaDates(buildQueryParams(timeRange, filters), isAdmin)
       .then((res) => {
         if (abortController.signal.aborted) return
-        const data = res?.data || []
+        const data = requireServerSuccess(res)?.data
+        if (!Array.isArray(data)) {
+          throw new Error('Invalid usage statistics response')
+        }
         setStats(calculateDashboardStats(data))
-        onDataUpdate?.(data, false)
+        onDataUpdate?.(data, false, false)
       })
       .catch(() => {
         if (abortController.signal.aborted) return
         setStats(null)
         setError(true)
-        onDataUpdate?.([], false)
+        onDataUpdate?.([], false, true)
       })
       .finally(() => {
         if (!abortController.signal.aborted) {
@@ -111,7 +130,16 @@ export function LogStatCards(props: LogStatCardsProps) {
     return () => {
       abortController.abort()
     }
-  }, [filters, isAdmin, onDataUpdate])
+  }, [
+    canViewAdminData,
+    onDataUpdate,
+    props.retryToken,
+    site?.hostname,
+    rangeEnd,
+    rangeStart,
+    user?.id,
+    username,
+  ])
 
   const adaptedStats = {
     rpm: stats?.totalCount ?? 0,

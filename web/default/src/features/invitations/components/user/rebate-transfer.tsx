@@ -36,6 +36,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getAvailableRebates, requestRebateTransfer } from '../../api'
 import { requireInvitationData } from '../../api/result'
@@ -45,22 +46,27 @@ import {
   getInvitationErrorMessage,
 } from '../../format'
 
-const AVAILABLE_REBATES_KEY = ['kkai', 'invitations', 'available-rebates']
-
 export const RebateTransfer = (props: {
   sales?: boolean
   disabled?: boolean
 }) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const userId = useAuthStore((state) => state.auth.user?.id)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const availableRebatesKey = [
+    'kkai',
+    'invitations',
+    'available-rebates',
+    userId,
+  ] as const
   const availableQuery = useQuery({
     refetchInterval: 30_000,
-    queryKey: AVAILABLE_REBATES_KEY,
-    enabled: !props.disabled,
-    queryFn: async () =>
+    queryKey: availableRebatesKey,
+    enabled: Boolean(userId) && !props.disabled,
+    queryFn: async ({ signal }) =>
       requireInvitationData(
-        await getAvailableRebates(),
+        await getAvailableRebates(signal),
         'Failed to load available rebates'
       ),
   })
@@ -71,8 +77,8 @@ export const RebateTransfer = (props: {
     mutationFn: async () => {
       if (
         props.disabled ||
-        queryClient.getQueryState(AVAILABLE_REBATES_KEY)?.status !==
-          'success' ||
+        !userId ||
+        queryClient.getQueryState(availableRebatesKey)?.status !== 'success' ||
         !availableQuery.data?.recordIds.length ||
         availableQuery.data.amount <= 0
       ) {

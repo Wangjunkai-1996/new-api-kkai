@@ -19,9 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { RebateOrderRecords } from '../components/admin/rebate-order-records'
 import { RebatePayoutRecords } from '../components/admin/rebate-payout-records'
@@ -29,7 +30,13 @@ import { RebateTransfer } from '../components/user/rebate-transfer'
 import type { AdminRebateOrderRecord, RebateRecord } from '../types'
 
 const clients: QueryClient[] = []
-afterEach(() => clients.splice(0).forEach((client) => client.clear()))
+beforeEach(() => {
+  useAuthStore.getState().auth.setUser({ id: 4, username: 'qa-user', role: 1 })
+})
+afterEach(() => {
+  clients.splice(0).forEach((client) => client.clear())
+  useAuthStore.getState().auth.reset()
+})
 
 const order: AdminRebateOrderRecord = {
   orderId: 7,
@@ -185,7 +192,7 @@ test.each(['refresh failure', 'sales access disabled'])(
       failing = true
       await act(async () => {
         await client.refetchQueries({
-          queryKey: ['kkai', 'invitations', 'available-rebates'],
+          queryKey: ['kkai', 'invitations', 'available-rebates', 4],
         })
       })
       await screen.findByText('Failed to load available rebates')

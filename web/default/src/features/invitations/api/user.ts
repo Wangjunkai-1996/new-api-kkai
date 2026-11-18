@@ -38,22 +38,30 @@ export const getMyInvitationCode = async (
 }
 
 export const getRebateRecords = async (
-  params?: PaginationParams & { status?: RebateStatus }
+  params?: PaginationParams & { status?: RebateStatus },
+  signal?: AbortSignal
 ): Promise<ApiResponse<PaginatedResponse<RebateRecord>>> => {
   const response = await api.get(`${INVITATIONS_PATH}/rebate-records`, {
     params,
+    signal,
+    disableDuplicate: true,
   })
   return response.data
 }
 
-export const getAvailableRebates = async (): Promise<
+export const getAvailableRebates = async (
+  signal?: AbortSignal
+): Promise<
   ApiResponse<{
     amount: number
     recordIds: number[]
     creditCurrency?: 'legacy_075' | 'usd_credit_v1'
   }>
 > => {
-  const response = await api.get(`${INVITATIONS_PATH}/available-rebates`)
+  const response = await api.get(`${INVITATIONS_PATH}/available-rebates`, {
+    signal,
+    disableDuplicate: true,
+  })
   return response.data
 }
 
@@ -67,10 +75,13 @@ export const requestRebateTransfer = async (
 }
 
 export const getMyRebateRequests = async (
-  params?: PaginationParams
+  params?: PaginationParams,
+  signal?: AbortSignal
 ): Promise<ApiResponse<PaginatedResponse<RebateRequest>>> => {
   const response = await api.get(`${INVITATIONS_PATH}/rebate-requests`, {
     params,
+    signal,
+    disableDuplicate: true,
   })
   return response.data
 }

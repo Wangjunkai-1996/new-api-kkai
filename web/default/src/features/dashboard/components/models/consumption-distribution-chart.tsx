@@ -33,6 +33,8 @@ import type {
   ConsumptionDistributionChartType,
   QuotaDataItem,
 } from '@/features/dashboard/types'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatQuota } from '@/lib/format'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
@@ -46,6 +48,17 @@ interface ConsumptionDistributionChartProps {
   loading?: boolean
   timeGranularity?: TimeGranularity
   defaultChartType?: ConsumptionDistributionChartType
+  timeRange?: {
+    start_timestamp: number
+    end_timestamp: number
+  }
+}
+
+type QuotaTrendRow = {
+  TimeKey: number
+  Time: string
+  Model: string
+  rawQuota: number
 }
 
 const CHART_TYPE_ICONS: Record<
@@ -59,7 +72,7 @@ const CHART_TYPE_ICONS: Record<
 export function ConsumptionDistributionChart(
   props: ConsumptionDistributionChartProps
 ) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { resolvedTheme } = useTheme()
   const { customization } = useThemeCustomization()
   const chartRadius = useThemeRadiusPx(
@@ -76,13 +89,7 @@ export function ConsumptionDistributionChart(
   const timeGranularity = props.timeGranularity ?? DEFAULT_TIME_GRANULARITY
 
   useEffect(() => {
-    if (props.defaultChartType) setChartType(props.defaultChartType)
-  }, [props.defaultChartType])
-
-  useEffect(() => {
     const updateTheme = async () => {
-      setThemeReady(false)
-
       if (!themeManagerPromise) {
         themeManagerPromise = import('@visactor/vchart').then(
           (m) => m.ThemeManager
@@ -104,17 +111,31 @@ export function ConsumptionDistributionChart(
         props.loading ? [] : props.data,
         timeGranularity,
         t,
-        chartRadius
+        chartRadius,
+        props.timeRange,
+        toIntlLocale(i18n.resolvedLanguage || i18n.language)
       ),
-    [props.data, props.loading, timeGranularity, t, chartRadius]
+    [
+      props.data,
+      props.loading,
+      timeGranularity,
+      t,
+      chartRadius,
+      props.timeRange,
+      i18n.language,
+      i18n.resolvedLanguage,
+    ]
   )
   const spec = chartType === 'bar' ? chartData.spec_line : chartData.spec_area
   const specType = typeof spec?.type === 'string' ? spec.type : chartType
+  const quotaRows = (spec?.data?.[0]?.values ?? []) as QuotaTrendRow[]
   const chartKey = [
     chartType,
     specType,
     props.loading ? 'loading' : 'ready',
     props.data.length,
+    props.timeRange?.start_timestamp,
+    props.timeRange?.end_timestamp,
     resolvedTheme,
     customization.preset,
   ].join('-')
@@ -132,21 +153,26 @@ export function ConsumptionDistributionChart(
           </span>
         </div>
 
-        <div className='bg-muted/60 inline-flex h-7 w-full overflow-x-auto rounded-lg border p-0.5 sm:h-8 sm:w-auto'>
+        <div
+          role='group'
+          aria-label={t('Quota Distribution')}
+          className='bg-muted/60 inline-flex h-7 w-full overflow-x-auto rounded-lg border p-0.5 sm:h-8 sm:w-auto'
+        >
           {CONSUMPTION_DISTRIBUTION_CHART_OPTIONS.map((item) => {
             const Icon = CHART_TYPE_ICONS[item.value]
             return (
               <button
                 key={item.value}
                 type='button'
+                aria-pressed={chartType === item.value}
                 onClick={() => setChartType(item.value)}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors ${
+                className={`focus-visible:ring-ring inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none ${
                   chartType === item.value
                     ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <Icon className='size-3.5' />
+                <Icon className='size-3.5' aria-hidden='true' />
                 {t(item.labelKey)}
               </button>
             )
@@ -167,6 +193,40 @@ export function ConsumptionDistributionChart(
           />
         )}
       </div>
+      <details className='border-t text-sm'>
+        <summary className='focus-visible:ring-ring cursor-pointer px-3 py-2 font-medium focus-visible:ring-2 focus-visible:outline-none sm:px-5'>
+          {t('Table view')}
+        </summary>
+        <div className='max-h-72 overflow-auto px-3 pb-3 sm:px-5' tabIndex={0}>
+          <table className='w-full min-w-[28rem] text-left'>
+            <caption className='sr-only'>{t('Quota Distribution')}</caption>
+            <thead>
+              <tr>
+                <th scope='col' className='px-3 py-2 font-medium'>
+                  {t('Time')}
+                </th>
+                <th scope='col' className='px-3 py-2 font-medium'>
+                  {t('Model')}
+                </th>
+                <th scope='col' className='px-3 py-2 text-right font-medium'>
+                  {t('Quota')}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {quotaRows.map((row) => (
+                <tr key={`${row.TimeKey}-${row.Model}`}>
+                  <td className='px-3 py-1.5'>{row.Time}</td>
+                  <td className='px-3 py-1.5'>{row.Model}</td>
+                  <td className='px-3 py-1.5 text-right tabular-nums'>
+                    {formatQuota(row.rawQuota)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </div>
   )
 }

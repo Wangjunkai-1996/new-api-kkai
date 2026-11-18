@@ -41,12 +41,18 @@ export async function getUserQuotaDates(
     default_time?: string
     username?: string
   },
-  isAdmin = false
+  isAdmin = false,
+  signal?: AbortSignal
 ) {
   const endpoint = isAdmin ? '/api/data' : '/api/data/self'
+  const requestParams = { ...params }
+  if (!isAdmin) delete requestParams.username
+  const requestConfig = signal
+    ? { params: requestParams, signal, disableDuplicate: true }
+    : { params: requestParams }
   const res = await api.get<{ success: boolean; data: QuotaDataItem[] }>(
     endpoint,
-    { params }
+    requestConfig
   )
   return res.data
 }
@@ -55,13 +61,19 @@ export async function getUserQuotaDates(
 // System Monitoring
 // ----------------------------------------------------------------------------
 
-export async function getUserQuotaDataByUsers(params: {
-  start_timestamp: number
-  end_timestamp: number
-}) {
+export async function getUserQuotaDataByUsers(
+  params: {
+    start_timestamp: number
+    end_timestamp: number
+  },
+  signal?: AbortSignal
+) {
+  const requestConfig = signal
+    ? { params, signal, disableDuplicate: true }
+    : { params }
   const res = await api.get<{ success: boolean; data: QuotaDataItem[] }>(
     '/api/data/users',
-    { params }
+    requestConfig
   )
   return res.data
 }
@@ -76,11 +88,13 @@ export async function getFlowQuotaDates(
   isAdmin = false
 ) {
   const endpoint = isAdmin ? '/api/data/flow' : '/api/data/flow/self'
+  const requestParams = { ...params }
+  if (!isAdmin) delete requestParams.username
   const res = await api.get<{
     success: boolean
     data?: FlowQuotaDataItem[]
     message?: string
-  }>(endpoint, { params })
+  }>(endpoint, { params: requestParams })
   return res.data
 }
 

@@ -187,6 +187,7 @@ export interface UptimeGroupResult {
 // ============================================================================
 
 export interface DashboardFilters {
+  presetDays?: number
   start_timestamp?: Date
   end_timestamp?: Date
   time_granularity?: TimeGranularity

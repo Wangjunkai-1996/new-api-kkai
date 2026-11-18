@@ -41,12 +41,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getRebateRecords } from '../../api'
-import { requireInvitationData } from '../../api/result'
+import { requireInvitationPage } from '../../api/result'
 import {
   formatInvitationDate,
   formatRebateAmount,
+  formatRebateRate,
   formatSalesAmount,
 } from '../../format'
 import {
@@ -58,23 +60,57 @@ import type { PaginatedResponse, RebateRecord, RebateStatus } from '../../types'
 import { PaginationControls } from '../pagination-controls'
 
 const PAGE_SIZE = 10
+const SIGNUP_REWARDS = new Set(['invite_inviter', 'invite_invitee'])
+const REBATE_ORDERS = new Set(['topup', 'subscription', 'redemption'])
+const UNCALCULATED_STATUSES = new Set([
+  'confirming',
+  'initializing',
+  'pending_calculation',
+  'not_generated',
+  'estimated',
+])
+
+const isRebateRecord = (value: unknown): value is RebateRecord => {
+  if (value === null || typeof value !== 'object') return false
+  const record = value as Partial<RebateRecord>
+  return (
+    typeof record.id === 'number' &&
+    Number.isSafeInteger(record.id) &&
+    typeof record.orderType === 'string' &&
+    typeof record.orderAmount === 'number' &&
+    Number.isFinite(record.orderAmount) &&
+    typeof record.rebateAmount === 'number' &&
+    Number.isFinite(record.rebateAmount) &&
+    typeof record.status === 'string' &&
+    typeof record.createdAt === 'string' &&
+    typeof record.updatedAt === 'string'
+  )
+}
 
 export const RebateRecords = (props: { sales?: boolean }) => {
   const { t } = useTranslation()
+  const userId = useAuthStore((state) => state.auth.user?.id)
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState<RebateStatus | 'all'>('all')
   const query = useQuery({
-    queryKey: ['kkai', 'invitations', 'records', page, status],
-    queryFn: async () =>
-      requireInvitationData(
-        await getRebateRecords({
-          page,
-          pageSize: PAGE_SIZE,
-          ...(status === 'all' ? {} : { status }),
-        }),
-        'Failed to load rebate records'
+    queryKey: ['kkai', 'invitations', 'records', userId, page, status],
+    enabled: !!userId,
+    queryFn: async ({ signal }) =>
+      requireInvitationPage(
+        await getRebateRecords(
+          {
+            page,
+            pageSize: PAGE_SIZE,
+            ...(status === 'all' ? {} : { status }),
+          },
+          signal
+        ),
+        'Failed to load rebate records',
+        isRebateRecord
       ),
   })
+
+  if (!userId) return null
 
   return (
     <Card>
@@ -175,13 +211,8 @@ const RebateRecordList = (props: {
                     {formatRebateAmount(record.orderAmount)}
                   </TableCell>
                 )}
-                <TableCell>
-                  {props.sales
-                    ? formatSalesAmount(
-                        record.rebateAmount,
-                        record.creditCurrency ?? 'legacy_075'
-                      )
-                    : formatRebateAmount(record.rebateAmount)}
+                <TableCell className='whitespace-normal'>
+                  <RecordRebateAmount record={record} sales={props.sales} />
                 </TableCell>
                 <TableCell>
                   <RecordStatus record={record} />
@@ -212,13 +243,8 @@ const RebateRecordList = (props: {
                 </>
               )}
               <dt className='text-muted-foreground'>{t('Rebate Amount')}</dt>
-              <dd className='text-right tabular-nums'>
-                {props.sales
-                  ? formatSalesAmount(
-                      record.rebateAmount,
-                      record.creditCurrency ?? 'legacy_075'
-                    )
-                  : formatRebateAmount(record.rebateAmount)}
+              <dd className='min-w-0 text-right tabular-nums'>
+                <RecordRebateAmount record={record} sales={props.sales} />
               </dd>
               <dt className='text-muted-foreground'>{t('Effective At')}</dt>
               <dd className='text-right'>
@@ -236,12 +262,54 @@ const RebateRecordList = (props: {
   )
 }
 
+const RecordRebateAmount = ({
+  record,
+  sales,
+}: {
+  record: RebateRecord
+  sales?: boolean
+}) => {
+  const { t, i18n } = useTranslation()
+  let note = t('No rate recorded')
+  if (SIGNUP_REWARDS.has(record.orderType)) {
+    note = t('Fixed reward (not percentage-based)')
+  } else if (REBATE_ORDERS.has(record.orderType)) {
+    const rate = formatRebateRate(
+      record.rebateRatio,
+      i18n.resolvedLanguage ?? i18n.language
+    )
+    if (rate !== null) {
+      note = t('Rate for this record: {{rate}}', { rate })
+    } else if (
+      record.rebateRatio == null &&
+      !record.issuedAt &&
+      (record.status === 'pending' || record.status === 'initializing') &&
+      UNCALCULATED_STATUSES.has(record.displayStatus ?? record.status)
+    ) {
+      note = t('Rate pending confirmation')
+    }
+  }
+  return (
+    <>
+      {sales
+        ? formatSalesAmount(
+            record.rebateAmount,
+            record.creditCurrency ?? 'legacy_075'
+          )
+        : formatRebateAmount(record.rebateAmount)}
+      <span className='text-muted-foreground block text-xs wrap-break-word'>
+        {note}
+      </span>
+    </>
+  )
+}
+
 const RecordStatus = (props: { record: RebateRecord }) => {
   const { t } = useTranslation()
   const status =
     props.record.displayStatus === 'estimated' &&
     props.record.rebateRatio == null &&
-    !['invite_inviter', 'invite_invitee'].includes(props.record.orderType)
+    !SIGNUP_REWARDS.has(props.record.orderType)
       ? 'pending_calculation'
       : props.record.displayStatus
   return (

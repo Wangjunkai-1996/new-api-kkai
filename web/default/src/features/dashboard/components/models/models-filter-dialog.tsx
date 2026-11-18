@@ -17,15 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Filter, RotateCcw, Calendar, Search } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { DateTimePicker } from '@/components/datetime-picker'
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -35,23 +33,30 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
+  MAX_DENSE_CHART_BUCKETS,
   TIME_GRANULARITY_OPTIONS,
   TIME_RANGE_PRESETS,
 } from '@/features/dashboard/constants'
 import {
   buildDefaultDashboardFilters,
   cleanFilters,
-} from '@/features/dashboard/lib'
+} from '@/features/dashboard/lib/filters'
 import type {
   DashboardChartPreferences,
   DashboardFilters,
 } from '@/features/dashboard/types'
-import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
-import { cn } from '@/lib/utils'
-import { useAuthStore } from '@/stores/auth-store'
+import {
+  dateToUnixTimestamp,
+  formatDashboardDateTimeInput,
+  getChartBucketCount,
+  getRollingDateRange,
+  parseDashboardDateTimeInput,
+  type TimeGranularity,
+} from '@/lib/time'
 
 interface ModelsFilterProps {
   preferences: DashboardChartPreferences
+  allowUsernameFilter?: boolean
   // The filters currently applied to the dashboard. The dialog edits a copy of
   // these so reopening it never discards a manually picked range.
   currentFilters: DashboardFilters
@@ -59,27 +64,6 @@ interface ModelsFilterProps {
   onReset: () => void
   titleKey?: string
   descriptionKey?: string
-}
-
-// Quick-range presets imply a sensible granularity (matching the app's
-// range<->granularity pairing), so picking "7 Days" requests daily buckets
-// instead of leaving the granularity on its previous value (e.g. hourly).
-function granularityForRangeDays(days: number): TimeGranularity {
-  if (days <= 1) return 'hour'
-  if (days >= 29) return 'week'
-  return 'day'
-}
-
-// Highlights the matching quick-range button when the applied range spans an
-// exact preset; custom ranges leave every quick button unselected.
-function detectQuickRangeDays(
-  filters: DashboardFilters | undefined
-): number | null {
-  const start = filters?.start_timestamp
-  const end = filters?.end_timestamp
-  if (!start || !end) return null
-  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000)
-  return TIME_RANGE_PRESETS.some((preset) => preset.days === days) ? days : null
 }
 
 /**
@@ -98,72 +82,89 @@ const SectionDivider = ({ label }: { label: string }) => (
 
 export function ModelsFilter(props: ModelsFilterProps) {
   const { t } = useTranslation()
-  // 使用已缓存的用户数据，避免重复调用 API
-  const user = useAuthStore((state) => state.auth.user)
-  const isAdmin = user?.role && user.role >= 10
+  const id = useId()
 
   const [open, setOpen] = useState(false)
   const [filters, setFilters] = useState<DashboardFilters>(
     () =>
       props.currentFilters ?? buildDefaultDashboardFilters(props.preferences)
   )
-  const [selectedRange, setSelectedRange] = useState<number | null>(() =>
-    detectQuickRangeDays(props.currentFilters)
-  )
+  const isCustom = filters.presetDays === undefined
+  const start =
+    filters.start_timestamp && dateToUnixTimestamp(filters.start_timestamp)
+  const end =
+    filters.end_timestamp && dateToUnixTimestamp(filters.end_timestamp)
+  const missingStart = !Number.isFinite(start)
+  const missingEnd = !Number.isFinite(end)
+  const reversed = start !== undefined && end !== undefined && end < start
+  const granularity = filters.time_granularity ?? 'day'
+  const chartBucketCount =
+    start !== undefined &&
+    end !== undefined &&
+    !missingStart &&
+    !missingEnd &&
+    !reversed
+      ? getChartBucketCount(start, end, granularity)
+      : 0
+  const tooManyBuckets = chartBucketCount > MAX_DENSE_CHART_BUCKETS
+  let rangeError: string | undefined
+  if (isCustom) {
+    if (missingStart) rangeError = t('Select start time')
+    else if (missingEnd) rangeError = t('Select end time')
+    else if (reversed) rangeError = t('End time must be after start time')
+    else if (tooManyBuckets) {
+      const maxDays =
+        granularity === 'hour'
+          ? Math.floor((MAX_DENSE_CHART_BUCKETS - 1) / 24)
+          : MAX_DENSE_CHART_BUCKETS
+      rangeError = t(
+        'Choose a time range of up to {{days}} days. The other filters on this page also apply.',
+        { days: maxDays }
+      )
+    }
+  }
 
   const handleOpenChange = (nextOpen: boolean) => {
     // Sync the editing state from the applied filters every time the dialog
     // opens so a previously applied manual range is preserved.
     if (nextOpen) {
-      const applied =
+      setFilters(
         props.currentFilters ?? buildDefaultDashboardFilters(props.preferences)
-      setFilters(applied)
-      setSelectedRange(detectQuickRangeDays(applied))
+      )
     }
     setOpen(nextOpen)
   }
 
   const handleApply = () => {
+    if (rangeError) return
+
     props.onFilterChange(
-      cleanFilters(
-        filters as unknown as Record<string, unknown>
-      ) as typeof filters
+      cleanFilters({
+        ...filters,
+        username: props.allowUsernameFilter ? filters.username : undefined,
+      })
     )
     setOpen(false)
   }
 
   const handleReset = () => {
-    const days = props.preferences.defaultTimeRangeDays
-    const { start, end } = getRollingDateRange(days)
-    setFilters({
-      ...buildDefaultDashboardFilters(props.preferences),
-      start_timestamp: start,
-      end_timestamp: end,
-    })
-    setSelectedRange(days)
     props.onReset()
     setOpen(false)
   }
 
-  const handleChange = (
-    field: keyof DashboardFilters,
-    value: Date | string | undefined
-  ) => {
-    setFilters((prev) => ({ ...prev, [field]: value }))
-    if (field === 'start_timestamp' || field === 'end_timestamp')
-      setSelectedRange(null)
+  const updateFilters = (changes: Partial<DashboardFilters>) => {
+    setFilters((previous) => ({ ...previous, ...changes }))
   }
 
   const handleQuickRange = (days: number) => {
     const { start, end } = getRollingDateRange(days)
 
-    setFilters((prev) => ({
-      ...prev,
+    updateFilters({
+      presetDays: days,
       start_timestamp: start,
       end_timestamp: end,
-      time_granularity: granularityForRangeDays(days),
-    }))
-    setSelectedRange(days)
+      time_granularity: days === 1 ? 'hour' : 'day',
+    })
   }
 
   return (
@@ -190,117 +191,148 @@ export function ModelsFilter(props: ModelsFilterProps) {
             <RotateCcw className='mr-2 h-4 w-4' />
             {t('Reset')}
           </Button>
-          <Button onClick={handleApply} type='submit'>
+          <Button
+            onClick={handleApply}
+            type='button'
+            disabled={Boolean(rangeError)}
+          >
             <Search className='mr-2 h-4 w-4' />
             {t('Apply Filters')}
           </Button>
         </>
       }
     >
-      <ScrollArea className='h-full pr-3 sm:pr-4'>
-        <div className='grid gap-2.5 py-2'>
-          {/* Quick time range selection */}
-          <div className='grid gap-2'>
-            <Label className='flex items-center gap-2'>
-              <Calendar className='h-4 w-4' />
-              {t('Quick Range')}
-            </Label>
-            <div className='grid grid-cols-2 gap-2 sm:flex'>
-              {TIME_RANGE_PRESETS.map((range) => (
-                <Button
-                  key={range.days}
-                  type='button'
-                  size='sm'
-                  variant={selectedRange === range.days ? 'default' : 'outline'}
-                  onClick={() => handleQuickRange(range.days)}
-                  className={cn(
-                    'flex-1',
-                    selectedRange === range.days &&
-                      'ring-ring ring-2 ring-offset-2'
-                  )}
-                >
-                  {t(range.label)}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          <SectionDivider label={t('Custom Time Range')} />
-
-          {/* Custom time range */}
-          <div className='grid gap-2.5'>
-            <div className='grid gap-2'>
-              <Label htmlFor='start_timestamp'>{t('Start Time')}</Label>
-              <DateTimePicker
-                value={filters.start_timestamp}
-                onChange={(date) =>
-                  handleChange('start_timestamp', date || undefined)
+      <div className='grid gap-2.5 py-2'>
+        <fieldset className='min-w-0'>
+          <legend className='mb-2 flex items-center gap-2 text-sm font-medium'>
+            <Calendar className='h-4 w-4' />
+            {t('Quick Range')}
+          </legend>
+          <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
+            {TIME_RANGE_PRESETS.map((range) => (
+              <Button
+                key={range.days}
+                type='button'
+                size='sm'
+                variant={
+                  filters.presetDays === range.days ? 'default' : 'outline'
                 }
-                placeholder={t('Select start time')}
-              />
-            </div>
-
-            <div className='grid gap-2'>
-              <Label htmlFor='end_timestamp'>{t('End Time')}</Label>
-              <DateTimePicker
-                value={filters.end_timestamp}
-                onChange={(date) =>
-                  handleChange('end_timestamp', date || undefined)
-                }
-                placeholder={t('Select end time')}
-              />
-            </div>
-          </div>
-
-          <SectionDivider label={t('Chart Settings')} />
-
-          <div className='grid gap-2'>
-            <Label htmlFor='time_granularity'>{t('Time Granularity')}</Label>
-            <Select
-              items={[
-                ...TIME_GRANULARITY_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: t(option.label),
-                })),
-              ]}
-              value={filters.time_granularity}
-              onValueChange={(value) =>
-                handleChange('time_granularity', value as TimeGranularity)
-              }
+                aria-pressed={filters.presetDays === range.days}
+                onClick={() => handleQuickRange(range.days)}
+              >
+                {t(range.label)}
+              </Button>
+            ))}
+            <Button
+              type='button'
+              size='sm'
+              variant={isCustom ? 'default' : 'outline'}
+              aria-pressed={isCustom}
+              onClick={() => updateFilters({ presetDays: undefined })}
             >
-              <SelectTrigger>
-                <SelectValue placeholder={t('Select time granularity')} />
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                <SelectGroup>
-                  {TIME_GRANULARITY_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {t(option.label)}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+              {t('Custom')}
+            </Button>
           </div>
+        </fieldset>
 
-          {/* Admin-only fields */}
-          {isAdmin && (
-            <>
-              <SectionDivider label={t('Admin Only')} />
+        {isCustom && (
+          <div className='grid gap-2.5'>
+            <SectionDivider label={t('Custom Time Range')} />
+            <p id={`${id}-zone`} className='text-muted-foreground text-xs'>
+              {t('Timezone')} · UTC+8
+            </p>
+            {(['start_timestamp', 'end_timestamp'] as const).map((field) => {
+              const isStart = field === 'start_timestamp'
+              const label = isStart ? t('Start Time') : t('End Time')
+              const invalid = isStart ? missingStart : missingEnd || reversed
+              return (
+                <div key={field} className='grid gap-2'>
+                  <Label htmlFor={`${id}-${field}`}>{label}</Label>
+                  <Input
+                    id={`${id}-${field}`}
+                    type='datetime-local'
+                    step={1}
+                    required
+                    aria-label={label}
+                    aria-invalid={invalid}
+                    aria-describedby={
+                      invalid ? `${id}-zone ${id}-error` : `${id}-zone`
+                    }
+                    value={formatDashboardDateTimeInput(filters[field])}
+                    onChange={(event) =>
+                      updateFilters({
+                        [field]: parseDashboardDateTimeInput(
+                          event.currentTarget.value.replace(/\.0+$/, '')
+                        ),
+                      })
+                    }
+                  />
+                </div>
+              )
+            })}
+            {rangeError && (
+              <p
+                id={`${id}-error`}
+                className='text-destructive text-sm'
+                role='alert'
+              >
+                {rangeError}
+              </p>
+            )}
+          </div>
+        )}
 
-              <div className='grid gap-2'>
-                <Label htmlFor='username'>{t('Username')}</Label>
-                <Input
-                  id='username'
-                  placeholder={t('Filter by username')}
-                  value={filters.username}
-                  onChange={(e) => handleChange('username', e.target.value)}
-                />
-              </div>
-            </>
-          )}
+        <SectionDivider label={t('Chart Settings')} />
+
+        <div className='grid gap-2'>
+          <Label htmlFor={`${id}-granularity`}>{t('Time Granularity')}</Label>
+          <Select
+            items={TIME_GRANULARITY_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.label),
+            }))}
+            value={filters.time_granularity}
+            onValueChange={(value) =>
+              updateFilters({ time_granularity: value as TimeGranularity })
+            }
+          >
+            <SelectTrigger
+              id={`${id}-granularity`}
+              aria-label={t('Time Granularity')}
+            >
+              <SelectValue placeholder={t('Select time granularity')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {TIME_GRANULARITY_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {t(option.label)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </div>
-      </ScrollArea>
+
+        {/* Admin-only fields */}
+        {props.allowUsernameFilter && (
+          <>
+            <SectionDivider label={t('Admin Only')} />
+
+            <div className='grid gap-2'>
+              <Label htmlFor={`${id}-username`}>{t('Username')}</Label>
+              <Input
+                id={`${id}-username`}
+                placeholder={t('Filter by username')}
+                value={filters.username ?? ''}
+                onChange={(event) =>
+                  updateFilters({ username: event.target.value })
+                }
+              />
+            </div>
+          </>
+        )}
+      </div>
     </Dialog>
   )
 }

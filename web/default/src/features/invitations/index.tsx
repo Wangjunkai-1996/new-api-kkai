@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { Gift, History, RefreshCw, WalletCards, Users } from 'lucide-react'
 import { useEffect } from 'react'
@@ -28,11 +28,14 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
+import { getMyInvitationCode } from './api'
+import { requireInvitationData } from './api/result'
 import { InvitationSummary } from './components/user/invitation-summary'
 import { RebateRecords } from './components/user/rebate-records'
 import { RebateRequests } from './components/user/rebate-requests'
 import { RebateTransfer } from './components/user/rebate-transfer'
 import { SalesCustomers } from './components/user/sales-customers'
+import { TopupRebatePolicySummary } from './components/user/topup-rebate-policy-summary'
 import { useInvitationFeatureStatus } from './hooks/use-invitation-feature-status'
 
 type InvitationTab = 'invite' | 'customers' | 'records' | 'rebate'
@@ -43,6 +46,20 @@ export const Invitations = () => {
   const navigate = useNavigate()
   const search = useSearch({ from: '/_authenticated/invitations/' })
   const feature = useInvitationFeatureStatus()
+  const invitationQuery = useQuery({
+    queryKey: ['kkai', 'invitations', 'my-code', feature.userId],
+    enabled: feature.userVisible,
+    queryFn: async ({ signal }) => {
+      const stats = requireInvitationData(
+        await getMyInvitationCode({ signal, disableDuplicate: true }),
+        'Failed to load invitation code'
+      )
+      if (typeof stats?.invitationCode !== 'string') {
+        throw new Error('Failed to load invitation code')
+      }
+      return stats
+    },
+  })
   const requestedTab = (search.tab ??
     (feature.salesVisible ? 'customers' : 'invite')) as InvitationTab
   const activeTab =
@@ -53,11 +70,22 @@ export const Invitations = () => {
       : requestedTab
 
   useEffect(() => {
-    if (feature.isPending || feature.accessError || feature.userVisible) {
+    if (
+      !feature.userId ||
+      feature.isPending ||
+      feature.accessError ||
+      feature.userVisible
+    ) {
       return
     }
     void navigate({ to: '/wallet', replace: true })
-  }, [feature.isPending, feature.accessError, feature.userVisible, navigate])
+  }, [
+    feature.userId,
+    feature.isPending,
+    feature.accessError,
+    feature.userVisible,
+    navigate,
+  ])
 
   if (feature.accessError) {
     return (
@@ -100,6 +128,11 @@ export const Invitations = () => {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
+        <TopupRebatePolicySummary
+          query={invitationQuery}
+          orderRebateEnabled={feature.confirmedOrderRebateEnabled}
+          signupRewardEnabled={feature.status.invitationSignupRewardEnabled}
+        />
         <Tabs
           value={activeTab}
           onValueChange={(value) =>
@@ -137,6 +170,8 @@ export const Invitations = () => {
           </TabsList>
           <TabsContent value='invite'>
             <InvitationSummary
+              key={feature.userId}
+              query={invitationQuery}
               showRebates={
                 !feature.salesVisible && feature.rebateRecordsVisible
               }
@@ -148,12 +183,16 @@ export const Invitations = () => {
             </TabsContent>
           )}
           {feature.rebateRecordsVisible && (
-            <TabsContent value='records'>
+            <TabsContent key={`records-${feature.userId}`} value='records'>
               <RebateRecords sales={feature.salesVisible} />
             </TabsContent>
           )}
           {feature.rebateManagementVisible && (
-            <TabsContent value='rebate' className='space-y-4'>
+            <TabsContent
+              key={`rebate-${feature.userId}`}
+              value='rebate'
+              className='space-y-4'
+            >
               <RebateTransfer
                 sales={feature.salesVisible}
                 disabled={feature.salesVisible && !feature.salesActive}

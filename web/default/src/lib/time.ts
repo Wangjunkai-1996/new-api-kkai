@@ -19,18 +19,118 @@ For commercial licensing, please contact support@quantumnous.com
 /**
  * Time utility functions for consistent time handling across the application
  */
+import utc from 'dayjs/plugin/utc'
+
 import dayjs from '@/lib/dayjs'
+
+dayjs.extend(utc)
 
 /**
  * Time granularity type
  */
-export type TimeGranularity = 'hour' | 'day' | 'week'
+export type TimeGranularity = 'hour' | 'day' | 'week' | 'month'
+
+const CHART_TIMEZONE_OFFSET_SECONDS = 8 * 60 * 60
+
+export function formatDashboardDateTimeInput(date?: Date): string {
+  if (!date || !Number.isFinite(date.getTime())) return ''
+  return dayjs
+    .utc(date)
+    .add(CHART_TIMEZONE_OFFSET_SECONDS, 'second')
+    .format('YYYY-MM-DDTHH:mm:ss')
+}
+
+export function parseDashboardDateTimeInput(value: string): Date | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) return undefined
+  const date = new Date(
+    Date.parse(`${value}Z`) - CHART_TIMEZONE_OFFSET_SECONDS * 1000
+  )
+  const normalized = value.length === 16 ? `${value}:00` : value
+  return formatDashboardDateTimeInput(date) === normalized ? date : undefined
+}
+
+function chartBucketDate(
+  timestamp: number,
+  granularity: TimeGranularity
+): dayjs.Dayjs {
+  if (!Number.isFinite(timestamp)) return dayjs.utc(Number.NaN)
+  const date = dayjs.utc((timestamp + CHART_TIMEZONE_OFFSET_SECONDS) * 1000)
+  switch (granularity) {
+    case 'week':
+      return date.startOf('day').subtract((date.day() + 6) % 7, 'day')
+    case 'day':
+    case 'hour':
+    case 'month':
+      return date.startOf(granularity)
+    default:
+      return dayjs.utc(Number.NaN)
+  }
+}
+
+export function getChartBucketStart(
+  timestamp: number,
+  granularity: TimeGranularity
+): number {
+  return (
+    chartBucketDate(timestamp, granularity).unix() -
+    CHART_TIMEZONE_OFFSET_SECONDS
+  )
+}
+
+export function shiftChartBucket(
+  start: number,
+  granularity: TimeGranularity,
+  amount: number
+): number {
+  if (!Number.isSafeInteger(amount)) return Number.NaN
+  const shifted = chartBucketDate(start, granularity).add(amount, granularity)
+  return shifted.unix() - CHART_TIMEZONE_OFFSET_SECONDS
+}
+
+export function getChartBucketCount(
+  startTimestamp: number,
+  endTimestamp: number,
+  granularity: TimeGranularity
+): number {
+  if (
+    !Number.isFinite(startTimestamp) ||
+    !Number.isFinite(endTimestamp) ||
+    endTimestamp < startTimestamp
+  ) {
+    return 0
+  }
+  const first = chartBucketDate(startTimestamp, granularity)
+  const last = chartBucketDate(endTimestamp, granularity)
+  if (!first.isValid() || !last.isValid()) return 0
+  const difference =
+    granularity === 'week'
+      ? last.diff(first, 'day') / 7
+      : last.diff(first, granularity)
+  return Number.isSafeInteger(difference) ? difference + 1 : 0
+}
 
 /**
  * Convert Date object to Unix timestamp (seconds)
  */
 export function dateToUnixTimestamp(date: Date): number {
   return Math.floor(date.getTime() / 1000)
+}
+
+export function normalizeDashboardHourRange(range: {
+  start_timestamp: number
+  end_timestamp: number
+}): { start_timestamp: number; end_timestamp: number } {
+  const start_timestamp = getChartBucketStart(range.start_timestamp, 'hour')
+  const end_timestamp = getChartBucketStart(range.end_timestamp, 'hour')
+  if (
+    !Number.isSafeInteger(start_timestamp) ||
+    !Number.isSafeInteger(end_timestamp) ||
+    start_timestamp <= 0 ||
+    range.end_timestamp < range.start_timestamp
+  ) {
+    return { start_timestamp: Number.NaN, end_timestamp: Number.NaN }
+  }
+  return { start_timestamp, end_timestamp }
 }
 
 /**
@@ -156,24 +256,21 @@ export function formatDateTimeObject(date: Date): string {
 /**
  * Format timestamp for chart display based on time granularity
  * @param timestamp Unix timestamp in seconds
- * @param granularity Time granularity: 'hour', 'day', or 'week'
+ * @param granularity Hour, natural day, Monday–Sunday week, or calendar month
  * @returns Formatted string suitable for chart axis
  */
 export function formatChartTime(
   timestamp: number,
   granularity: TimeGranularity = 'day'
 ): string {
-  const d = dayjs(timestamp * 1000)
-  let result = d.format('MM-DD')
-
-  if (granularity === 'hour') {
-    result += ` ${d.format('HH')}:00`
-  } else if (granularity === 'week') {
-    const weekEnd = d.add(6, 'day')
-    result += ` - ${weekEnd.format('MM-DD')}`
+  const date = chartBucketDate(timestamp, granularity)
+  if (!date.isValid()) return ''
+  if (granularity === 'month') return date.format('YYYY-MM')
+  if (granularity === 'hour') return date.format('MM-DD HH:00')
+  if (granularity === 'week') {
+    return `${date.format('MM-DD')} - ${date.add(6, 'day').format('MM-DD')}`
   }
-
-  return result
+  return date.format('MM-DD')
 }
 
 /**

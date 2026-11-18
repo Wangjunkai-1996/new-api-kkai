@@ -22,6 +22,7 @@ import { Users, Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ErrorState } from '@/components/error-state'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -32,17 +33,20 @@ import {
   TIME_RANGE_PRESETS,
 } from '@/features/dashboard/constants'
 import {
-  getDefaultDays,
-  saveGranularity,
   processUserChartData,
+  resolveDashboardTimeRange,
+  saveUserGranularity,
 } from '@/features/dashboard/lib'
 import type {
   ProcessedUserChartData,
   UserChartsFilters,
 } from '@/features/dashboard/types'
+import { getCurrentHost } from '@/lib/host-scope'
+import { privateUserQueryKey } from '@/lib/private-query-cache'
 import { requireServerSuccess } from '@/lib/server-error-message'
-import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
+import type { TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
+import { useAuthStore } from '@/stores/auth-store'
 
 let themeManagerPromise: Promise<
   (typeof import('@visactor/vchart'))['ThemeManager']
@@ -75,6 +79,7 @@ interface UserChartsProps {
 export function UserCharts(props: UserChartsProps) {
   const { t } = useTranslation()
   const { resolvedTheme } = useTheme()
+  const userId = useAuthStore((state) => state.auth.user?.id)
   const [themeReady, setThemeReady] = useState(false)
   const themeManagerRef = useRef<
     (typeof import('@visactor/vchart'))['ThemeManager'] | null
@@ -87,29 +92,26 @@ export function UserCharts(props: UserChartsProps) {
   const topUserLimit = props.filters.topUserLimit
   const onFiltersChange = props.onFiltersChange
 
-  const timeRange = useMemo(() => {
-    const { start, end } = getRollingDateRange(selectedRange)
-    return {
-      start_timestamp: Math.floor(start.getTime() / 1000),
-      end_timestamp: Math.floor(end.getTime() / 1000),
-    }
-  }, [selectedRange])
+  const timeRange = useMemo(
+    () => resolveDashboardTimeRange({ presetDays: selectedRange }),
+    [selectedRange]
+  )
 
   const handleRangeChange = useCallback(
     (days: number) => {
-      onFiltersChange({ ...props.filters, selectedRange: days })
+      onFiltersChange({
+        ...props.filters,
+        selectedRange: days,
+        timeGranularity: days === 1 ? 'hour' : 'day',
+      })
     },
     [onFiltersChange, props.filters]
   )
 
   const handleGranularityChange = useCallback(
-    (g: TimeGranularity) => {
-      saveGranularity(g)
-      onFiltersChange({
-        ...props.filters,
-        timeGranularity: g,
-        selectedRange: getDefaultDays(g),
-      })
+    (granularity: TimeGranularity) => {
+      saveUserGranularity(granularity)
+      onFiltersChange({ ...props.filters, timeGranularity: granularity })
     },
     [onFiltersChange, props.filters]
   )
@@ -137,10 +139,23 @@ export function UserCharts(props: UserChartsProps) {
     updateTheme()
   }, [resolvedTheme])
 
-  const { data: userData, isLoading } = useQuery({
-    queryKey: ['dashboard', 'user-quota', timeRange],
-    queryFn: async () =>
-      requireServerSuccess(await getUserQuotaDataByUsers(timeRange)),
+  const {
+    data: userData,
+    error: userError,
+    isError,
+    isLoading,
+    refetch,
+  } = useQuery({
+    queryKey: privateUserQueryKey(
+      userId ?? 0,
+      getCurrentHost(),
+      'dashboard',
+      'user-quota',
+      timeRange
+    ),
+    enabled: Boolean(userId),
+    queryFn: async ({ signal }) =>
+      requireServerSuccess(await getUserQuotaDataByUsers(timeRange, signal)),
     select: (res) => (res.success ? res.data : []),
     staleTime: 60_000,
   })
@@ -151,9 +166,10 @@ export function UserCharts(props: UserChartsProps) {
         isLoading ? [] : (userData ?? []),
         timeGranularity,
         t,
-        topUserLimit
+        topUserLimit,
+        timeRange
       ),
-    [userData, isLoading, timeGranularity, t, topUserLimit]
+    [userData, isLoading, timeGranularity, t, topUserLimit, timeRange]
   )
 
   return (
@@ -223,44 +239,56 @@ export function UserCharts(props: UserChartsProps) {
         )}
       </div>
 
-      <div className='grid gap-3'>
-        {USER_CHARTS.map((chart) => {
-          const spec = chartData[chart.specKey]
+      {isError ? (
+        <ErrorState
+          title={t('Failed to load data')}
+          description={
+            userError instanceof Error ? userError.message : undefined
+          }
+          onRetry={() => void refetch()}
+        />
+      ) : (
+        <div className='grid gap-3'>
+          {USER_CHARTS.map((chart) => {
+            const spec = chartData[chart.specKey]
 
-          return (
-            <div
-              key={chart.value}
-              className='overflow-hidden rounded-lg border'
-            >
-              <div className='flex w-full items-center gap-2 border-b px-3 py-2 sm:px-5 sm:py-3'>
-                <IconBadge tone='info' size='sm'>
-                  <Users />
-                </IconBadge>
-                <div className='text-sm font-semibold'>{t(chart.labelKey)}</div>
-              </div>
+            return (
+              <div
+                key={chart.value}
+                className='overflow-hidden rounded-lg border'
+              >
+                <div className='flex w-full items-center gap-2 border-b px-3 py-2 sm:px-5 sm:py-3'>
+                  <IconBadge tone='info' size='sm'>
+                    <Users aria-hidden='true' />
+                  </IconBadge>
+                  <div className='text-sm font-semibold'>
+                    {t(chart.labelKey)}
+                  </div>
+                </div>
 
-              <div className='h-[300px] p-1.5 sm:h-96 sm:p-2'>
-                {isLoading ? (
-                  <Skeleton className='h-full w-full' />
-                ) : (
-                  themeReady &&
-                  spec && (
-                    <VChart
-                      key={`user-${chart.value}-${topUserLimit}-${resolvedTheme}`}
-                      spec={{
-                        ...spec,
-                        theme: resolvedTheme === 'dark' ? 'dark' : 'light',
-                        background: 'transparent',
-                      }}
-                      option={VCHART_OPTION}
-                    />
-                  )
-                )}
+                <div className='h-[300px] p-1.5 sm:h-96 sm:p-2'>
+                  {isLoading ? (
+                    <Skeleton className='h-full w-full' />
+                  ) : (
+                    themeReady &&
+                    spec && (
+                      <VChart
+                        key={`user-${chart.value}-${topUserLimit}-${resolvedTheme}`}
+                        spec={{
+                          ...spec,
+                          theme: resolvedTheme === 'dark' ? 'dark' : 'light',
+                          background: 'transparent',
+                        }}
+                        option={VCHART_OPTION}
+                      />
+                    )
+                  )}
+                </div>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

@@ -19,11 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   DASHBOARD_CHART_PREFERENCES_STORAGE_KEY,
   DEFAULT_DASHBOARD_CHART_PREFERENCES,
-  DEFAULT_TIME_GRANULARITY,
   EMPTY_DASHBOARD_FILTERS,
+  TIME_GRANULARITY_OPTIONS,
   TIME_GRANULARITY_STORAGE_KEY,
-  TIME_RANGE_PRESETS,
+  TIME_RANGE_30_DAYS,
   TIME_RANGE_BY_GRANULARITY,
+  TIME_RANGE_PRESETS,
+  USER_TIME_GRANULARITY_STORAGE_KEY,
 } from '@/features/dashboard/constants'
 import type {
   ConsumptionDistributionChartType,
@@ -31,16 +33,36 @@ import type {
   DashboardFilters,
   ModelAnalyticsChartTab,
 } from '@/features/dashboard/types'
-import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
+import {
+  dateToUnixTimestamp,
+  getRollingDateRange,
+  normalizeDashboardHourRange,
+  type TimeGranularity,
+} from '@/lib/time'
 
 function isTimeGranularity(value: unknown): value is TimeGranularity {
-  return value === 'hour' || value === 'day' || value === 'week'
+  return TIME_GRANULARITY_OPTIONS.some((option) => option.value === value)
 }
 
-function getLegacySavedGranularity(): TimeGranularity {
-  if (typeof window === 'undefined') return DEFAULT_TIME_GRANULARITY
-  const saved = localStorage.getItem(TIME_GRANULARITY_STORAGE_KEY)
-  return isTimeGranularity(saved) ? saved : DEFAULT_TIME_GRANULARITY
+function readPreference(key: string): string | null {
+  try {
+    return typeof window === 'undefined' ? null : localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writePreference(key: string, value: string): void {
+  try {
+    if (typeof window !== 'undefined') localStorage.setItem(key, value)
+  } catch {
+    return
+  }
+}
+
+function getStoredGranularity(key: string): TimeGranularity | undefined {
+  const saved = readPreference(key)
+  return isTimeGranularity(saved) ? saved : undefined
 }
 
 function isConsumptionDistributionChartType(
@@ -55,8 +77,9 @@ function isModelAnalyticsChartTab(
   return value === 'trend' || value === 'proportion' || value === 'top'
 }
 
-function isTimeRangePresetDays(value: unknown): value is number {
-  return TIME_RANGE_PRESETS.some((preset) => preset.days === value)
+function normalizeSavedTimeRangeDays(value: unknown): number | undefined {
+  if (value === 29) return TIME_RANGE_30_DAYS
+  return TIME_RANGE_PRESETS.find((preset) => preset.days === value)?.days
 }
 
 export function cleanFilters<T extends Record<string, unknown>>(
@@ -82,13 +105,15 @@ export function getSavedGranularity(
   return getSavedChartPreferences().defaultTimeGranularity
 }
 
-export function saveGranularity(granularity: TimeGranularity): void {
-  if (typeof window === 'undefined') return
-  saveChartPreferences({
-    ...getSavedChartPreferences(),
-    defaultTimeGranularity: granularity,
-  })
-  localStorage.setItem(TIME_GRANULARITY_STORAGE_KEY, granularity)
+export function getSavedUserGranularity(): TimeGranularity {
+  return (
+    getStoredGranularity(USER_TIME_GRANULARITY_STORAGE_KEY) ??
+    getSavedGranularity()
+  )
+}
+
+export function saveUserGranularity(granularity: TimeGranularity): void {
+  writePreference(USER_TIME_GRANULARITY_STORAGE_KEY, granularity)
 }
 
 export function getSavedChartPreferences(): DashboardChartPreferences {
@@ -96,11 +121,13 @@ export function getSavedChartPreferences(): DashboardChartPreferences {
 
   const fallbackPreferences = {
     ...DEFAULT_DASHBOARD_CHART_PREFERENCES,
-    defaultTimeGranularity: getLegacySavedGranularity(),
+    defaultTimeGranularity:
+      getStoredGranularity(TIME_GRANULARITY_STORAGE_KEY) ??
+      DEFAULT_DASHBOARD_CHART_PREFERENCES.defaultTimeGranularity,
   }
 
   try {
-    const raw = localStorage.getItem(DASHBOARD_CHART_PREFERENCES_STORAGE_KEY)
+    const raw = readPreference(DASHBOARD_CHART_PREFERENCES_STORAGE_KEY)
     if (!raw) return fallbackPreferences
 
     const parsed = JSON.parse(raw) as Partial<DashboardChartPreferences>
@@ -113,9 +140,9 @@ export function getSavedChartPreferences(): DashboardChartPreferences {
       modelAnalyticsChart: isModelAnalyticsChartTab(parsed.modelAnalyticsChart)
         ? parsed.modelAnalyticsChart
         : fallbackPreferences.modelAnalyticsChart,
-      defaultTimeRangeDays: isTimeRangePresetDays(parsed.defaultTimeRangeDays)
-        ? parsed.defaultTimeRangeDays
-        : fallbackPreferences.defaultTimeRangeDays,
+      defaultTimeRangeDays:
+        normalizeSavedTimeRangeDays(parsed.defaultTimeRangeDays) ??
+        fallbackPreferences.defaultTimeRangeDays,
       defaultTimeGranularity: isTimeGranularity(parsed.defaultTimeGranularity)
         ? parsed.defaultTimeGranularity
         : fallbackPreferences.defaultTimeGranularity,
@@ -128,8 +155,7 @@ export function getSavedChartPreferences(): DashboardChartPreferences {
 export function saveChartPreferences(
   preferences: DashboardChartPreferences
 ): void {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(
+  writePreference(
     DASHBOARD_CHART_PREFERENCES_STORAGE_KEY,
     JSON.stringify(preferences)
   )
@@ -140,12 +166,31 @@ export function getDefaultDays(granularity?: TimeGranularity): number {
   return TIME_RANGE_BY_GRANULARITY[getSavedGranularity(granularity)]
 }
 
+export function resolveDashboardTimeRange(filters?: DashboardFilters): {
+  start_timestamp: number
+  end_timestamp: number
+} {
+  const presetDays = filters?.presetDays
+  const { start, end } = getRollingDateRange(
+    presetDays ?? getDefaultDays(filters?.time_granularity)
+  )
+  return normalizeDashboardHourRange({
+    start_timestamp: dateToUnixTimestamp(
+      presetDays === undefined ? (filters?.start_timestamp ?? start) : start
+    ),
+    end_timestamp: dateToUnixTimestamp(
+      presetDays === undefined ? (filters?.end_timestamp ?? end) : end
+    ),
+  })
+}
+
 export function buildDefaultDashboardFilters(
   preferences: DashboardChartPreferences = getSavedChartPreferences()
 ): DashboardFilters {
   const { start, end } = getRollingDateRange(preferences.defaultTimeRangeDays)
   return {
     ...EMPTY_DASHBOARD_FILTERS,
+    presetDays: preferences.defaultTimeRangeDays,
     start_timestamp: start,
     end_timestamp: end,
     time_granularity: preferences.defaultTimeGranularity,
@@ -163,7 +208,7 @@ export function buildQueryParams(
 } {
   return {
     ...timeRange,
-    default_time: getSavedGranularity(filters?.time_granularity),
+    default_time: 'hour',
     ...(filters?.username && { username: filters.username }),
   }
 }

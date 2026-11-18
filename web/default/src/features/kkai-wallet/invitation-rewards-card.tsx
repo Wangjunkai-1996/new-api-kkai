@@ -42,9 +42,11 @@ export const KkaiWalletRewardsCard = (props: WalletRewardsProps) => {
   const { t } = useTranslation()
   const feature = useInvitationFeatureStatus()
   const statsQuery = useQuery({
-    queryKey: ['kkai', 'invitations', 'my-code'],
-    queryFn: async () => {
+    queryKey: ['kkai', 'invitations', 'wallet-my-code', feature.userId],
+    queryFn: async ({ signal }) => {
       const response = await getMyInvitationCode({
+        signal,
+        disableDuplicate: true,
         skipBusinessError: true,
         skipErrorHandler: true,
       })
@@ -76,7 +78,7 @@ export const KkaiWalletRewardsCard = (props: WalletRewardsProps) => {
 
   if (
     isInvitationWalletLoading(
-      feature.isPending,
+      !feature.userId || feature.isPending,
       feature.userVisible,
       statsQuery.isPending
     )

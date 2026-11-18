@@ -112,6 +112,8 @@ beforeEach(() => {
         }
       case '/api/data/self':
         return { data: { success: true, data: [] } }
+      case '/api/data':
+        return { data: { success: true, data: [] } }
       default:
         throw new Error(`Unexpected dashboard request: ${url}`)
     }
@@ -140,21 +142,75 @@ async function renderOverview() {
 }
 
 describe('overview setup guide', () => {
+  it('waits for auth bootstrap before the usage panel and resets its role-scoped filter state', async () => {
+    const user = userEvent.setup()
+    await renderOverview()
+
+    expect(
+      vi.mocked(api.get).mock.calls.some(([url]) => url === '/api/data')
+    ).toBe(false)
+
+    act(() => {
+      useAuthStore.getState().auth.setBootstrapState('complete')
+      useAuthStore.getState().auth.setUser({
+        id: 1,
+        username: 'admin-user',
+        role: 10,
+      })
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Filter' }))
+    await user.type(screen.getByLabelText('Username'), 'alice')
+    await user.click(screen.getByRole('button', { name: 'Apply Filters' }))
+    expect(await screen.findByText(/alice/)).toBeVisible()
+    expect(
+      vi.mocked(api.get).mock.calls.some(([url]) => url === '/api/data')
+    ).toBe(true)
+
+    act(() => {
+      useAuthStore.getState().auth.setUser({
+        id: 1,
+        username: 'regular-user',
+        role: 1,
+      })
+    })
+
+    await waitFor(() =>
+      expect(screen.queryByText(/alice/)).not.toBeInTheDocument()
+    )
+    await user.click(await screen.findByRole('button', { name: 'Filter' }))
+    expect(
+      screen.queryByRole('textbox', { name: 'Username' })
+    ).not.toBeInTheDocument()
+    expect(
+      vi.mocked(api.get).mock.calls.some(([url]) => url === '/api/data/self')
+    ).toBe(true)
+
+    act(() => {
+      useAuthStore.getState().auth.setUser({
+        id: 2,
+        username: 'second-admin',
+        role: 10,
+      })
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Filter' }))
+    expect(screen.getByRole('textbox', { name: 'Username' })).toHaveValue('')
+  })
+
   it('fetches the new account key and models instead of reusing fresh data from the previous account', async () => {
     const user = userEvent.setup()
     await renderOverview()
     await user.click(await screen.findByRole('button', { name: 'Setup guide' }))
     expect(await screen.findByText('App key')).toBeVisible()
     act(() => {
-      useAuthStore
-        .getState()
-        .auth.setUser({
-          id: 2,
-          username: 'second-user',
-          role: 1,
-          quota: 1000000,
-          request_count: 1,
-        })
+      useAuthStore.getState().auth.setUser({
+        id: 2,
+        username: 'second-user',
+        role: 1,
+        quota: 1000000,
+        request_count: 1,
+      })
     })
     expect(await screen.findByText('Second account key')).toBeVisible()
     await waitFor(() =>
@@ -209,8 +265,8 @@ describe('overview setup guide', () => {
     for (const name of ['API Keys', 'Channels', 'Usage Logs', 'Pricing']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
-    const panel = document.getElementById(
-      toggle.getAttribute('aria-controls') ?? ''
+    const panel = document.querySelector(
+      `[id="${toggle.getAttribute('aria-controls') ?? ''}"]`
     )
     expect(panel).toBeInTheDocument()
     expect(panel).not.toBeVisible()
@@ -226,7 +282,9 @@ describe('overview setup guide', () => {
     await user.keyboard('{Enter}')
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(
-      document.getElementById(toggle.getAttribute('aria-controls') ?? '')
+      document.querySelector(
+        `[id="${toggle.getAttribute('aria-controls') ?? ''}"]`
+      )
     ).toBeVisible()
     expect(
       screen.getByRole('heading', {

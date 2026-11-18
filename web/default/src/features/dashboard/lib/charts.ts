@@ -18,25 +18,51 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { dataScheme as vchartDefaultDataScheme } from '@visactor/vchart/esm/theme/color-scheme/builtin/default'
 
-import { MAX_CHART_TREND_POINTS } from '@/features/dashboard/constants'
+import {
+  MAX_CHART_TREND_POINTS,
+  MAX_DENSE_CHART_BUCKETS,
+} from '@/features/dashboard/constants'
 import type {
-  QuotaDataItem,
   ProcessedChartData,
   ProcessedUserChartData,
+  QuotaDataItem,
 } from '@/features/dashboard/types'
 import { getCurrencyDisplay } from '@/lib/currency'
-import { formatChartTime, type TimeGranularity } from '@/lib/time'
+import {
+  formatChartTime,
+  getChartBucketStart,
+  shiftChartBucket,
+  type TimeGranularity,
+} from '@/lib/time'
 
 type TFunction = (key: string) => string
-type TooltipLineItem = {
+type ChartRange = { start_timestamp: number; end_timestamp: number }
+type Usage = { count: number; quota: number }
+type ChartSummary = {
+  totalCount: number
+  totalQuota: number
+  totalTokens: number
+}
+type TimeBucket = { TimeKey: number; Time: string }
+type TooltipLine = {
   key: string
   value: string | number
-  datum?: Record<string, unknown>
-  hasShape?: boolean
-  shapeType?: string
-  shapeFill?: string
-  shapeStroke?: string
-  shapeSize?: number
+  datum?: { TimeSum: number }
+}
+
+const MAX_QUOTA_MODELS = 15
+const MAX_CALL_MODELS = 20
+const MAX_PIE_MODELS = 10
+
+function normalizeUsageValue(value: unknown): number {
+  const numeric = Number(value)
+  if (!Number.isSafeInteger(numeric) || numeric < 0) return 0
+  return numeric
+}
+
+function addUsageValue(left: number, right: number): number {
+  const total = left + right
+  return Number.isSafeInteger(total) ? total : Number.MAX_SAFE_INTEGER
 }
 
 export function getDashboardChartColors(domainLength: number): string[] {
@@ -50,415 +76,371 @@ export function getDashboardChartColors(domainLength: number): string[] {
   )
 }
 
-function renderQuotaCompat(rawQuota: number, digits = 4): string {
+function renderQuotaCompat(
+  rawQuota: number,
+  digits = 4,
+  locale?: Intl.LocalesArgument
+): string {
   const { config, meta } = getCurrencyDisplay()
-  if (meta.kind === 'tokens') return rawQuota.toLocaleString()
+  if (meta.kind === 'tokens') return rawQuota.toLocaleString(locale)
   const usd = rawQuota / config.quotaPerUnit
   const rate = 'exchangeRate' in meta ? meta.exchangeRate : 1
   const symbol = 'symbol' in meta ? meta.symbol : '$'
   const value = usd * rate
   const fixed = value.toFixed(digits)
+  const formatted = value.toLocaleString(locale, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })
   if (Number.parseFloat(fixed) === 0 && rawQuota > 0 && value > 0) {
-    return symbol + Math.pow(10, -digits).toFixed(digits)
+    return (
+      symbol +
+      Math.pow(10, -digits).toLocaleString(locale, {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      })
+    )
   }
-  return symbol + fixed
+  return symbol + formatted
 }
 
-/**
- * Process and aggregate chart data
- */
+function aggregateChartUsage(
+  rows: QuotaDataItem[],
+  group: 'model_name' | 'username',
+  granularity: TimeGranularity,
+  range?: ChartRange
+) {
+  const totals = new Map<string, Usage>()
+  const buckets = new Map<number, Map<string, Usage>>()
+  const summary: ChartSummary = { totalCount: 0, totalQuota: 0, totalTokens: 0 }
+  const times: TimeBucket[] = []
+  if (
+    range &&
+    (!Number.isSafeInteger(range.start_timestamp) ||
+      !Number.isSafeInteger(range.end_timestamp) ||
+      range.start_timestamp <= 0 ||
+      range.end_timestamp <= 0 ||
+      range.start_timestamp > range.end_timestamp)
+  ) {
+    return { totals, buckets, summary, times }
+  }
+  for (const row of rows ?? []) {
+    const timestamp = row.created_at
+    if (!Number.isSafeInteger(timestamp) || timestamp <= 0) continue
+    if (
+      range &&
+      (timestamp < range.start_timestamp || timestamp > range.end_timestamp)
+    ) {
+      continue
+    }
+    const start = getChartBucketStart(timestamp, granularity)
+    if (!Number.isFinite(start)) continue
+    const name = row[group] || (group === 'username' ? 'unknown' : 'Unknown')
+    const count = normalizeUsageValue(row.count)
+    const quota = normalizeUsageValue(row.quota)
+    const tokenUsed = normalizeUsageValue(row.token_used)
+    let bucket = buckets.get(start)
+    if (!bucket) {
+      bucket = new Map()
+      buckets.set(start, bucket)
+    }
+    for (const groups of [totals, bucket]) {
+      const usage = groups.get(name) ?? { count: 0, quota: 0 }
+      usage.count = addUsageValue(usage.count, count)
+      usage.quota = addUsageValue(usage.quota, quota)
+      groups.set(name, usage)
+    }
+    summary.totalCount = addUsageValue(summary.totalCount, count)
+    summary.totalQuota = addUsageValue(summary.totalQuota, quota)
+    summary.totalTokens = addUsageValue(summary.totalTokens, tokenUsed)
+  }
+  if (!buckets.size) return { totals, buckets, summary, times }
+
+  const starts = new Set(buckets.keys())
+  let firstObserved = Infinity
+  let lastObserved = -Infinity
+  for (const start of starts) {
+    firstObserved = Math.min(firstObserved, start)
+    lastObserved = Math.max(lastObserved, start)
+  }
+  const first = range
+    ? getChartBucketStart(range.start_timestamp, granularity)
+    : Math.min(
+        firstObserved,
+        shiftChartBucket(lastObserved, granularity, 1 - MAX_CHART_TREND_POINTS)
+      )
+  const last = range
+    ? getChartBucketStart(range.end_timestamp, granularity)
+    : lastObserved
+  if (Number.isFinite(first)) starts.add(first)
+  if (Number.isFinite(last)) starts.add(last)
+  const denseEnd = shiftChartBucket(
+    first,
+    granularity,
+    MAX_DENSE_CHART_BUCKETS - 1
+  )
+  if (last <= denseEnd || !Number.isFinite(denseEnd)) {
+    let start = first
+    for (
+      let index = 1;
+      index < MAX_DENSE_CHART_BUCKETS && start < last;
+      index++
+    ) {
+      const next = shiftChartBucket(start, granularity, 1)
+      if (!(next > start && next <= last)) break
+      starts.add(next)
+      start = next
+    }
+  }
+  for (const TimeKey of [...starts].sort((left, right) => left - right)) {
+    times.push({ TimeKey, Time: formatChartTime(TimeKey, granularity) })
+  }
+  return { totals, buckets, summary, times }
+}
+
+function overflowLabel(
+  totals: Map<string, Usage>,
+  label: string,
+  fallback: string
+) {
+  if (!totals.has(label)) return label
+  let name = fallback
+  for (let suffix = 2; totals.has(name); suffix++) {
+    name = `${fallback} (${suffix})`
+  }
+  return name
+}
+
+function rankedNames(totals: Map<string, Usage>, metric: keyof Usage) {
+  return [...totals.entries()]
+    .sort(([left, first], [right, second]) => {
+      const difference = second[metric] - first[metric]
+      if (difference !== 0) return difference
+      if (left < right) return -1
+      if (left > right) return 1
+      return 0
+    })
+    .map(([name]) => name)
+}
+
+function topSeries(
+  names: string[],
+  limit: number,
+  groups: Map<string, Usage> | undefined,
+  metric: keyof Usage,
+  total: number,
+  other: string
+) {
+  const values = names
+    .slice(0, limit)
+    .map((name) => ({ name, value: groups?.get(name)?.[metric] ?? 0 }))
+  if (names.length > limit) {
+    values.push({
+      name: other,
+      value: Math.max(
+        0,
+        total - values.reduce((sum, row) => sum + row.value, 0)
+      ),
+    })
+  }
+  return values
+}
+
+function timeAxis(granularity: TimeGranularity) {
+  return {
+    orient: 'bottom',
+    type: 'band',
+    label: {
+      formatMethod: (value: string | number) =>
+        formatChartTime(Number(value), granularity),
+    },
+  }
+}
+
+function trendTooltip(
+  name: 'Model' | 'User',
+  metric: 'Count' | 'rawQuota',
+  format: (value: number) => string,
+  totalLabel: string,
+  other: string,
+  collapse = false
+) {
+  const title = { value: { field: 'Time' } }
+  return {
+    renderMode: 'canvas',
+    mark: {
+      title,
+      content: [
+        {
+          key: { field: name },
+          value: (datum: Record<string, number>) => format(datum[metric]),
+        },
+        {
+          key: totalLabel,
+          value: (datum: Record<string, number>) => format(datum.TimeSum),
+        },
+      ],
+    },
+    dimension: {
+      title,
+      content: [{ key: { field: name }, value: { field: metric } }],
+      updateContent: (items: TooltipLine[] = []) => {
+        const sorted = [...items].sort(
+          (first, second) =>
+            Number(first.key === other) - Number(second.key === other) ||
+            Number(second.value) - Number(first.value)
+        )
+        const total =
+          items[0]?.datum?.TimeSum ??
+          items.reduce((sum, item) => sum + Number(item.value), 0)
+        if (collapse && sorted.length > MAX_QUOTA_MODELS) {
+          const tail = sorted.splice(MAX_QUOTA_MODELS)
+          sorted.push({
+            key: other,
+            value: tail.reduce((sum, item) => sum + Number(item.value), 0),
+          })
+        }
+        return [
+          { key: totalLabel, value: format(total) },
+          ...sorted.map((item) => ({
+            ...item,
+            value: format(Number(item.value)),
+          })),
+        ]
+      },
+    },
+  }
+}
+
 export function processChartData(
   data: QuotaDataItem[],
   timeGranularity: TimeGranularity = 'day',
-  t?: TFunction,
-  chartCornerRadius?: number
-): ProcessedChartData {
-  const tt: TFunction = t ?? ((x) => x)
-  const otherLabel = tt('Other')
-
-  const formatInt = (value: number) =>
-    Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
-  const formatQuotaValue = (value: number) => renderQuotaCompat(value, 4)
-  const formatQuotaTotal = (value: number) => renderQuotaCompat(value, 2)
-
-  const MAX_TOOLTIP_MODELS = 15
-  const isOtherTooltipKey = (key: string) =>
-    key === 'Other' || key === otherLabel
-
-  const makeTooltipDimensionUpdateContent = (options?: {
-    collapseOverflow?: boolean
-  }) => {
-    const collapseOverflow = options?.collapseOverflow ?? true
-
-    return (array: TooltipLineItem[]) => {
-      const modelItems = array.filter((item) => !isOtherTooltipKey(item.key))
-      const otherItems = array.filter((item) => isOtherTooltipKey(item.key))
-      modelItems.sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))
-      array = [...modelItems, ...otherItems]
-
-      let sum = 0
-      for (let i = 0; i < array.length; i++) {
-        const v = Number(array[i].value) || 0
-        if (
-          array[i].datum &&
-          (array[i].datum as Record<string, unknown>)?.TimeSum
-        ) {
-          sum =
-            Number((array[i].datum as Record<string, unknown>)?.TimeSum) || sum
-        }
-        array[i].value = formatQuotaValue(v)
-      }
-
-      if (collapseOverflow && array.length > MAX_TOOLTIP_MODELS) {
-        const visible = modelItems.slice(0, MAX_TOOLTIP_MODELS)
-        const otherSum = [
-          ...modelItems.slice(MAX_TOOLTIP_MODELS),
-          ...otherItems,
-        ].reduce((sum, item) => {
-          const raw = item.datum
-            ? Number((item.datum as Record<string, unknown>)?.rawQuota) || 0
-            : 0
-          return sum + raw
-        }, 0)
-        array = [
-          ...visible,
-          {
-            key: otherLabel,
-            value: formatQuotaValue(otherSum),
-            hasShape: true,
-            shapeType: 'square',
-            shapeFill: otherTooltipColor,
-            shapeStroke: otherTooltipColor,
-            shapeSize: 8,
-          },
-        ]
-      }
-
-      array.unshift({
-        key: tt('Total:'),
-        value: formatQuotaValue(sum),
-      })
-      return array
-    }
-  }
-
-  if (!data || data.length === 0) {
-    return {
-      spec_pie: {
-        type: 'pie',
-        data: [{ id: 'id0', values: [] }],
-        outerRadius: 0.8,
-        innerRadius: 0.5,
-        padAngle: 0.6,
-        valueField: 'value',
-        categoryField: 'type',
-        title: {
-          visible: true,
-          text: tt('Call Count Distribution'),
-          subtext: tt('No data available'),
-        },
-        legends: { visible: false },
-        label: { visible: false },
-        tooltip: {
-          mark: {
-            content: [],
-          },
-        },
-      },
-      spec_line: {
-        type: 'bar',
-        data: [{ id: 'barData', values: [] }],
-        xField: 'Time',
-        yField: 'Usage',
-        seriesField: 'Model',
-        stack: true,
-        legends: { visible: true, selectMode: 'single' },
-      },
-      spec_area: {
-        type: 'area',
-        data: [{ id: 'areaData', values: [] }],
-        xField: 'Time',
-        yField: 'Usage',
-        seriesField: 'Model',
-        stack: true,
-        legends: { visible: true, selectMode: 'single' },
-      },
-      spec_model_line: {
-        type: 'area',
-        data: [{ id: 'lineData', values: [] }],
-        xField: 'Time',
-        yField: 'Count',
-        seriesField: 'Model',
-        legends: { visible: true, selectMode: 'single' },
-        title: {
-          visible: true,
-          text: tt('Call Trend'),
-        },
-      },
-      spec_rank_bar: {
-        type: 'bar',
-        data: [{ id: 'rankData', values: [] }],
-        xField: 'Model',
-        yField: 'Count',
-        seriesField: 'Model',
-        legends: { visible: true, selectMode: 'single' },
-        title: {
-          visible: true,
-          text: tt('Call Count Ranking'),
-        },
-      },
-      totalQuotaDisplay: formatQuotaTotal(0),
-      totalCountDisplay: formatInt(0),
-    }
-  }
-
-  const { config } = getCurrencyDisplay()
-  const quotaPerUnit = config.quotaPerUnit
-
-  // Aggregate all metrics by time and model
-  const timeModelMap = new Map<
-    string,
-    Map<string, { quota: number; count: number; tokens: number }>
-  >()
-  const modelTotalsMap = new Map<
-    string,
-    { quota: number; count: number; tokens: number }
-  >()
-  const timeTimestamps = new Map<string, number>()
-
-  data.forEach((item) => {
-    const timestamp = Number(item.created_at)
-    const timeKey = formatChartTime(timestamp, timeGranularity)
-    timeTimestamps.set(
-      timeKey,
-      Math.min(timeTimestamps.get(timeKey) ?? timestamp, timestamp)
-    )
-    const model = item.model_name || 'Unknown'
-    const quota = Number(item.quota) || 0
-    const count = Number(item.count) || 0
-    const tokens = Number(item.token_used) || 0
-
-    // Aggregate by time and model
-    let modelMap = timeModelMap.get(timeKey)
-    if (!modelMap) {
-      modelMap = new Map()
-      timeModelMap.set(timeKey, modelMap)
-    }
-    const existing = modelMap.get(model) || { quota: 0, count: 0, tokens: 0 }
-    modelMap.set(model, {
-      quota: existing.quota + quota,
-      count: existing.count + count,
-      tokens: existing.tokens + tokens,
-    })
-
-    // Calculate totals
-    const totalExisting = modelTotalsMap.get(model) || {
-      quota: 0,
-      count: 0,
-      tokens: 0,
-    }
-    modelTotalsMap.set(model, {
-      quota: totalExisting.quota + quota,
-      count: totalExisting.count + count,
-      tokens: totalExisting.tokens + tokens,
-    })
-  })
-
-  const allModels = [...modelTotalsMap.keys()]
-  const sortedTimes = [...timeTimestamps]
-    .sort((a, b) => a[1] - b[1])
-    .map(([time]) => time)
-  const sortedModels = [...allModels].sort()
-  const modelColorDomain = [...new Set([...sortedModels, otherLabel])]
-  const modelColorRange = getDashboardChartColors(modelColorDomain.length)
-  const otherColor = modelColorRange[modelColorDomain.indexOf(otherLabel)]
-  const otherTooltipColor =
-    typeof otherColor === 'string' ? otherColor : '#FF8A00'
-  const modelColor = {
+  t: TFunction = (key) => key,
+  chartCornerRadius?: number,
+  range?: ChartRange,
+  locale?: Intl.LocalesArgument,
+  includeQuotaCharts = true
+): ProcessedChartData & ChartSummary {
+  const { buckets, totals, summary, times } = aggregateChartUsage(
+    data,
+    'model_name',
+    timeGranularity,
+    range
+  )
+  const other = overflowLabel(totals, t('Other'), t('Other models'))
+  const totalLabel = t('Total:')
+  const byCount = rankedNames(totals, 'count')
+  const byQuota = includeQuotaCharts ? rankedNames(totals, 'quota') : []
+  const domain = [...totals.keys()].sort()
+  if (domain.length > MAX_PIE_MODELS) domain.push(other)
+  const color = {
     type: 'ordinal',
-    domain: modelColorDomain,
-    range: modelColorRange,
+    domain,
+    range: getDashboardChartColors(domain.length),
   }
-
-  // Pad time points if too few (default 7 points)
-  const MAX_TREND_POINTS = MAX_CHART_TREND_POINTS
-  const fillTimePoints = (times: string[]) => {
-    if (times.length >= MAX_TREND_POINTS) return times
-    const lastTime = Math.max(
-      ...data.map((item) => Number(item.created_at) || 0)
-    )
-    let intervalSec = 3600
-    if (timeGranularity === 'week') {
-      intervalSec = 604800
-    } else if (timeGranularity === 'day') {
-      intervalSec = 86400
-    }
-    const padded = Array.from({ length: MAX_TREND_POINTS }, (_, i) =>
-      formatChartTime(
-        lastTime - (MAX_TREND_POINTS - 1 - i) * intervalSec,
-        timeGranularity
-      )
-    )
-    return padded
-  }
-  const chartTimes = fillTimePoints(sortedTimes)
-
-  const totalTimes = [...modelTotalsMap.values()].reduce(
-    (sum, x) => sum + (Number(x.count) || 0),
-    0
-  )
-  const totalQuotaRaw = [...modelTotalsMap.values()].reduce(
-    (sum, x) => sum + (Number(x.quota) || 0),
-    0
-  )
-
-  // Pie chart (model call count proportion)
-  const pieValues = [...modelTotalsMap.entries()]
-    .map(([model, stats]) => ({
-      type: model,
-      value: Number(stats.count) || 0,
-    }))
-    .sort((a, b) => b.value - a.value)
-
-  // Stacked bar: model quota distribution (quota -> USD)
-  const lineValues: Array<{
-    Time: string
+  const quotaPerUnit = getCurrencyDisplay().config.quotaPerUnit
+  const formatCount = new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 0,
+  }).format
+  type QuotaPoint = TimeBucket & {
     Model: string
     rawQuota: number
     Usage: number
     TimeSum: number
-  }> = []
-
-  chartTimes.forEach((time) => {
-    let timeData = sortedModels.map((model) => {
-      const stats = timeModelMap.get(time)?.get(model)
-      const rawQuota = Number(stats?.quota) || 0
-      const usd = rawQuota ? rawQuota / quotaPerUnit : 0
-      // Match legacy frontend getQuotaWithUnit(..., 4)
-      const usage = usd ? Number(usd.toFixed(4)) : 0
-      return {
-        Time: time,
-        Model: model,
-        rawQuota,
-        Usage: usage,
-        TimeSum: 0,
-      }
-    })
-
-    const timeSum = timeData.reduce((sum, item) => sum + item.rawQuota, 0)
-    timeData.sort((a, b) => b.rawQuota - a.rawQuota)
-    timeData = timeData.map((item) => ({ ...item, TimeSum: timeSum }))
-    lineValues.push(...timeData)
-  })
-
-  // Area chart: top models by quota + "Other" bucket (too many series = unreadable)
-  const MAX_AREA_MODELS = 15
-  const rankedQuotaModels = [...modelTotalsMap.entries()]
-    .map(([model, stats]) => ({
-      Model: model,
-      Quota: Number(stats.quota) || 0,
-    }))
-    .sort((a, b) => b.Quota - a.Quota)
-  const topAreaModels = new Set(
-    rankedQuotaModels.slice(0, MAX_AREA_MODELS).map((m) => m.Model)
-  )
-
-  const areaValues: typeof lineValues = []
-  chartTimes.forEach((time) => {
-    const buckets = new Map<string, { rawQuota: number; usage: number }>()
-    const modelMap = timeModelMap.get(time)
-    let timeSum = 0
-    sortedModels.forEach((model) => {
-      const stats = modelMap?.get(model)
-      const rawQuota = Number(stats?.quota) || 0
-      const usd = rawQuota ? rawQuota / quotaPerUnit : 0
-      const usage = usd ? Number(usd.toFixed(4)) : 0
-      timeSum += rawQuota
-      const key = topAreaModels.has(model) ? model : otherLabel
-      const prev = buckets.get(key) || { rawQuota: 0, usage: 0 }
-      buckets.set(key, {
-        rawQuota: prev.rawQuota + rawQuota,
-        usage: Number((prev.usage + usage).toFixed(4)),
-      })
-    })
-    for (const [model, vals] of buckets) {
-      areaValues.push({
-        Time: time,
-        Model: model,
-        rawQuota: vals.rawQuota,
-        Usage: vals.usage,
-        TimeSum: timeSum,
-      })
-    }
-  })
-
-  // Line chart: model call trend (top models + "Other" bucket)
-  const MAX_TREND_MODELS = 20
-  const rankedTrendModels = [...modelTotalsMap.entries()]
-    .map(([model, stats]) => ({
-      Model: model,
-      Count: Number(stats.count) || 0,
-    }))
-    .sort((a, b) => b.Count - a.Count)
-  const topTrendModels = rankedTrendModels
-    .slice(0, MAX_TREND_MODELS)
-    .map((item) => item.Model)
-  const otherTrendModels = rankedTrendModels
-    .slice(MAX_TREND_MODELS)
-    .map((item) => item.Model)
-
-  const modelLineValues: Array<{
-    Time: string
+  }
+  const bars: QuotaPoint[] = []
+  const areas: QuotaPoint[] = []
+  const calls: (TimeBucket & {
     Model: string
     Count: number
-  }> = []
-  chartTimes.forEach((time) => {
-    const timeData = topTrendModels.map((model) => {
-      const stats = timeModelMap.get(time)?.get(model)
-      return {
-        Time: time,
-        Model: model,
-        Count: Number(stats?.count) || 0,
-      }
-    })
-    if (otherTrendModels.length > 0) {
-      const otherCount = otherTrendModels.reduce((sum, model) => {
-        const stats = timeModelMap.get(time)?.get(model)
-        return sum + (Number(stats?.count) || 0)
-      }, 0)
-      timeData.push({
-        Time: time,
-        Model: otherLabel,
-        Count: otherCount,
-      })
+    TimeSum: number
+  })[] = []
+  for (const time of times) {
+    const groups = buckets.get(time.TimeKey)
+    let count = 0
+    for (const usage of groups?.values() ?? []) {
+      count += usage.count
     }
-    modelLineValues.push(...timeData)
-  })
-
-  // Rank bar: model call count ranking (top 20 + "Other" bucket)
-  const MAX_RANK_MODELS = 20
-  const allRankValues = [...modelTotalsMap.entries()]
-    .map(([model, stats]) => ({
-      Model: model,
-      Count: Number(stats.count) || 0,
-    }))
-    .sort((a, b) => b.Count - a.Count)
-
-  let rankValues: typeof allRankValues
-  if (allRankValues.length > MAX_RANK_MODELS) {
-    const topModels = allRankValues.slice(0, MAX_RANK_MODELS)
-    const otherCount = allRankValues
-      .slice(MAX_RANK_MODELS)
-      .reduce((sum, item) => sum + item.Count, 0)
-    rankValues = [...topModels, { Model: otherLabel, Count: otherCount }]
-  } else {
-    rankValues = allRankValues
+    if (includeQuotaCharts) {
+      let quota = 0
+      for (const usage of groups?.values() ?? []) quota += usage.quota
+      const quotaPoint = (Model: string, rawQuota: number) => ({
+        ...time,
+        Model,
+        rawQuota,
+        Usage: rawQuota / quotaPerUnit,
+        TimeSum: quota,
+      })
+      const area = topSeries(
+        byQuota,
+        MAX_QUOTA_MODELS,
+        groups,
+        'quota',
+        quota,
+        other
+      ).map(({ name, value }) => quotaPoint(name, value))
+      areas.push(...area)
+      bars.push(
+        ...[...area].sort((first, second) => second.rawQuota - first.rawQuota)
+      )
+    }
+    for (const { name, value } of topSeries(
+      byCount,
+      MAX_CALL_MODELS,
+      groups,
+      'count',
+      count,
+      other
+    )) {
+      calls.push({ ...time, Model: name, Count: value, TimeSum: count })
+    }
   }
-
+  const pie = topSeries(
+    byCount,
+    MAX_PIE_MODELS,
+    totals,
+    'count',
+    summary.totalCount,
+    other
+  ).map(({ name, value }) => ({ type: name, value }))
+  const ranking = includeQuotaCharts
+    ? topSeries(
+        byCount,
+        MAX_CALL_MODELS,
+        totals,
+        'count',
+        summary.totalCount,
+        other
+      ).map(({ name, value }) => ({ Model: name, Count: value }))
+    : []
+  const shared = {
+    color,
+    legends: { visible: totals.size > 0, selectMode: 'single' },
+    background: { fill: 'transparent' },
+    animation: true,
+  }
+  const trend = {
+    ...shared,
+    xField: 'TimeKey',
+    seriesField: 'Model',
+    axes: [timeAxis(timeGranularity)],
+  }
+  const areaStyle = {
+    stack: false,
+    area: { style: { fillOpacity: 0.08, curveType: 'monotone' } },
+    line: { style: { lineWidth: 2, curveType: 'monotone' } },
+    point: { visible: times.length === 1 },
+  }
+  const bar = { state: { hover: { stroke: '#000', lineWidth: 1 } } }
+  const totalLine = { key: totalLabel, value: formatCount(summary.totalCount) }
   return {
+    ...summary,
+    totalQuotaDisplay: renderQuotaCompat(summary.totalQuota, 2, locale),
+    totalCountDisplay: formatCount(summary.totalCount),
     spec_pie: {
+      ...shared,
       type: 'pie',
-      data: [{ id: 'id0', values: pieValues }],
+      data: [{ id: 'id0', values: pie }],
       outerRadius: 0.8,
       innerRadius: 0.5,
       padAngle: 0.6,
@@ -474,222 +456,87 @@ export function processChartData(
       },
       title: {
         visible: true,
-        text: tt('Call Count Distribution'),
+        text: t('Call Count Distribution'),
+        subtext: totals.size ? undefined : t('No data available'),
       },
-      legends: { visible: true, orient: 'left' },
-      label: { visible: true },
-      color: modelColor,
+      legends: { visible: totals.size > 0, orient: 'left' },
+      label: { visible: totals.size > 0 },
       tooltip: {
+        renderMode: 'canvas',
+        activeType: 'mark',
         mark: {
           content: [
             {
-              key: (datum: Record<string, unknown>) => datum?.type,
-              value: (datum: Record<string, unknown>) =>
-                formatInt(Number(datum?.value) || 0),
+              key: { field: 'type' },
+              value: (datum: { value: number }) => formatCount(datum.value),
             },
+            totalLine,
           ],
         },
       },
-      background: { fill: 'transparent' },
-      animation: true,
     },
     spec_line: {
+      ...trend,
       type: 'bar',
-      data: [{ id: 'barData', values: lineValues }],
-      xField: 'Time',
+      data: [{ id: 'barData', values: bars }],
       yField: 'Usage',
-      seriesField: 'Model',
       stack: true,
-      legends: { visible: true, selectMode: 'single' },
-      color: modelColor,
-      bar: {
-        state: {
-          hover: { stroke: '#000', lineWidth: 1 },
-        },
-      },
-      tooltip: {
-        mark: {
-          content: [
-            {
-              key: (datum: Record<string, unknown>) => datum?.Model,
-              value: (datum: Record<string, unknown>) =>
-                formatQuotaValue(Number(datum?.rawQuota) || 0),
-            },
-          ],
-        },
-        dimension: {
-          content: [
-            {
-              key: (datum: Record<string, unknown>) => datum?.Model,
-              value: (datum: Record<string, unknown>) =>
-                Number(datum?.rawQuota) || 0,
-            },
-          ],
-          updateContent: makeTooltipDimensionUpdateContent(),
-        },
-      },
-      background: { fill: 'transparent' },
-      animation: true,
+      bar,
+      tooltip: trendTooltip(
+        'Model',
+        'rawQuota',
+        (value) => renderQuotaCompat(value, 4, locale),
+        totalLabel,
+        other,
+        true
+      ),
     },
     spec_area: {
+      ...trend,
+      ...areaStyle,
       type: 'area',
-      data: [{ id: 'areaData', values: areaValues }],
-      xField: 'Time',
+      data: [{ id: 'areaData', values: areas }],
       yField: 'Usage',
-      seriesField: 'Model',
-      stack: false,
-      legends: { visible: true, selectMode: 'single' },
-      color: modelColor,
-      tooltip: {
-        mark: {
-          content: [
-            {
-              key: (datum: Record<string, unknown>) => datum?.Model,
-              value: (datum: Record<string, unknown>) =>
-                formatQuotaValue(Number(datum?.rawQuota) || 0),
-            },
-          ],
-        },
-        dimension: {
-          content: [
-            {
-              key: (datum: Record<string, unknown>) => datum?.Model,
-              value: (datum: Record<string, unknown>) =>
-                Number(datum?.rawQuota) || 0,
-            },
-          ],
-          updateContent: makeTooltipDimensionUpdateContent({
-            collapseOverflow: false,
-          }),
-        },
-      },
-      area: {
-        style: {
-          fillOpacity: 0.08,
-          curveType: 'monotone',
-        },
-      },
-      line: {
-        style: {
-          lineWidth: 2,
-          curveType: 'monotone',
-        },
-      },
-      point: { visible: false },
-      background: { fill: 'transparent' },
-      animation: true,
+      tooltip: trendTooltip(
+        'Model',
+        'rawQuota',
+        (value) => renderQuotaCompat(value, 4, locale),
+        totalLabel,
+        other
+      ),
     },
     spec_model_line: {
+      ...trend,
+      ...areaStyle,
       type: 'area',
-      data: [{ id: 'lineData', values: modelLineValues }],
-      xField: 'Time',
+      data: [{ id: 'lineData', values: calls }],
       yField: 'Count',
-      seriesField: 'Model',
-      stack: false,
-      legends: { visible: true, selectMode: 'single' },
-      color: modelColor,
-      title: {
-        visible: true,
-        text: tt('Call Trend'),
-      },
-      tooltip: {
-        mark: {
-          content: [
-            {
-              key: (datum: Record<string, unknown>) => datum?.Model,
-              value: (datum: Record<string, unknown>) =>
-                formatInt(Number(datum?.Count) || 0),
-            },
-          ],
-        },
-        dimension: {
-          content: [
-            {
-              key: (datum: Record<string, unknown>) => datum?.Model,
-              value: (datum: Record<string, unknown>) =>
-                Number(datum?.Count) || 0,
-            },
-          ],
-          updateContent: (
-            array: Array<{
-              key: string
-              value: string | number
-            }>
-          ) => {
-            const modelItems = array.filter(
-              (item) => !isOtherTooltipKey(item.key)
-            )
-            const otherItems = array.filter((item) =>
-              isOtherTooltipKey(item.key)
-            )
-            modelItems.sort(
-              (a, b) => (Number(b.value) || 0) - (Number(a.value) || 0)
-            )
-            array = [...modelItems, ...otherItems]
-
-            let sum = 0
-            for (let i = 0; i < array.length; i++) {
-              const v = Number(array[i].value) || 0
-              sum += v
-              array[i].value = formatInt(v)
-            }
-            array.unshift({
-              key: tt('Total:'),
-              value: formatInt(sum),
-            })
-            return array
-          },
-        },
-      },
-      area: {
-        style: {
-          fillOpacity: 0.08,
-          curveType: 'monotone',
-        },
-      },
-      line: {
-        style: {
-          lineWidth: 2,
-          curveType: 'monotone',
-        },
-      },
-      point: { visible: false },
-      background: { fill: 'transparent' },
-      animation: true,
+      title: { visible: true, text: t('Call Trend') },
+      tooltip: trendTooltip('Model', 'Count', formatCount, totalLabel, other),
     },
     spec_rank_bar: {
+      ...shared,
       type: 'bar',
-      data: [{ id: 'rankData', values: rankValues }],
+      data: [{ id: 'rankData', values: ranking }],
       xField: 'Model',
       yField: 'Count',
       seriesField: 'Model',
-      legends: { visible: true, selectMode: 'single' },
-      color: modelColor,
-      title: {
-        visible: true,
-        text: tt('Call Count Ranking'),
-      },
-      bar: {
-        state: {
-          hover: { stroke: '#000', lineWidth: 1 },
-        },
-      },
+      bar,
+      title: { visible: true, text: t('Call Count Ranking') },
       tooltip: {
+        renderMode: 'canvas',
+        activeType: 'mark',
         mark: {
           content: [
             {
-              key: (datum: Record<string, unknown>) => datum?.Model,
-              value: (datum: Record<string, unknown>) =>
-                formatInt(Number(datum?.Count) || 0),
+              key: { field: 'Model' },
+              value: (datum: { Count: number }) => formatCount(datum.Count),
             },
+            totalLine,
           ],
         },
       },
-      background: { fill: 'transparent' },
-      animation: true,
     },
-    totalQuotaDisplay: formatQuotaTotal(totalQuotaRaw),
-    totalCountDisplay: formatInt(totalTimes),
   }
 }
 
@@ -709,138 +556,71 @@ const USER_COLORS = [
 export function processUserChartData(
   data: QuotaDataItem[],
   timeGranularity: TimeGranularity = 'day',
-  t?: TFunction,
-  limit = 10
+  t: TFunction = (key) => key,
+  limit = 10,
+  range?: ChartRange
 ): ProcessedUserChartData {
-  const tt: TFunction = t ?? ((x) => x)
-  const { config } = getCurrencyDisplay()
-  const quotaPerUnit = config.quotaPerUnit
-
-  const formatVal = (raw: number) => renderQuotaCompat(raw, 2)
-
-  const emptyResult: ProcessedUserChartData = {
-    spec_user_rank: {
-      type: 'bar',
-      data: [{ id: 'userRankData', values: [] }],
-      xField: 'rawQuota',
-      yField: 'User',
-      seriesField: 'User',
-      direction: 'horizontal',
-      title: {
-        visible: true,
-        text: tt('User Consumption Ranking'),
-        subtext: tt('No data available'),
-      },
-      legends: { visible: false },
-      color: { type: 'ordinal', range: USER_COLORS },
-      background: { fill: 'transparent' },
-    },
-    spec_user_trend: {
-      type: 'area',
-      data: [{ id: 'userTrendData', values: [] }],
-      xField: 'Time',
-      yField: 'rawQuota',
-      seriesField: 'User',
-      title: {
-        visible: true,
-        text: tt('User Consumption Trend'),
-        subtext: tt('No data available'),
-      },
-      legends: { visible: true, selectMode: 'single' },
-      color: { type: 'ordinal', range: USER_COLORS },
-      point: { visible: false },
-      background: { fill: 'transparent' },
-    },
-  }
-
-  if (!data || data.length === 0) return emptyResult
-
-  const userQuotaTotal = new Map<string, number>()
-  data.forEach((item) => {
-    const username = item.username || 'unknown'
-    const prev = userQuotaTotal.get(username) || 0
-    userQuotaTotal.set(username, prev + (Number(item.quota) || 0))
-  })
-
-  const sorted = [...userQuotaTotal.entries()].sort((a, b) => b[1] - a[1])
-  const topUsers = sorted.slice(0, limit).map(([u]) => u)
-  const topUserSet = new Set(topUsers)
-  const totalQuota = sorted.slice(0, limit).reduce((s, [, q]) => s + q, 0)
-
-  const rankValues = sorted.slice(0, limit).map(([username, quota]) => ({
-    User: username,
-    rawQuota: quota,
-    Usage: Number((quota / quotaPerUnit).toFixed(4)),
-  }))
-
-  const userColorMap = topUsers.reduce<Record<string, string>>(
-    (acc, user, i) => {
-      acc[user] = USER_COLORS[i % USER_COLORS.length]
-      return acc
-    },
-    {}
+  const { totals, buckets, summary, times } = aggregateChartUsage(
+    data,
+    'username',
+    timeGranularity,
+    range
   )
-
-  const timeUserMap = new Map<string, Map<string, number>>()
-  const timeTimestamps = new Map<string, number>()
-
-  data.forEach((item) => {
-    const ts = Number(item.created_at)
-    const timeKey = formatChartTime(ts, timeGranularity)
-    timeTimestamps.set(timeKey, Math.min(timeTimestamps.get(timeKey) ?? ts, ts))
-    const user = item.username || 'unknown'
-    if (!topUserSet.has(user)) return
-    let map = timeUserMap.get(timeKey)
-    if (!map) {
-      map = new Map()
-      timeUserMap.set(timeKey, map)
-    }
-    map.set(user, (map.get(user) || 0) + (Number(item.quota) || 0))
+  const other = overflowLabel(totals, t('Other'), t('Other users'))
+  const names = rankedNames(totals, 'quota')
+  const top = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 10
+  const quotaPerUnit = getCurrencyDisplay().config.quotaPerUnit
+  const quotaPoint = ({ name, value }: { name: string; value: number }) => ({
+    User: name,
+    rawQuota: value,
+    Usage: value / quotaPerUnit,
   })
-
-  const sortedTimePoints = [...timeTimestamps]
-    .sort((a, b) => a[1] - b[1])
-    .map(([time]) => time)
-  const trendValues: Array<{
-    Time: string
-    User: string
-    rawQuota: number
-    Usage: number
-  }> = []
-
-  sortedTimePoints.forEach((time) => {
-    topUsers.forEach((user) => {
-      const q = timeUserMap.get(time)?.get(user) || 0
-      trendValues.push({
-        Time: time,
-        User: user,
-        rawQuota: q,
-        Usage: Number((q / quotaPerUnit).toFixed(4)),
-      })
-    })
+  const ranking = topSeries(
+    names,
+    top,
+    totals,
+    'quota',
+    summary.totalQuota,
+    other
+  ).map(quotaPoint)
+  const values = times.flatMap((time) => {
+    const groups = buckets.get(time.TimeKey)
+    let TimeSum = 0
+    for (const usage of groups?.values() ?? []) TimeSum += usage.quota
+    return topSeries(names, top, groups, 'quota', TimeSum, other).map(
+      (user) => ({ ...time, ...quotaPoint(user), TimeSum })
+    )
   })
-
+  const formatValue = (raw: number) => renderQuotaCompat(raw, 2)
+  const totalLabel = t('Total:')
+  const subtext = totals.size
+    ? `${totalLabel} ${formatValue(summary.totalQuota)}`
+    : t('No data available')
+  const shared = {
+    seriesField: 'User',
+    color: {
+      type: 'ordinal',
+      domain: ranking.map((row) => row.User),
+      range: USER_COLORS,
+    },
+    background: { fill: 'transparent' },
+    animation: true,
+  }
   return {
     spec_user_rank: {
+      ...shared,
       type: 'bar',
-      data: [{ id: 'userRankData', values: rankValues }],
+      data: [{ id: 'userRankData', values: ranking }],
       xField: 'rawQuota',
       yField: 'User',
-      seriesField: 'User',
       direction: 'horizontal',
-      title: {
-        visible: true,
-        text: tt('User Consumption Ranking'),
-        subtext: `${tt('Total:')} ${formatVal(totalQuota)}`,
-      },
+      title: { visible: true, text: t('User Consumption Ranking'), subtext },
       legends: { visible: false },
-      bar: {
-        state: { hover: { stroke: '#000', lineWidth: 1 } },
-      },
+      bar: { state: { hover: { stroke: '#000', lineWidth: 1 } } },
       label: {
         visible: true,
         position: 'outside',
-        formatMethod: (value: number) => formatVal(value),
+        formatMethod: formatValue,
         style: { fontSize: 11 },
       },
       axes: [
@@ -848,115 +628,40 @@ export function processUserChartData(
         { orient: 'bottom', type: 'linear', visible: false },
       ],
       tooltip: {
+        renderMode: 'canvas',
+        activeType: 'mark',
         mark: {
           content: [
             {
-              key: (datum: Record<string, unknown>) => datum?.User,
-              value: (datum: Record<string, unknown>) =>
-                formatVal(Number(datum?.rawQuota) || 0),
+              key: { field: 'User' },
+              value: (datum: { rawQuota: number }) =>
+                formatValue(datum.rawQuota),
             },
           ],
-          updateContent: (
-            array: Array<{
-              key: string
-              value: string | number
-              datum?: Record<string, unknown>
-            }>
-          ) => {
-            for (let i = 0; i < array.length; i++) {
-              const rawQuota = array[i].datum?.rawQuota
-              const value =
-                rawQuota === undefined ? array[i].value : Number(rawQuota)
-              array[i].value = formatVal(Number(value) || 0)
-            }
-            return array
-          },
         },
       },
-      color: { specified: userColorMap },
-      background: { fill: 'transparent' },
-      animation: true,
     },
     spec_user_trend: {
+      ...shared,
       type: 'area',
-      data: [{ id: 'userTrendData', values: trendValues }],
-      xField: 'Time',
+      data: [{ id: 'userTrendData', values }],
+      xField: 'TimeKey',
       yField: 'rawQuota',
-      seriesField: 'User',
       stack: false,
-      title: {
-        visible: true,
-        text: tt('User Consumption Trend'),
-        subtext: `${tt('Total:')} ${formatVal(totalQuota)}`,
-      },
-      legends: { visible: true, selectMode: 'single' },
+      title: { visible: true, text: t('User Consumption Trend'), subtext },
+      legends: { visible: totals.size > 0, selectMode: 'single' },
       axes: [
-        { orient: 'bottom', type: 'band' },
+        timeAxis(timeGranularity),
         {
           orient: 'left',
           type: 'linear',
-          label: {
-            formatMethod: (value: number) => formatVal(value),
-          },
+          label: { formatMethod: formatValue },
         },
       ],
-      tooltip: {
-        mark: {
-          content: [
-            {
-              key: (datum: Record<string, unknown>) => datum?.User,
-              value: (datum: Record<string, unknown>) =>
-                formatVal(Number(datum?.rawQuota) || 0),
-            },
-          ],
-        },
-        dimension: {
-          content: [
-            {
-              key: (datum: Record<string, unknown>) => datum?.User,
-              value: (datum: Record<string, unknown>) =>
-                Number(datum?.rawQuota) || 0,
-            },
-          ],
-          updateContent: (
-            array: Array<{
-              key: string
-              value: string | number
-            }>
-          ) => {
-            array.sort(
-              (a, b) => (Number(b.value) || 0) - (Number(a.value) || 0)
-            )
-            let sum = 0
-            for (let i = 0; i < array.length; i++) {
-              const v = Number(array[i].value) || 0
-              sum += v
-              array[i].value = formatVal(v)
-            }
-            array.unshift({
-              key: tt('Total:'),
-              value: formatVal(sum),
-            })
-            return array
-          },
-        },
-      },
-      area: {
-        style: {
-          fillOpacity: 0.15,
-          curveType: 'monotone',
-        },
-      },
-      line: {
-        style: {
-          lineWidth: 2,
-          curveType: 'monotone',
-        },
-      },
-      point: { visible: false },
-      color: { specified: userColorMap },
-      background: { fill: 'transparent' },
-      animation: true,
+      tooltip: trendTooltip('User', 'rawQuota', formatValue, totalLabel, other),
+      area: { style: { fillOpacity: 0.15, curveType: 'monotone' } },
+      line: { style: { lineWidth: 2, curveType: 'monotone' } },
+      point: { visible: times.length === 1 },
     },
   }
 }

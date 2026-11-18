@@ -73,6 +73,12 @@ test.each([
     failingEndpoint: 'status',
     errorTitle: 'Failed to load invitation settings',
   },
+  {
+    ordinaryEnabled: true,
+    failingEndpoint: 'status',
+    businessFailure: true,
+    errorTitle: 'Failed to load invitation settings',
+  },
 ])(
   'keeps the invitation entry and retry page after $failingEndpoint fails (ordinary enabled: $ordinaryEnabled)',
   async (scenario) => {
@@ -80,11 +86,14 @@ test.each([
       .getState()
       .auth.setUser({ id: 4, username: 'seller-four', role: 1 })
     let failing = true
-    vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
       if (
         failing &&
         url === `/invitations/api/invitations/${scenario.failingEndpoint}`
       ) {
+        if (scenario.businessFailure) {
+          return { data: { success: false, message: 'Database unavailable' } }
+        }
         throw new Error('Database unavailable')
       }
       if (url.endsWith('/status')) {
@@ -103,6 +112,22 @@ test.each([
       if (url.endsWith('/sales-profile')) {
         return {
           data: { success: true, data: { active: true, registered: true } },
+        }
+      }
+      if (url.endsWith('/my-code')) {
+        return {
+          data: {
+            success: true,
+            data: {
+              invitationCode: 'seller-four',
+              invitedCount: 0,
+              confirmingRebate: 0,
+              pendingRebate: 0,
+              completedRebate: 0,
+              totalRebate: 0,
+              topupRebatePolicy: { state: 'available', ratio: 0.075 },
+            },
+          },
         }
       }
       return {
@@ -157,14 +182,28 @@ test.each([
       screen.getByRole('link', { name: 'Invitation Rebate' })
     ).toHaveAttribute('href', '/invitations')
     expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    expect(get.mock.calls.some(([url]) => url.endsWith('/my-code'))).toBe(false)
     expect(navigate).not.toHaveBeenCalled()
 
     failing = false
     await user.click(screen.getByRole('button', { name: 'Retry' }))
     await screen.findByRole('heading', { name: 'Sales Invitations' })
     await screen.findByText('No invited customers')
+    await screen.findByText("Rebate on a friend's top-up: 7.5%")
+    expect(
+      get.mock.calls.filter(([url]) => url.endsWith('/my-code'))
+    ).toHaveLength(1)
     expect(screen.queryByText(scenario.errorTitle)).not.toBeInTheDocument()
     expect(navigate).not.toHaveBeenCalled()
+
+    if (scenario.businessFailure) {
+      failing = true
+      await user.click(screen.getByRole('button', { name: 'Refresh' }))
+      await screen.findByText(scenario.errorTitle)
+      expect(screen.queryByText(/7\.5%/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+      expect(navigate).not.toHaveBeenCalled()
+    }
   }
 )
 
