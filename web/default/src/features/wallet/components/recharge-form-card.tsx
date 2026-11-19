@@ -258,6 +258,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
       <div className='mb-3.5 flex flex-wrap items-center justify-between gap-3'>
         <h2
           id='wallet-recharge-heading'
+          tabIndex={-1}
           className='shrink-0 text-[17px] font-semibold'
         >
           {t('Online Top-up')}

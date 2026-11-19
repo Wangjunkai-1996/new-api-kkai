@@ -26,8 +26,7 @@ import { SectionPageLayout } from '@/components/layout/components/section-page-l
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { getWalletBalance } from '@/features/wallet/api'
-import { useWalletPaymentIdentity } from '@/features/wallet/hooks/use-wallet-payment-flow'
+import { useWalletBalance } from '@/features/wallet/hooks/use-wallet-balance'
 import { formatQuota } from '@/lib/format'
 
 import { getMembershipOrder } from './api'
@@ -59,20 +58,7 @@ export function MembershipCenter(props: {
   const [returnRefreshFailed, setReturnRefreshFailed] = useState(false)
   const [returnRefreshing, setReturnRefreshing] = useState(false)
   const [view, setView] = useState<'overview' | 'orders'>('overview')
-  const walletIdentity = useWalletPaymentIdentity()
-  const wallet = useQuery({
-    queryKey: ['wallet-payment', ...walletIdentity, 'balance'],
-    enabled: walletIdentity.every((part) => part !== undefined && part !== ''),
-    queryFn: async ({ signal }) => {
-      const response = await getWalletBalance(signal)
-      if (!response.success || !response.data) {
-        throw new Error('Wallet balance unavailable')
-      }
-      return response.data
-    },
-    retry: false,
-    meta: { errorToast: false },
-  })
+  const wallet = useWalletBalance()
   const walletQuota = wallet.data?.quota
   const handledReturn = useRef(false)
   const returnedOrder = useQuery({

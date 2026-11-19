@@ -24,6 +24,7 @@ import { describe, expect, it } from 'vitest'
 import { PAYMENT_BLOCK_LABELS, PAYMENT_STATUS_LABELS } from './lib/payment-flow'
 
 const sources = [
+  'src/features/wallet/components/header-wallet.tsx',
   'src/features/wallet/index.tsx',
   'src/features/wallet/legacy-wallet-page.tsx',
   'src/features/wallet/lifecycle-wallet-page.tsx',
@@ -38,6 +39,14 @@ const keys = new Set<string>([
   ...Object.values(PAYMENT_STATUS_LABELS),
   ...Object.values(PAYMENT_BLOCK_LABELS),
 ])
+const headerWalletKeys = [
+  'Go to recharge',
+  'Hide balance',
+  'Show balance',
+  'View wallet',
+  'Wallet quick actions',
+]
+for (const key of headerWalletKeys) keys.add(key)
 for (const file of sources) {
   const source = readFileSync(path.resolve(file), 'utf8')
   for (const match of source.matchAll(
@@ -84,6 +93,9 @@ describe('wallet lifecycle translations', () => {
         expect(actual, `${locale}: ${key}`).toEqual(expected)
       }
       if (locale !== 'en') {
+        for (const key of headerWalletKeys) {
+          expect(translations[key], `${locale}: ${key}`).not.toBe(key)
+        }
         expect(translations['Return to top-up']).not.toBe('Return to top-up')
         expect(translations['Top-up ended']).not.toBe('Top-up ended')
         expect(translations['Top-up timed out']).not.toBe('Top-up timed out')

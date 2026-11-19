@@ -16,8 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
-import axios from 'axios'
 import { History } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -27,12 +25,11 @@ import { Button } from '@/components/ui/button'
 
 import '@/styles/wallet.css'
 
-import { getWalletBalance } from './api'
 import { WalletRequestError } from './components/wallet-request-error'
 import { WalletStatsCard } from './components/wallet-stats-card'
 import { useTopupInfo } from './hooks/use-topup-info'
+import { useWalletBalance } from './hooks/use-wallet-balance'
 import { useWalletPaymentIdentity } from './hooks/use-wallet-payment-flow'
-import { walletRequestRetryAt } from './payment-flow-api'
 import type { WalletPageProps } from './types'
 
 let legacyModule:
@@ -62,15 +59,6 @@ type WalletProps = Pick<
 >
 type WalletMode = 'legacy' | 'lifecycle'
 
-function canRefreshWalletBalance(query: {
-  state: { error: unknown; errorUpdatedAt: number }
-}): boolean {
-  const error = query.state.error
-  if (!axios.isAxiosError(error) || error.response?.status !== 429) return true
-  const retryAt = walletRequestRetryAt(error, query.state.errorUpdatedAt)
-  return retryAt !== undefined && Date.now() >= retryAt
-}
-
 export function Wallet(props: WalletProps) {
   const identity = useWalletPaymentIdentity()
   return <WalletPage key={JSON.stringify(identity)} {...props} />
@@ -78,27 +66,8 @@ export function Wallet(props: WalletProps) {
 
 function WalletPage(props: WalletProps) {
   const { t } = useTranslation()
-  const identity = useWalletPaymentIdentity()
   const topup = useTopupInfo()
-  const balance = useQuery({
-    queryKey: ['wallet-payment', ...identity, 'balance'],
-    enabled: topup.identityReady,
-    queryFn: async ({ signal }) => {
-      const response = await getWalletBalance(signal)
-      if (!response.success || !response.data) {
-        throw new Error('Wallet balance unavailable')
-      }
-      return response.data
-    },
-    retryOnMount: false,
-    refetchOnMount: (query) =>
-      canRefreshWalletBalance(query) ? 'always' : false,
-    refetchOnWindowFocus: canRefreshWalletBalance,
-    refetchOnReconnect: canRefreshWalletBalance,
-    networkMode: 'always',
-    retry: false,
-    meta: { errorToast: false },
-  })
+  const balance = useWalletBalance({ enabled: topup.identityReady })
   const [mode, setMode] = useState<WalletMode | null>(null)
   const [legacyPaymentStarted, setLegacyPaymentStarted] = useState(false)
   const [history, setHistory] = useState({
@@ -112,6 +81,21 @@ function WalletPage(props: WalletProps) {
     else if (topup.capability === 'legacy' && topup.fresh) nextMode = 'legacy'
   }
   if (nextMode !== mode) setMode(nextMode)
+
+  useEffect(() => {
+    if (mode === null || window.location.hash !== '#wallet-recharge-heading') {
+      return
+    }
+    const timeout = window.setTimeout(() => {
+      const heading = document.querySelector<HTMLElement>(
+        '#wallet-recharge-heading'
+      )
+      if (!heading) return
+      heading.scrollIntoView?.({ block: 'start' })
+      heading.focus({ preventScroll: true })
+    })
+    return () => window.clearTimeout(timeout)
+  }, [mode])
 
   useEffect(() => {
     if (topup.capability === 'legacy' && !topup.confirmedLifecycle) {
