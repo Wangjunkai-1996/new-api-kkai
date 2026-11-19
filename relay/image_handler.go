@@ -26,6 +26,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	info.InitChannelMeta(c)
 	info.BillingImageCount = nil
 	info.ImageRequestCount = 0
+	info.ImageOutputCount = 0
 	info.ImagePricingOutboundValidated = false
 	info.UpstreamIsStream = false
 
@@ -114,22 +115,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		}
 	}
 	if jsonData != nil {
-		if err := relaycommon.ValidateOutboundImagePricingJSON(info, jsonData); err != nil {
+		imageCount, err = outboundImageCount(info, jsonData, imageCount)
+		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-		}
-		// Overrides and passthrough may change the quantity after ingress validation.
-		var outbound struct {
-			N *uint `json:"n"`
-		}
-		if err := common.Unmarshal(jsonData, &outbound); err != nil {
-			return types.NewErrorWithStatusCode(fmt.Errorf("invalid image billing parameters: %w", err), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-		}
-		if outbound.N != nil {
-			quantity := dto.ImageRequest{N: outbound.N}
-			imageCount, err = quantity.ImageCount(false)
-			if err != nil {
-				return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-			}
 		}
 		info.UpstreamIsStream = gjson.GetBytes(jsonData, "stream").Bool()
 		logger.LogDebug(c, "image request body: %s", jsonData)
@@ -140,7 +128,6 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		requestBodyCloser = closer
 		requestBody = body
 	} else if info.ImageRequestCount > 0 {
-		// Multipart adaptors validate the effective fields while rebuilding the body.
 		imageCount = info.ImageRequestCount
 	}
 

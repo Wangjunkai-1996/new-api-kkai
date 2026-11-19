@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"cmp"
 	"errors"
 	"io"
 	"net/http"
@@ -51,6 +52,10 @@ func TestImageRequestReservesFinalQuantityBeforeUpstream(t *testing.T) {
 		tiered, passThrough, insufficient, retryReset bool
 		override                                      any
 		count, status                                 int
+		channelType                                   int
+		countPath                                     string
+		implicitCount, quoted                         bool
+		deleteCount                                   bool
 	}{
 		{name: "top-level count", body: `{"model":"gpt-image-2","n":2,"parameters":{}}`, count: 2},
 		{name: "legacy channel quantity override", body: `{"model":"gpt-image-2","n":1}`, override: 4, count: 4},
@@ -59,6 +64,21 @@ func TestImageRequestReservesFinalQuantityBeforeUpstream(t *testing.T) {
 		{name: "oversized override rejected", body: `{"model":"gpt-image-2","n":1}`, override: 129, status: http.StatusBadRequest},
 		{name: "insufficient reservation blocks upstream", body: `{"model":"gpt-image-2","n":1}`, override: 4, count: 4, insufficient: true, status: http.StatusForbidden},
 		{name: "retry drops the previous attempt's quantity", body: `{"model":"gpt-image-2","n":1}`, count: 1, retryReset: true},
+		{name: "SiliconFlow batch override", channelType: constant.ChannelTypeSiliconFlow, body: `{"model":"flux","prompt":"landscape","n":2}`, countPath: "batch_size", override: 3, count: 3},
+		{name: "Gemini Imagen batch override", channelType: constant.ChannelTypeGemini, body: `{"model":"imagen-4.0-generate-001","prompt":"landscape","n":2}`, countPath: "parameters.sampleCount", override: 3, count: 3},
+		{name: "Vertex Imagen batch override", channelType: constant.ChannelTypeVertexAi, body: `{"model":"imagen-4.0-generate-001","prompt":"landscape","n":2}`, countPath: "parameters.sampleCount", override: 3, count: 3},
+		{name: "Replicate expression batch override", channelType: constant.ChannelTypeReplicate, body: `{"model":"black-forest-labs/flux-schnell","prompt":"landscape","n":2}`, countPath: "input.num_outputs", override: 3, count: 3, tiered: true},
+		{name: "Replicate client input overrides converted n", channelType: constant.ChannelTypeReplicate, body: `{"model":"black-forest-labs/flux-schnell","prompt":"landscape","n":1,"input":{"num_outputs":3}}`, countPath: "input.num_outputs", count: 3},
+		{name: "Replicate keeps requested reservation without a model-specific count", channelType: constant.ChannelTypeReplicate, body: `{"model":"custom/image","n":3,"input":{"prompt":"landscape"}}`, countPath: "input.num_outputs", passThrough: true, implicitCount: true, count: 3},
+		{name: "SiliconFlow batch removed by override", channelType: constant.ChannelTypeSiliconFlow, body: `{"model":"flux","prompt":"landscape","n":3}`, countPath: "batch_size", deleteCount: true, implicitCount: true, count: 1},
+		{name: "OpenAI n removed by override", body: `{"model":"gpt-image-2","n":3}`, deleteCount: true, implicitCount: true, count: 1},
+		{name: "Imagen passthrough uses provider default", channelType: constant.ChannelTypeGemini, body: `{"model":"imagen-4.0-generate-001","instances":[{"prompt":"landscape"}],"n":1}`, passThrough: true, countPath: "parameters.sampleCount", implicitCount: true, count: 4},
+		{name: "native count beyond wallet", channelType: constant.ChannelTypeReplicate, body: `{"model":"flux","prompt":"landscape","n":1}`, countPath: "input.num_outputs", override: 3, insufficient: true, status: http.StatusForbidden},
+		{name: "out of range native count", channelType: constant.ChannelTypeSiliconFlow, body: `{"model":"flux","prompt":"landscape"}`, countPath: "batch_size", override: dto.MaxImageN + 1, status: http.StatusBadRequest},
+		{name: "ambiguous native count", channelType: constant.ChannelTypeReplicate, body: `{"model":"flux","input":{"num_outputs":2},"input":{"num_outputs":3}}`, passThrough: true, status: http.StatusBadRequest},
+		{name: "non integer native count", channelType: constant.ChannelTypeReplicate, body: `{"model":"flux","input":{"num_outputs":1.5}}`, passThrough: true, status: http.StatusBadRequest},
+		{name: "frozen quote rejects native mismatch", channelType: constant.ChannelTypeSiliconFlow, body: `{"model":"gpt-image-2","n":2,"batch_size":3}`, passThrough: true, quoted: true, status: http.StatusBadRequest},
+		{name: "foreign native fields do not change OpenAI billing", body: `{"model":"gpt-image-2","n":2,"input":{"num_outputs":7}}`, passThrough: true, count: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			received := make(chan []byte, 1)
@@ -75,11 +95,18 @@ func TestImageRequestReservesFinalQuantityBeforeUpstream(t *testing.T) {
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(tc.body))
 			c.Request.Header.Set("Content-Type", "application/json")
-			common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeOpenAI)
+			modelName := ojson.Get(tc.body, "model").String()
+			countPath := cmp.Or(tc.countPath, "n")
+			common.SetContextKey(c, constant.ContextKeyOriginalModel, modelName)
+			common.SetContextKey(c, constant.ContextKeyChannelType, cmp.Or(tc.channelType, constant.ChannelTypeOpenAI))
+			common.SetContextKey(c, constant.ContextKeyChannelKey, "test")
+			common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, dto.ChannelOtherSettings{VertexKeyType: dto.VertexKeyTypeAPIKey})
 			common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstream.URL)
 			common.SetContextKey(c, constant.ContextKeyChannelSetting, dto.ChannelSettings{PassThroughBodyEnabled: tc.passThrough})
 			if tc.override != nil {
-				common.SetContextKey(c, constant.ContextKeyChannelParamOverride, map[string]any{"operations": []any{map[string]any{"path": "n", "mode": "set", "value": tc.override}}})
+				common.SetContextKey(c, constant.ContextKeyChannelParamOverride, map[string]any{"operations": []any{map[string]any{"path": countPath, "mode": "set", "value": tc.override}}})
+			} else if tc.deleteCount {
+				common.SetContextKey(c, constant.ContextKeyChannelParamOverride, map[string]any{"operations": []any{map[string]any{"path": countPath, "mode": "delete"}}})
 			}
 			request, err := helper.GetAndValidOpenAIImageRequest(c, relayconstant.RelayModeImagesGenerations)
 			require.NoError(t, err)
@@ -87,14 +114,18 @@ func TestImageRequestReservesFinalQuantityBeforeUpstream(t *testing.T) {
 			if tc.insufficient {
 				reservation.limit = reservation.held
 			}
-			info := &relaycommon.RelayInfo{Request: request, OriginModelName: "gpt-image-2", RelayMode: relayconstant.RelayModeImagesGenerations,
+			info := &relaycommon.RelayInfo{Request: request, OriginModelName: modelName, RelayMode: relayconstant.RelayModeImagesGenerations,
 				RequestURLPath: c.Request.URL.Path, Billing: reservation,
 				PriceData: hosttypes.PriceData{UsePrice: true, ModelPrice: 0.04, GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1}},
 			}
+			if tc.quoted {
+				info.ImagePricingSnapshot = pricedPassthroughSnapshot()
+			}
 			if tc.tiered {
 				expr := `tier("image", fixed(0.04)) * image_count`
-				info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ExprString: expr, ExprHash: billingexpr.ExprHashString(expr), GroupRatio: 1, QuotaPerUnit: common.QuotaPerUnit, EstimatedImageCount: common.GetPointer(1)}
-				info.BillingRequestInput = &billingexpr.RequestInput{Body: []byte(tc.body), ImageCount: common.GetPointer(1)}
+				requested := int(*request.N)
+				info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ExprString: expr, ExprHash: billingexpr.ExprHashString(expr), GroupRatio: 1, QuotaPerUnit: common.QuotaPerUnit, EstimatedImageCount: &requested}
+				info.BillingRequestInput = &billingexpr.RequestInput{Body: []byte(tc.body), ImageCount: &requested}
 				info.PriceData.UsePrice = false
 			}
 			if tc.retryReset {
@@ -112,13 +143,18 @@ func TestImageRequestReservesFinalQuantityBeforeUpstream(t *testing.T) {
 			assert.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
 			require.Len(t, received, 1)
 			body := <-received
-			assert.Equal(t, int64(tc.count), ojson.GetBytes(body, "n").Int())
+			outbound := ojson.GetBytes(body, countPath)
+			if tc.implicitCount {
+				assert.False(t, outbound.Exists())
+			} else {
+				assert.Equal(t, int64(tc.count), outbound.Int())
+			}
 			assert.Equal(t, tc.count*20000, info.PriceData.QuotaToPreConsume)
 			assert.GreaterOrEqual(t, reservation.held, info.PriceData.QuotaToPreConsume)
 			assert.Nil(t, info.BillingImageCount)
 			if tc.tiered {
 				assert.Equal(t, tc.body, string(info.BillingRequestInput.Body))
-				assert.Equal(t, 1, *info.BillingRequestInput.ImageCount)
+				assert.Equal(t, int(*request.N), *info.BillingRequestInput.ImageCount)
 			}
 		})
 	}

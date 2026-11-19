@@ -51,7 +51,8 @@ func buildPricedImagePassthroughBody(
 		if err != nil {
 			return nil, 0, nil, err
 		}
-		if err := relaycommon.ValidateOutboundImagePricingJSON(info, body); err != nil {
+		info.ImageRequestCount, err = outboundImageCount(info, body, info.ImagePricingSnapshot.RequestedCount)
+		if err != nil {
 			return nil, 0, nil, err
 		}
 		info.UpstreamIsStream = gjson.GetBytes(body, "stream").Bool()

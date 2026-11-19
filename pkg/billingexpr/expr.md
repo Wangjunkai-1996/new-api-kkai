@@ -150,10 +150,11 @@ OpenAI 已于 2026-05-12 下线 DALL·E 2/3；其校验、默认值和倍率保�
 `image_count` 是独立于 token 的计费数量。省略上下文时默认 1；提供的数量必须是 1 到
 `dto.MaxImageN`（128）的整数。固定价格语法允许它作为乘数，仍禁止用 token 乘固定价格。
 图片入口只解析一次 provider 计费标量并随请求携带。数量来自顶层 `n`（`n=0` 兼容为 1）；
-`parameters.n` 仍在入口校验范围，但不再覆盖计费数量。每次渠道重试或参数覆盖之后，再校验最终上游数量并在发送前补足预留，
-图片钱包预留使用原子余额检查，不能通过增加数量形成欠费后继续提交。
+`parameters.n` 仍在入口校验范围，但不再覆盖计费数量。每次发送前（含渠道重试、参数覆盖和 JSON 透传），按最终请求中的数量补足预留。
+SiliconFlow 兼容渠道读取 `batch_size`，Gemini / Vertex Imagen 读取 `parameters.sampleCount`，Replicate 读取 `input.num_outputs`。
+原生 Imagen 请求省略数量时按 4 张预留。Replicate 省略模型的数量参数时沿用请求张数预留。图片钱包原子检查余额，冻结报价还要求最终数量与报价一致。
 `estimated_image_count` 保存本次发送前的数量；JSON/multipart 图片参数上下文只保留计费需要的标量，不保留图片或提示词内容。
-结算使用独立的实际数量，不修改被冻结的 `param("n")`。正常结束
+按张结算使用上游返回的有效图片数，不修改被冻结的 `param("n")`。按 token 计费的 Imagen 请求直接使用已汇总的 token 用量。正常结束
 的 SSE 可以减少数量，客户端提前断开不能减少应收数量。最终消费日志记录 `image_count`。
 阿里百炼图片模型（万相、Qwen-Image、Z-Image）由 alibaba 任务插件通过 `openai_image` 宿主协议承接：
 其数量是任务用量事实 `u("image_count")`，提交时按请求数量预留，完成时按上游 `usage.image_count`

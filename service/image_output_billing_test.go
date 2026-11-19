@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/types"
@@ -46,6 +47,7 @@ func TestApplyImageOutputBillingCountRejectsUnsafeCounts(t *testing.T) {
 		info        *relaycommon.RelayInfo
 		outputCount int
 	}{
+		{name: "reduced outbound limit", info: &relaycommon.RelayInfo{Request: &dto.ImageRequest{N: &requestedCount}, ImageRequestCount: 2}, outputCount: 3},
 		{name: "nil relay info", outputCount: 1},
 		{name: "zero output", info: &relaycommon.RelayInfo{}, outputCount: 0},
 		{name: "global limit exceeded", info: &relaycommon.RelayInfo{}, outputCount: dto.MaxImageN + 1},
@@ -75,4 +77,24 @@ func TestApplyImageOutputBillingCountRejectsUnsafeCounts(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestImageOutputSettlesDeliveredQuantityAfterChannelOverride(t *testing.T) {
+	const expression = `tier("image", fixed(0.04)) * image_count`
+	requested := uint(1)
+	reserved := 4
+	info := &relaycommon.RelayInfo{
+		Request: &dto.ImageRequest{N: &requested}, ImageRequestCount: reserved,
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode: "tiered_expr", ExprString: expression, ExprHash: billingexpr.ExprHashString(expression),
+			GroupRatio: 1, QuotaPerUnit: 500000, EstimatedImageCount: &reserved,
+		},
+	}
+	require.NoError(t, ApplyImageOutputBillingCount(info, 3))
+	settled, quota, result := TryTieredSettle(info, billingexpr.TokenParams{})
+	require.True(t, settled)
+	require.NotNil(t, result)
+	assert.Equal(t, 60000, quota)
+	assert.Equal(t, 3, info.ImageOutputCount)
+	assert.Nil(t, info.PriceData.OtherRatios())
 }

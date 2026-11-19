@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -57,7 +58,9 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 	}
 
-	updateOpenAIImageCount(info, openaiImageResponseCount(responseBody))
+	if _, err := recordImageResponseOutputs(info, responseBody); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+	}
 
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
@@ -75,8 +78,7 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 // entry and a b64_json entry bills once, and entries without any image payload
 // bill nothing. A zero result leaves the requested quantity in place because
 // UpdateImageCount ignores non-positive counts.
-func openaiImageResponseCount(responseBody []byte) int64 {
-	data := ojson.GetBytesNoCopy(responseBody, "data")
+func openaiImageResponseCount(data ojson.Result) int64 {
 	if data.IsObject() {
 		if openaiImageDataHasField(data, "url") || openaiImageDataHasField(data, "b64_json") {
 			return 1
@@ -97,6 +99,16 @@ func openaiImageResponseCount(responseBody []byte) int64 {
 		return true
 	})
 	return max(urls, b64s)
+}
+
+func recordImageResponseOutputs(info *relaycommon.RelayInfo, body []byte) (ojson.Result, error) {
+	data := ojson.GetBytesNoCopy(body, "data")
+	if info.GetChannelType() == constant.ChannelTypeSiliconFlow && !data.Exists() {
+		images := ojson.GetBytesNoCopy(body, "images")
+		return images, service.RecordImageOutputCount(info, int(openaiImageResponseCount(images)))
+	}
+	updateOpenAIImageCount(info, openaiImageResponseCount(data))
+	return data, nil
 }
 
 // openaiImageDataHasField reports whether an image data entry carries a
@@ -316,7 +328,10 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 
-	updateOpenAIImageCount(info, openaiImageResponseCount(responseBody))
+	outputs, err := recordImageResponseOutputs(info, responseBody)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+	}
 
 	helper.SetEventStreamHeaders(c)
 	c.Status(http.StatusOK)
@@ -344,7 +359,7 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	// without copying. Entries without url or b64_json carry no image and are
 	// not forwarded.
 	emitted := 0
-	for _, image := range ojson.GetBytesNoCopy(responseBody, "data").Array() {
+	for _, image := range outputs.Array() {
 		if !openaiImageDataHasField(image, "url") && !openaiImageDataHasField(image, "b64_json") {
 			continue
 		}

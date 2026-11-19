@@ -16,6 +16,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -382,6 +383,27 @@ func TestOpenaiImageHandlerUsesPositiveActualCountForFixedPrice(t *testing.T) {
 			require.Equal(t, tt.wantCount, info.PriceData.OtherRatios()["n"])
 			require.Equal(t, tt.body, recorder.Body.String())
 		})
+	}
+}
+
+func TestSiliconFlowImagesSettleAndDeliverActualOutputs(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		body := `{"images":[{"url":"https://example.com/first"},{"url":"https://example.com/second"}]}`
+		ctx, recorder, resp, info := newImageTestContext(t, body, "application/json", stream)
+		info.ChannelType = constant.ChannelTypeSiliconFlow
+		info.RelayMode = relayconstant.RelayModeImagesGenerations
+		info.ImageRequestCount = 3
+		info.PriceData.UsePrice = true
+		info.PriceData.AddOtherRatio("n", 3)
+		_, apiErr := (&Adaptor{}).DoResponse(ctx, resp, info)
+		require.Nil(t, apiErr)
+		assert.Equal(t, 2.0, info.PriceData.OtherRatios()["n"])
+		if stream {
+			assert.Equal(t, 2, strings.Count(recorder.Body.String(), "event: image_generation.completed"))
+			assert.Contains(t, recorder.Body.String(), "https://example.com/second")
+		} else {
+			assert.JSONEq(t, body, recorder.Body.String())
+		}
 	}
 }
 
