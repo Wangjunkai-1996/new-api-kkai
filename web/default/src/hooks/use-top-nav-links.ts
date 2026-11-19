@@ -16,9 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { aboutContentQueryOptions } from '@/features/about/api'
 import { useSiteConfig } from '@/features/site-config'
 import { useStatus } from '@/hooks/use-status'
 import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
@@ -56,6 +58,15 @@ export function useTopNavLinks(): TopNavLink[] {
       status as Record<string, unknown> | null
     )
   }, [status])
+
+  const aboutEnabled = site?.tenant_id === 0 && !!status && modules.about
+  const { data: hasAboutContent } = useQuery({
+    ...aboutContentQueryOptions,
+    enabled: aboutEnabled,
+    select: (result) => !!result.data?.trim(),
+    retry: false,
+    meta: { errorToast: false },
+  })
 
   // Documentation link (may be external)
   const docsLink: string | undefined = status?.docs_link as string | undefined
@@ -114,7 +125,7 @@ export function useTopNavLinks(): TopNavLink[] {
   }
 
   // About
-  if (modules?.about !== false) {
+  if (aboutEnabled && hasAboutContent) {
     links.push({ title: t('About'), href: '/about' })
   }
 

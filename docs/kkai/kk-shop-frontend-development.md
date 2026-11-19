@@ -2,7 +2,9 @@
 
 版本：D2；日期：2026-10-28；状态：**买家端与运营后台应用代码已落地，含浅深色主题、原创插画和多语言**。定向检查与真实浏览器验收缺口见[实施状态](./kk-shop-implementation-status.md)。
 
-本文件将 [PRD](./kk-shop-prd.md)、[业务规则](./kk-shop-business-rules.md) 与 [V2 UI 规格](./kk-shop-ui-spec.md) 转为 `web/default` 的开发任务。页面效果以 [V2 原型](./kk-shop-design-preview.html) 和 [视觉复审](./kk-shop-visual-review.md) 为依据；请求、字段、状态枚举、错误码、权限 scope 和幂等语义以 [API 总契约](./kk-shop-api-contract.md) 为唯一来源。本文中的文件树及组件名称为计划，不表示已经存在。
+**首页定稿（2026-11-19）**。平台商城 `/shop` 的主视觉、商品卡、响应式布局与目录状态以[首页开发与验收](./kk-shop-storefront-development.md)为准。
+
+本文件将 [PRD](./kk-shop-prd.md)、[业务规则](./kk-shop-business-rules.md) 与 [V2 UI 规格](./kk-shop-ui-spec.md) 转为 `web/default` 的开发任务。其余页面的视觉依据见 [V2 原型](./kk-shop-design-preview.html) 和 [视觉复审](./kk-shop-visual-review.md)。请求、字段、状态枚举、错误码、权限 scope 和幂等语义以 [API 总契约](./kk-shop-api-contract.md) 为唯一来源。本文中的文件树及组件名称为计划，不表示已经存在。
 
 首版同时完成自营账号/卡密自动交付、人工交付、订单与售后、人工原路退款登记，以及运营异常闭环。商城收款不能进入 API 额度、钱包充值或返佣流程。首发真实商品、币种、渠道及服务条款尚待确定；演示数据只能用于隔离测试与设计预览，不能作为可付款的生产种子数据。
 
@@ -285,11 +287,12 @@ V2 的核心是奶油纸面、钴蓝主动作、墨色正文、纸艺图像和�
 
 ### 8.2 图片接入
 
-资产权威表见 [素材包 README](./kk-shop-assets/README.md) 和 [manifest](./kk-shop-assets/asset-manifest.json)。22 个 WebP 总计 844,186 字节；9 张 PNG 母图仅留档。生产将所需 WebP 复制到 `src/assets/shop/` 后用静态 import 交给 Rsbuild 生成带前缀的资源 URL，不能直接引用 `docs/` 或硬编码 `/shop-assets/...` 绕过发布资源路径。
+V2 素材明细见 [素材包 README](./kk-shop-assets/README.md) 和 [manifest](./kk-shop-assets/asset-manifest.json)。该包的 22 个 WebP 总计 844,186 字节，9 张 PNG 母图仅留档。生产将所需 WebP 复制到 `src/assets/shop/` 后用静态 import 交给 Rsbuild 生成带前缀的资源 URL，不能直接引用 `docs/` 或硬编码 `/shop-assets/...` 绕过发布资源路径。
 
 | 资产 | 实际尺寸 | 使用方式 |
 | --- | --- | --- |
-| hero.webp / hero-mobile.webp | 1536×1024 / 900×600 | 首页 `picture`，当前首屏图 eager、fetchPriority high；装饰性 alt 为空；只有当前响应式资源下载 |
+| storefront-vouchers.webp | 1920×704 | 当前首页。桌面和手机共用兑换券与回执图，装饰性 alt 为空，`fetchPriority="high"` |
+| hero.webp / hero-mobile.webp | 1536×1024 / 900×600 | V2 首页原型归档 |
 | product-1…6.webp | 1024×1024 | 商品卡/详情完整概念图，contain 避免切掉书/色样边缘；真实商品绑定自己的封面，不按数据库 ID 拼演示文件名 |
 | product-N-thumb.webp | 320×320 | 结账、订单与管理列表；图像旁已有商品名时 alt 为空，避免重复播报 |
 | product-N-detail.webp | 900×900 | 图集局部，明确“概念插画，非真实服务界面”；不声称新增权益 |
@@ -302,9 +305,7 @@ V2 的核心是奶油纸面、钴蓝主动作、墨色正文、纸艺图像和�
 
 | 视口/区域 | 必须实现 |
 | --- | --- |
-| 1440×900 首页 | 左文右图 Hero 约 322px；商品名与金额在图上方，首排核心事实处于首屏；信任说明在商品后 |
-| 390px 首页 | Hero 约 294px；右下完整 174×120 图，不裁到画布外；两列商品，名称可两行、交付标签不固定高空白 |
-| 320px 首页 | 一列商品，Hero 保留约 143×107 图；中文/英文等长文案仍能自然排版 |
+| 商城首页 | 1440px 下左文右图、三列商品，390px 下图带在文字下方、两列商品，320px 下单列。尺寸、裁切及空态逐图对照[首页开发与验收](./kk-shop-storefront-development.md) |
 | 商品详情 | 桌面图集+购买摘要；手机图集、购买摘要、规则章节顺序清楚；底部购买栏不遮条款和提示 |
 | 结账 | 收据摘要明确商品、币种和最终应付；装饰伪元素以收据自身 `position:relative` 定位，避免 V2 曾发现的 1px 溢出 |
 | 订单/领取 | 主状态、额外款、截止和处理记录独立；长凭据按字段换行，复制不压缩到不可点 |

@@ -1,0 +1,78 @@
+{
+  "products": {
+    "stock": {
+      "success": true,
+      "data": {
+        "items": [
+          {
+            "id": "demo-creation-code",
+            "version": "1",
+            "name": "创作工具兑换码",
+            "category_id": "cards",
+            "product_type": "card",
+            "specification": "单次兑换 · 1 枚",
+            "price": { "amount_minor": "2900", "currency": "CNY", "exponent": 2 },
+            "delivery_type": "automatic",
+            "availability": "available"
+          },
+          {
+            "id": "demo-design-account",
+            "version": "1",
+            "name": "设计工作区账号",
+            "category_id": "accounts",
+            "product_type": "account",
+            "specification": "独立账号 · 30 天",
+            "price": { "amount_minor": "5900", "currency": "CNY", "exponent": 2 },
+            "delivery_type": "manual",
+            "availability": "available"
+          },
+          {
+            "id": "demo-gift-code",
+            "version": "1",
+            "name": "灵感素材礼品码",
+            "category_id": "cards",
+            "product_type": "card",
+            "specification": "电子礼券 · 1 枚",
+            "price": { "amount_minor": "1900", "currency": "CNY", "exponent": 2 },
+            "delivery_type": "automatic",
+            "availability": "sold_out"
+          }
+        ],
+        "page": 1,
+        "page_size": 20,
+        "total": 3
+      }
+    },
+    "empty": {
+      "success": true,
+      "data": { "items": [], "page": 1, "page_size": 20, "total": 0 }
+    }
+  },
+  "categories": {
+    "success": true,
+    "data": [
+      { "id": "cards", "name": "卡密" },
+      { "id": "accounts", "name": "账号" }
+    ]
+  },
+  "config": {
+    "open": {
+      "success": true,
+      "data": {
+        "new_orders_enabled": true,
+        "currency": "CNY",
+        "server_time": "2026-11-19T12:00:00Z",
+        "payment_methods": []
+      }
+    },
+    "paused": {
+      "success": true,
+      "data": {
+        "new_orders_enabled": false,
+        "currency": "CNY",
+        "server_time": "2026-11-19T12:00:00Z",
+        "payment_methods": []
+      }
+    }
+  }
+}

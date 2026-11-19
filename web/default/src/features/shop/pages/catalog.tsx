@@ -17,20 +17,23 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
+  ArrowRight02Icon,
   Key01Icon,
+  PauseCircleIcon,
+  Search01Icon,
   ShoppingBag01Icon,
   Ticket01Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 
+import storefrontArt from '@/assets/shop/storefront-vouchers.webp'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 
@@ -39,7 +42,6 @@ import { productImage } from '../assets'
 import {
   MoneyText,
   Pagination,
-  ShopEmpty,
   ShopErrorNotice,
   ShopHeading,
   ShopLoading,
@@ -60,7 +62,10 @@ export function CatalogPage(props: {
 }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [search, setSearch] = useState(props.q ?? '')
+  const searchInput = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (searchInput.current) searchInput.current.value = props.q ?? ''
+  }, [props.q])
   const products = useShopQuery(
     `/api/shop/products${queryString({ q: props.q, category_id: props.category_id, page: props.page })}`,
     pageSchema(productSchema),
@@ -74,92 +79,210 @@ export function CatalogPage(props: {
   const config = useShopQuery('/api/shop/config', configSchema, {
     public: true,
   })
+  const catalog = products.data
+  const filtered = !!(props.q || props.category_id)
   const change = (value: { q?: string; category_id?: string; page?: number }) =>
     void navigate({
       to: '/shop',
       search: { q: props.q, category_id: props.category_id, page: 1, ...value },
+      resetScroll: false,
     })
+  const clearFilters = () => {
+    if (searchInput.current) searchInput.current.value = ''
+    change({ q: undefined, category_id: undefined })
+  }
   return (
     <>
-      <ShopHeading
-        eyebrow='KK SHOP'
-        title={t('Explore the collection')}
-        description={t('Digital delivery. No shipping address required.')}
-      />
-      {config.data && !config.data.new_orders_enabled && (
-        <Alert>
-          <AlertDescription>
+      <header className='shop-hero'>
+        <div className='shop-hero-art' aria-hidden='true'>
+          <img
+            src={storefrontArt}
+            width={1920}
+            height={704}
+            alt=''
+            fetchPriority='high'
+          />
+        </div>
+        <div className='shop-hero-copy'>
+          <p className='shop-wordmark' lang='en'>
+            KK SHOP
+          </p>
+          <h1>{t('Digital goods store')}</h1>
+          <p className='shop-hero-description'>
             {t(
-              'New purchases are paused. Your existing orders remain available.'
+              'Shop accounts and redemption codes. Find delivery details in your orders.'
             )}
-          </AlertDescription>
-        </Alert>
-      )}
-      <form
-        className='shop-filters'
-        onSubmit={(event) => {
-          event.preventDefault()
-          change({ q: search })
-        }}
-      >
-        <FieldGroup className='flex-row flex-wrap items-end'>
-          <Field className='w-auto flex-1'>
-            <FieldLabel htmlFor='shop-search'>
-              {t('Search products')}
-            </FieldLabel>
-            <Input
-              id='shop-search'
-              value={search}
-              maxLength={100}
-              onChange={(event) => setSearch(event.target.value)}
+          </p>
+          <Link
+            to='/shop/orders'
+            search={{ page: 1 }}
+            className='shop-orders-link'
+          >
+            {t('My orders')}
+            <HugeiconsIcon
+              icon={ArrowRight02Icon}
+              size={17}
+              aria-hidden='true'
             />
-          </Field>
-          <Field className='w-auto'>
-            <FieldLabel htmlFor='shop-category'>{t('Category')}</FieldLabel>
-            <NativeSelect
-              id='shop-category'
-              value={props.category_id ?? ''}
-              onChange={(event) =>
-                change({ category_id: event.target.value || undefined })
-              }
+          </Link>
+        </div>
+      </header>
+      <section
+        className='shop-collection'
+        aria-labelledby='shop-collection-title'
+      >
+        <div className='shop-collection-toolbar'>
+          <div className='shop-collection-heading'>
+            <h2 id='shop-collection-title'>{t('Product catalog')}</h2>
+            {config.data?.new_orders_enabled === false && (
+              <p className='shop-purchase-notice' role='status'>
+                <HugeiconsIcon
+                  icon={PauseCircleIcon}
+                  size={17}
+                  aria-hidden='true'
+                />
+                {t(
+                  'New purchases are paused. Your existing orders remain available.'
+                )}
+              </p>
+            )}
+          </div>
+          {(filtered || !!catalog?.total) && (
+            <form
+              className='shop-catalog-filters'
+              role='search'
+              aria-label={t('Search products')}
+              onSubmit={(event) => {
+                event.preventDefault()
+                change({ q: searchInput.current?.value.trim() || undefined })
+              }}
             >
-              <NativeSelectOption value=''>
-                {t('All categories')}
-              </NativeSelectOption>
-              {categories.data?.map((category) => (
-                <NativeSelectOption key={category.id} value={category.id}>
-                  {category.name}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-          </Field>
-          <Button type='submit'>{t('Search')}</Button>
-        </FieldGroup>
-      </form>
-      <ShopErrorNotice
-        error={products.error ?? categories.error ?? config.error}
-        retry={() => {
-          void products.refetch()
-          void categories.refetch()
-          void config.refetch()
-        }}
-      />
-      {products.isPending && <ShopLoading />}
-      {products.data?.items.length === 0 && <ShopEmpty />}
-      <div className='shop-grid'>
-        {products.data?.items.map((product) => (
-          <ProductCard key={product.id} product={product} />
-        ))}
-      </div>
-      {products.data && (
-        <Pagination
-          page={props.page}
-          total={products.data.total}
-          pageSize={products.data.page_size}
-          onPage={(page) => change({ page })}
+              <div className='shop-search-field'>
+                <Input
+                  type='search'
+                  name='q'
+                  ref={searchInput}
+                  defaultValue={props.q}
+                  maxLength={100}
+                  aria-label={t('Search products')}
+                  placeholder={t('Search products')}
+                />
+                <Button
+                  type='submit'
+                  variant='ghost'
+                  size='icon'
+                  aria-label={t('Search')}
+                >
+                  <HugeiconsIcon icon={Search01Icon} aria-hidden='true' />
+                </Button>
+              </div>
+              {(!!categories.data?.length || !!props.category_id) && (
+                <NativeSelect
+                  name='category_id'
+                  aria-label={t('Category')}
+                  value={props.category_id ?? ''}
+                  onChange={(event) =>
+                    change({
+                      category_id: event.target.value || undefined,
+                      q: searchInput.current?.value.trim() || undefined,
+                    })
+                  }
+                >
+                  <NativeSelectOption value=''>
+                    {t('All categories')}
+                  </NativeSelectOption>
+                  {categories.data?.map((category) => (
+                    <NativeSelectOption key={category.id} value={category.id}>
+                      {category.name}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              )}
+              {filtered && !!catalog?.items.length && (
+                <Button type='button' variant='ghost' onClick={clearFilters}>
+                  {t('Clear filters')}
+                </Button>
+              )}
+            </form>
+          )}
+        </div>
+        <ShopErrorNotice
+          error={products.error ?? categories.error ?? config.error}
+          retry={() => {
+            void products.refetch()
+            void categories.refetch()
+            void config.refetch()
+          }}
         />
-      )}
+        {products.isPending && <ShopLoading />}
+        {catalog?.items.length === 0 && !products.isError && (
+          <CatalogEmpty
+            filtered={filtered}
+            page={props.page}
+            onReset={props.page > 1 ? () => change({ page: 1 }) : clearFilters}
+          />
+        )}
+        {catalog && catalog.items.length > 0 && (
+          <>
+            <div className='shop-grid'>
+              {catalog.items.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+            {(props.page > 1 || catalog.total > catalog.page_size) && (
+              <Pagination
+                page={props.page}
+                total={catalog.total}
+                pageSize={catalog.page_size}
+                onPage={(page) => change({ page })}
+              />
+            )}
+          </>
+        )}
+      </section>
     </>
+  )
+}
+
+function CatalogEmpty(props: {
+  filtered: boolean
+  page: number
+  onReset: () => void
+}) {
+  const { t } = useTranslation()
+  let title = t('No products yet')
+  let description = t(
+    'When products are listed, you can find their prices and delivery details here.'
+  )
+  let action: string | undefined
+  if (props.page > 1) {
+    title = t('No products on this page')
+    description = t('Return to the first page to see the current selection.')
+    action = t('Go to first page')
+  } else if (props.filtered) {
+    title = t('No products match your search')
+    description = t('Try a different keyword or category.')
+    action = t('Clear filters')
+  }
+  return (
+    <div className='shop-shelf-empty'>
+      <span className='shop-shelf-icon' aria-hidden='true'>
+        <HugeiconsIcon
+          icon={props.filtered ? Search01Icon : ShoppingBag01Icon}
+          size={32}
+          strokeWidth={1.45}
+        />
+      </span>
+      <div>
+        <h3>{title}</h3>
+        <p>{description}</p>
+        {action && (
+          <Button variant='outline' onClick={props.onReset}>
+            {action}
+          </Button>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -173,8 +296,8 @@ function ProductCard(props: { product: Product }) {
       to='/shop/products/$productId'
       params={{ productId: product.id }}
     >
-      <div className='shop-card-art'>
-        {image ? (
+      {image && (
+        <div className='shop-card-art'>
           <img
             src={image}
             width={product.cover?.width ?? 1024}
@@ -182,24 +305,38 @@ function ProductCard(props: { product: Product }) {
             alt={product.cover?.alt ?? ''}
             loading='lazy'
           />
-        ) : (
-          <ProductPlaceholder productType={product.product_type} />
-        )}
-      </div>
+        </div>
+      )}
       <div className='shop-card-content'>
-        <Badge variant='outline'>
-          {product.delivery_type === 'automatic'
-            ? t('Automatic delivery')
-            : t('Manual delivery')}
-        </Badge>
-        <h2>{product.name}</h2>
-        <p className='shop-muted line-clamp-2 text-sm'>{product.summary}</p>
-        <div className='shop-actions justify-between'>
+        {!image && (
+          <ProductPlaceholder productType={product.product_type} compact />
+        )}
+        <div className='shop-card-title'>
+          <h3>{product.name}</h3>
           <MoneyText money={product.price} />
-          <span className='text-sm'>
+        </div>
+        {(product.specification || product.summary) && (
+          <p className='shop-muted line-clamp-2 text-sm'>
+            {product.specification || product.summary}
+          </p>
+        )}
+        <div className='shop-card-footer'>
+          {product.delivery_type && (
+            <Badge variant='secondary'>
+              {product.delivery_type === 'automatic'
+                ? t('Automatic delivery')
+                : t('Manual delivery')}
+            </Badge>
+          )}
+          <span>
             {product.availability === 'available'
               ? t('View product')
-              : t('Unavailable')}
+              : t('Currently unavailable')}
+            <HugeiconsIcon
+              icon={ArrowRight02Icon}
+              size={16}
+              aria-hidden='true'
+            />
           </span>
         </div>
       </div>
@@ -293,7 +430,10 @@ export function ProductPage(props: { productId: string }) {
   )
 }
 
-function ProductPlaceholder(props: { productType?: string }) {
+function ProductPlaceholder(props: {
+  productType?: string
+  compact?: boolean
+}) {
   const { t } = useTranslation()
   let icon = ShoppingBag01Icon
   let label = t('Digital product')
@@ -305,7 +445,10 @@ function ProductPlaceholder(props: { productType?: string }) {
     label = t('Card code')
   }
   return (
-    <div className='shop-product-placeholder'>
+    <div
+      className={props.compact ? 'shop-card-kind' : 'shop-product-placeholder'}
+      data-kind={props.productType}
+    >
       <HugeiconsIcon icon={icon} strokeWidth={1.5} aria-hidden='true' />
       <span>{label}</span>
     </div>

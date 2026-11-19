@@ -83,7 +83,6 @@ For commercial licensing, please contact support@quantumnous.com
 .shop-nav,
 .shop-subnav,
 .shop-actions,
-.shop-filters,
 .shop-pagination {
   display: flex;
   align-items: center;
@@ -106,14 +105,198 @@ For commercial licensing, please contact support@quantumnous.com
   background: var(--primary);
   color: var(--primary-foreground);
 }
+.shop.shop-storefront {
+  --shop-line: var(--border);
+  --shop-art: color-mix(in srgb, var(--card) 86%, #9badd0);
+  max-width: 76rem;
+  min-height: auto;
+  margin-inline: auto;
+  padding: 0 0 clamp(2rem, 5vw, 4rem);
+  color: var(--foreground);
+  background: transparent;
+}
+.shop-hero {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  align-items: center;
+  min-height: clamp(16.5rem, 22vw, 19.5rem);
+  overflow: hidden;
+  border-radius: 1.5rem;
+  background: #0b1625;
+  color: #f8faff;
+  box-shadow: inset 0 0 0 1px #a6c1ff22;
+}
+.shop-hero-art {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+.shop-hero-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: right center;
+}
+.shop-hero-copy {
+  width: 48%;
+  padding: clamp(1.75rem, 3.5vw, 3rem);
+  padding-right: 0;
+  overflow-wrap: anywhere;
+}
+.shop-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: #b1caff;
+  font: 600 0.75rem/1.4 var(--font-mono, monospace);
+  letter-spacing: 0.18em;
+}
+.shop-wordmark::before {
+  content: '';
+  width: 1.65rem;
+  height: 2px;
+  background: #89afff;
+}
+.shop-hero h1 {
+  margin: 1rem 0 0.65rem;
+  font-size: clamp(2.5rem, 4.5vw, 4rem);
+  font-weight: 650;
+  line-height: 1.12;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+.shop-hero-description {
+  color: #c1ccdc;
+  line-height: 1.6;
+}
+.shop-orders-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  min-height: 44px;
+  margin-top: 1.65rem;
+  padding: 0.6rem 1.1rem;
+  border-radius: 0.65rem;
+  background: #ebf1ff;
+  color: #12223e;
+  font-size: 0.925rem;
+  font-weight: 600;
+}
+.shop-orders-link:hover {
+  background: #fff;
+}
+.shop-orders-link:focus-visible {
+  outline: 3px solid #99baff;
+  outline-offset: 4px;
+}
+.shop-collection {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: clamp(1.75rem, 3vw, 2.5rem);
+}
+.shop-collection-toolbar,
+.shop-collection-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem 1rem;
+}
+.shop-collection-toolbar {
+  border-bottom: 1px solid var(--shop-line);
+  padding-bottom: 0.85rem;
+}
+.shop-collection-heading {
+  flex: 1 1 auto;
+}
+.shop-collection-heading h2 {
+  font-size: clamp(1.4rem, 2.3vw, 1.9rem);
+  letter-spacing: -0.035em;
+}
+.shop-purchase-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+.shop-purchase-notice svg {
+  flex: none;
+  color: #946125;
+}
+.dark .shop-purchase-notice svg {
+  color: #e1b277;
+}
+.shop-catalog-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  max-width: 100%;
+}
+.shop-search-field {
+  position: relative;
+  width: clamp(11rem, 18vw, 18rem);
+}
+.shop-search-field input {
+  padding-inline: 0.9rem 3rem;
+}
+.shop-search-field button {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 44px;
+}
+.shop-catalog-filters [data-slot='native-select-wrapper'] {
+  max-width: min(100%, 15rem);
+}
+.shop-shelf-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(1.5rem, 3.5vw, 3rem);
+  min-height: 12rem;
+  padding: 1.75rem;
+  border: 1px solid var(--shop-line);
+  border-radius: 1.1rem;
+  background: var(--card);
+  overflow-wrap: anywhere;
+}
+.shop-shelf-icon {
+  display: grid;
+  place-items: center;
+  width: 4.25rem;
+  height: 4.25rem;
+  flex: none;
+  border: 1px solid var(--shop-line);
+  border-radius: 1.15rem;
+  background: var(--shop-art);
+  color: var(--foreground);
+}
+.shop-shelf-empty h3 {
+  font-size: clamp(1.1rem, 1.7vw, 1.4rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.shop-shelf-empty p {
+  max-width: 42ch;
+  margin-top: 0.45rem;
+  color: var(--muted-foreground);
+  line-height: 1.65;
+}
+.shop-shelf-empty button {
+  margin-top: 0.85rem;
+}
 .shop-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1.25rem;
-  margin: 1.5rem 0;
 }
 .shop-card {
-  display: block;
+  display: flex;
+  flex-direction: column;
   color: inherit;
   border: 1px solid var(--shop-line);
   border-radius: 1rem;
@@ -133,7 +316,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .shop-card-art {
   background: var(--shop-art);
-  aspect-ratio: 1.35;
+  aspect-ratio: 1.85;
+  overflow: hidden;
   display: grid;
   place-items: center;
 }
@@ -158,14 +342,64 @@ For commercial licensing, please contact support@quantumnous.com
   height: 3rem;
   color: var(--primary);
 }
-.shop-card-content {
-  padding: 1.15rem;
-  display: grid;
-  gap: 0.6rem;
+.shop-card-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  font-weight: 600;
 }
-.shop-card-content h2 {
-  font-size: 1.1rem;
+.shop-card-kind svg {
+  width: 2rem;
+  height: 2rem;
+  padding: 0.35rem;
+  border-radius: 0.45rem;
+  background: var(--shop-art);
+  color: var(--foreground);
+}
+.shop-card-kind[data-kind='account'] svg {
+  background: color-mix(in srgb, var(--card) 78%, #76ae9d);
+}
+.shop-card-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 0.5rem;
+  padding: 1.2rem;
+}
+.shop-card-content h3 {
+  font-size: 1.15rem;
+  font-weight: 650;
+  line-height: 1.4;
   overflow-wrap: anywhere;
+}
+.shop-card-title,
+.shop-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.25rem 0.65rem;
+  width: 100%;
+}
+.shop-card-footer {
+  align-items: center;
+  margin-top: auto;
+  padding-top: 0.8rem;
+  border-top: 1px dashed var(--shop-line);
+}
+.shop-card-title .shop-money {
+  font-size: 1.2rem;
+}
+.shop-card-footer > :last-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
 }
 .shop-money {
   font-variant-numeric: tabular-nums;
@@ -331,8 +565,8 @@ For commercial licensing, please contact support@quantumnous.com
   .shop-card-content {
     padding: 0.8rem;
   }
-  .shop-card-content h2 {
-    font-size: 0.95rem;
+  .shop-card-content h3 {
+    font-size: 1rem;
   }
   .shop-panel {
     padding: 1rem;
@@ -344,6 +578,60 @@ For commercial licensing, please contact support@quantumnous.com
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+@media (max-width: 720px) {
+  .shop-hero {
+    min-height: 0;
+    border-radius: 1rem;
+  }
+  .shop-hero-copy {
+    width: 100%;
+    padding: 1.65rem 1.4rem 0;
+  }
+  .shop-hero h1 {
+    margin-top: 0.75rem;
+    font-size: clamp(2rem, 8.5vw, 2.8rem);
+  }
+  .shop-orders-link {
+    margin-top: 1rem;
+  }
+  .shop-hero-art {
+    position: relative;
+    order: 1;
+    aspect-ratio: 5 / 2;
+    mask-image: linear-gradient(to bottom, transparent, black 18%);
+  }
+  .shop-hero-art img {
+    position: absolute;
+    right: 0;
+    width: 180%;
+    max-width: none;
+  }
+  .shop-collection-heading,
+  .shop-collection-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .shop-catalog-filters {
+    width: 100%;
+  }
+  .shop-search-field {
+    flex: 1 1 10rem;
+  }
+  .shop-catalog-filters [data-slot='native-select-wrapper'] {
+    max-width: 100%;
+    flex: 0 1 9rem;
+  }
+  .shop-shelf-empty {
+    justify-content: flex-start;
+    min-height: 9rem;
+    padding: 1.15rem;
+    gap: 1rem;
+  }
+  .shop-shelf-icon {
+    width: 3.25rem;
+    height: 3.25rem;
+  }
+}
 @media (max-width: 359px) {
   .shop-grid {
     grid-template-columns: 1fr;
@@ -352,5 +640,8 @@ For commercial licensing, please contact support@quantumnous.com
 @media (prefers-reduced-motion: reduce) {
   .shop-card {
     transition: none;
+  }
+  .shop-card:hover {
+    transform: none;
   }
 }

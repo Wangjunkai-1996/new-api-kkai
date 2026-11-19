@@ -16,7 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Link, Outlet, createFileRoute, redirect } from '@tanstack/react-router'
+import {
+  Link,
+  Outlet,
+  createFileRoute,
+  redirect,
+  useMatch,
+} from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout/components/public-layout'
@@ -33,17 +39,32 @@ export const Route = createFileRoute('/shop')({
 })
 function ShopLayout() {
   const { t } = useTranslation()
+  const isCatalog = useMatch({
+    from: '/shop/',
+    shouldThrow: false,
+    select: () => true,
+  })
   return (
     <PublicLayout>
-      <div className='shop'>
-        <nav className='shop-subnav' aria-label={t('KK Shop')}>
-          <Link to='/shop' search={{ page: 1 }}>
-            {t('Shop')}
-          </Link>
-          <Link to='/shop/orders' search={{ page: 1 }}>
-            {t('My orders')}
-          </Link>
-        </nav>
+      <div className={isCatalog ? 'shop shop-storefront' : 'shop'}>
+        {!isCatalog && (
+          <nav className='shop-subnav' aria-label={t('KK Shop')}>
+            <Link
+              to='/shop'
+              search={{ page: 1 }}
+              activeOptions={{ exact: true, includeSearch: false }}
+            >
+              {t('Shop')}
+            </Link>
+            <Link
+              to='/shop/orders'
+              search={{ page: 1 }}
+              activeOptions={{ includeSearch: false }}
+            >
+              {t('My orders')}
+            </Link>
+          </nav>
+        )}
         <Outlet />
       </div>
     </PublicLayout>

@@ -16,16 +16,26 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { queryOptions } from '@tanstack/react-query'
+
 import { api } from '@/lib/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type { AboutResponse } from './types'
 
-export async function getAboutContent(): Promise<AboutResponse> {
+async function getAboutContent(): Promise<AboutResponse> {
   // See getNotice in @/lib/api: the global `Cache-Control: no-store` is dropped
   // so the browser can hold an ETag and revalidate, letting the server answer
   // 304. Server-side `no-cache` keeps admin edits immediate.
   const res = await api.get<AboutResponse>('/api/about', {
     headers: { 'Cache-Control': null },
+    skipErrorHandler: true,
   })
-  return res.data
+  return requireServerSuccess(res.data)
 }
+
+export const aboutContentQueryOptions = queryOptions({
+  queryKey: ['about-content'],
+  queryFn: getAboutContent,
+  staleTime: 5 * 60_000,
+})
