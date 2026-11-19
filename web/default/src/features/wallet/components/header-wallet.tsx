@@ -16,12 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Link } from '@tanstack/react-router'
 import {
-  ArrowUpRight,
+  ArrowRight,
   ChevronDown,
   Eye,
   EyeOff,
+  Plus,
   RefreshCw,
-  Wallet as WalletIcon,
 } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -36,6 +36,8 @@ import {
 import { useIsSidebarModuleVisible } from '@/hooks/use-sidebar-config'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
+
+import '@/styles/header-wallet.css'
 
 import { useWalletBalance } from '../hooks/use-wallet-balance'
 
@@ -95,23 +97,23 @@ export function HeaderWallet() {
         title={triggerLabel}
         onMouseEnter={scheduleOpen}
         onMouseLeave={scheduleClose}
-        className={cn(
-          'group inline-flex min-h-9 min-w-9 items-center gap-1.5 rounded-xl border border-transparent px-2 text-sm transition-[background-color,border-color,box-shadow] duration-200',
-          'hover:border-border/80 hover:bg-muted/70 data-pressed:border-border data-pressed:bg-muted/80',
-          'focus-visible:ring-ring/50 focus-visible:ring-3 motion-reduce:transition-none'
-        )}
+        className='header-wallet-trigger group focus-visible:ring-ring focus-visible:ring-offset-background inline-flex h-9 max-w-32 min-w-9 items-center gap-2 rounded-[10px] border px-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 motion-reduce:transition-none min-[420px]:max-w-52 min-[420px]:px-2 sm:ps-2.5'
       >
-        <span className='bg-primary/10 text-primary grid size-6 shrink-0 place-items-center rounded-lg transition-transform duration-200 group-hover:scale-105 motion-reduce:transition-none'>
-          <WalletIcon className='size-3.5' aria-hidden='true' />
-        </span>
-        <span className='hidden max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-20 group-hover:opacity-100 motion-reduce:transition-none sm:inline'>
-          {t('Wallet')}
-        </span>
-        <span className='font-semibold text-[#865A16] tabular-nums dark:text-[#F2C879]'>
-          {triggerValue}
+        <span
+          className='header-wallet-mark hidden shrink-0 min-[420px]:block'
+          aria-hidden='true'
+        />
+        <span className='header-wallet-sparks' aria-hidden='true' />
+        <span className='grid min-w-0 gap-0.5 text-start'>
+          <span className='text-muted-foreground truncate text-[10px] leading-none font-medium tracking-wider motion-safe:max-[420px]:pe-5'>
+            {t('Wallet')}
+          </span>
+          <span className='text-foreground min-[360px]:font-public-sans truncate text-xs leading-none font-semibold tracking-[-0.02em] tabular-nums min-[360px]:text-[13px]'>
+            {triggerValue}
+          </span>
         </span>
         <ChevronDown
-          className='text-muted-foreground size-3.5 transition-transform duration-200 group-data-pressed:rotate-180 data-[state=open]:rotate-180 motion-reduce:transition-none'
+          className='text-muted-foreground hidden size-3 shrink-0 transition-transform group-aria-expanded:rotate-180 motion-reduce:transition-none sm:block'
           aria-hidden='true'
         />
       </PopoverTrigger>
@@ -120,21 +122,17 @@ export function HeaderWallet() {
         sideOffset={8}
         onMouseEnter={clearHoverTimeouts}
         onMouseLeave={scheduleClose}
-        className='w-[min(21rem,calc(100vw-1rem))] gap-0 overflow-hidden rounded-2xl p-0'
+        className='w-[min(21rem,calc(100vw-1rem))] gap-0 overflow-hidden rounded-2xl p-0 motion-reduce:animate-none!'
       >
-        <div className='from-primary/[0.08] via-background to-background bg-gradient-to-br p-4'>
-          <PopoverHeader className='gap-1'>
+        <div className='header-wallet-summary px-5 pt-3 pb-5'>
+          <span className='header-wallet-sparks' aria-hidden='true' />
+          <PopoverHeader className='flex-row items-center justify-between gap-2'>
             <PopoverTitle className='sr-only'>
               {t('Wallet quick actions')}
             </PopoverTitle>
-            <span className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
+            <span className='text-muted-foreground text-xs font-medium tracking-wide'>
               {t('Current Balance')}
             </span>
-          </PopoverHeader>
-          <div className='mt-2 flex items-center justify-between gap-3'>
-            <strong className='min-w-0 truncate text-2xl font-semibold tracking-tight text-[#865A16] dark:text-[#F2C879]'>
-              {balanceHidden ? '••••••' : (amount ?? t('Not available'))}
-            </strong>
             <div className='flex shrink-0 items-center gap-1'>
               <button
                 type='button'
@@ -167,9 +165,12 @@ export function HeaderWallet() {
                 )}
               </button>
             </div>
-          </div>
+          </PopoverHeader>
+          <strong className='font-public-sans text-popover-foreground mt-1 block text-3xl leading-tight font-semibold tracking-[-0.035em] wrap-anywhere tabular-nums'>
+            {balanceHidden ? '••••••' : (amount ?? t('Not available'))}
+          </strong>
           {updatedAt && (
-            <p className='text-muted-foreground mt-1 text-xs'>
+            <p className='text-muted-foreground mt-2 text-xs tabular-nums'>
               {t('Last updated')} {updatedAt}
             </p>
           )}
@@ -195,15 +196,15 @@ export function HeaderWallet() {
             className='text-foreground hover:bg-muted inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium transition-colors motion-reduce:transition-none'
           >
             {t('View wallet')}
-            <ArrowUpRight className='size-3.5' aria-hidden='true' />
+            <ArrowRight className='size-3.5' aria-hidden='true' />
           </Link>
           <Link
             to='/wallet'
             hash='wallet-recharge-heading'
-            className='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium shadow-sm transition-colors motion-reduce:transition-none'
+            className='bg-foreground text-background hover:bg-foreground/85 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium transition-colors motion-reduce:transition-none'
           >
+            <Plus className='size-3.5' aria-hidden='true' />
             {t('Go to recharge')}
-            <ArrowUpRight className='size-3.5 opacity-70' aria-hidden='true' />
           </Link>
         </div>
       </PopoverContent>
