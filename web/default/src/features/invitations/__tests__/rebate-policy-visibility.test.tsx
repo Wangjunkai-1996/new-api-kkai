@@ -215,6 +215,14 @@ test('shows the ordinary rate before the tabs and keeps all sharing available on
   expect(server.post).not.toHaveBeenCalled()
 })
 
+test('ordinary inviters can open their invited customers from the invitation page', async () => {
+  mockInvitations()
+  const { user } = await visit()
+  await user.click(await screen.findByRole('tab', { name: 'Invited Customers' }))
+  expect(await screen.findByText('No invited customers')).toBeVisible()
+  expect(screen.getByText('Overview')).toBeVisible()
+})
+
 test('keeps the rate and totals visible with an empty invitation code and no usable share actions', async () => {
   const server = mockInvitations()
   server.myCode.mockResolvedValue(

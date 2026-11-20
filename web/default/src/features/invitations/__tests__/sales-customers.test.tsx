@@ -100,7 +100,7 @@ test('uses authoritative customer totals and shows unknown historical amounts wi
   })
   render(
     <QueryClientProvider client={client}>
-      <SalesCustomers />
+      <SalesCustomers sales />
     </QueryClientProvider>
   )
   await screen.findByText('Sales Overview')

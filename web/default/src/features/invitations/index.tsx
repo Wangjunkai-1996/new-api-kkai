@@ -63,7 +63,6 @@ export const Invitations = () => {
   const requestedTab = (search.tab ??
     (feature.salesVisible ? 'customers' : 'invite')) as InvitationTab
   const activeTab =
-    (requestedTab === 'customers' && !feature.salesVisible) ||
     (requestedTab === 'records' && !feature.rebateRecordsVisible) ||
     (requestedTab === 'rebate' && !feature.rebateManagementVisible)
       ? 'invite'
@@ -147,12 +146,10 @@ export const Invitations = () => {
               <Gift aria-hidden='true' />
               {t('My Invitation')}
             </TabsTrigger>
-            {feature.salesVisible && (
-              <TabsTrigger value='customers'>
-                <Users aria-hidden='true' />
-                {t('Invited Customers')}
-              </TabsTrigger>
-            )}
+            <TabsTrigger value='customers'>
+              <Users aria-hidden='true' />
+              {t('Invited Customers')}
+            </TabsTrigger>
             {feature.rebateRecordsVisible && (
               <TabsTrigger value='records'>
                 <History aria-hidden='true' />
@@ -177,11 +174,9 @@ export const Invitations = () => {
               }
             />
           </TabsContent>
-          {feature.salesVisible && (
-            <TabsContent value='customers'>
-              <SalesCustomers />
-            </TabsContent>
-          )}
+          <TabsContent key={feature.userId} value='customers'>
+            <SalesCustomers sales={feature.salesVisible} />
+          </TabsContent>
           {feature.rebateRecordsVisible && (
             <TabsContent key={`records-${feature.userId}`} value='records'>
               <RebateRecords sales={feature.salesVisible} />

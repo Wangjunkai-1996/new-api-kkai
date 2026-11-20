@@ -47,7 +47,7 @@ import { SalesCustomerRecharges } from './sales-customer-recharges'
 
 const PAGE_SIZE = 20
 
-export const SalesCustomers = () => {
+export const SalesCustomers = (props: { sales: boolean }) => {
   const { t } = useTranslation()
   const userId = useAuthStore((state) => state.auth.user?.id)
   const [page, setPage] = useState(1)
@@ -81,7 +81,7 @@ export const SalesCustomers = () => {
     <div className='space-y-4'>
       <Card>
         <CardHeader>
-          <CardTitle>{t('Sales Overview')}</CardTitle>
+          <CardTitle>{props.sales ? t('Sales Overview') : t('Overview')}</CardTitle>
         </CardHeader>
         <CardContent className='space-y-4'>
           <dl className='grid grid-cols-2 gap-4 sm:grid-cols-3'>
