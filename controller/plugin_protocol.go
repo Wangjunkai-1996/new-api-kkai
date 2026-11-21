@@ -88,7 +88,7 @@ func defaultPluginProtocolBridgeDeps() pluginProtocolBridgeDeps {
 		getByTaskId:        model.GetByTaskId,
 		resolvePlugin:      resolveTaskPluginForProtocolRetrieve,
 		imagePollInterval:  taskPluginImagePollInterval,
-		pollTask:           pollTaskPluginImageTask,
+		pollTask:           service.PollTask,
 		downloadImage:      service.GetImageFromUrl,
 	}
 }

@@ -42,6 +42,7 @@ type TaskBillingRecoveryAcceptanceReceipt struct {
 	FinishTime       int64                        `json:"finish_time,omitempty"`
 	OtherRatios      map[string]float64           `json:"other_ratios,omitempty"`
 	TargetQuota      int                          `json:"target_quota"`
+	CredentialDigest string                       `json:"credential_digest,omitempty"`
 }
 
 type TaskBillingRecoveryHandler struct{}
@@ -80,10 +81,6 @@ func StoreTaskBillingRecoveryAcceptanceReceipt(ctx context.Context, taskID int64
 		if err := tx.Where("event_key = ? AND topic = ?", eventKey, KKAIOutboxTopicTaskBillingRecovery).First(&event).Error; err != nil {
 			return err
 		}
-		if event.LockedAt != 0 || event.LockedBy != "" {
-			return ErrKKAIOutboxLockLost
-		}
-
 		payload := TaskBillingRecoveryPayload{}
 		if err := common.UnmarshalJsonStr(event.Payload, &payload); err != nil {
 			return err
@@ -91,8 +88,32 @@ func StoreTaskBillingRecoveryAcceptanceReceipt(ctx context.Context, taskID int64
 		if payload.TaskID != taskID {
 			return model.ErrTaskBillingStateConflict
 		}
-		if payload.Acceptance != nil && payload.Acceptance.UpstreamTaskID != receipt.UpstreamTaskID {
-			return model.ErrTaskBillingStateConflict
+		if stored := payload.Acceptance; stored != nil {
+			// A valid receipt already owns the result, even if its historical
+			// payload lacks a digest. Never replace its status or charge.
+			err := model.ValidateTaskSubmissionReceiptTx(tx, taskID, model.TaskSubmissionAcceptance{
+				ChannelID: stored.ChannelID, UpstreamTaskID: stored.UpstreamTaskID, CredentialDigest: stored.CredentialDigest,
+			})
+			if err == nil {
+				if stored.UpstreamTaskID != receipt.UpstreamTaskID ||
+					stored.ChannelID > 0 && receipt.ChannelID > 0 && stored.ChannelID != receipt.ChannelID ||
+					stored.CredentialDigest != "" && receipt.CredentialDigest != "" && stored.CredentialDigest != receipt.CredentialDigest {
+					return model.ErrTaskBillingStateConflict
+				}
+				return nil
+			}
+			if !errors.Is(err, model.ErrTaskBillingStateConflict) {
+				return err
+			}
+		}
+		err := model.ValidateTaskSubmissionReceiptTx(tx, taskID, model.TaskSubmissionAcceptance{
+			UpstreamTaskID: receipt.UpstreamTaskID, ChannelID: receipt.ChannelID, CredentialDigest: receipt.CredentialDigest,
+		})
+		if err != nil {
+			return err
+		}
+		if event.LockedAt != 0 || event.LockedBy != "" {
+			return ErrKKAIOutboxLockLost
 		}
 		receipt.RawResponse = append(json.RawMessage(nil), receipt.RawResponse...)
 		payload.Acceptance = &receipt
@@ -151,8 +172,12 @@ func (TaskBillingRecoveryHandler) Handle(ctx context.Context, event model.KKAIOu
 			FinishTime:       receipt.FinishTime,
 			OtherRatios:      receipt.OtherRatios,
 			TargetQuota:      receipt.TargetQuota,
+			CredentialDigest: receipt.CredentialDigest,
 		})
 		if err != nil {
+			if errors.Is(err, model.ErrTaskBillingStateConflict) {
+				return PermanentKKAIOutboxError(err)
+			}
 			return err
 		}
 		if recoveredTask != nil {
@@ -171,9 +196,9 @@ func (TaskBillingRecoveryHandler) Handle(ctx context.Context, event model.KKAIOu
 	if task.PrivateData.TargetQuota != nil &&
 		(task.PrivateData.BillingState == model.TaskBillingStateAccepted || task.PrivateData.BillingState == model.TaskBillingStateAmbiguous) &&
 		task.Status != model.TaskStatusFailure {
-		RecalculateTaskQuota(ctx, &task, *task.PrivateData.TargetQuota, "submission settlement recovery")
+		RecalculateTaskQuota(ctx, &task, *task.PrivateData.TargetQuota, "task settlement recovery")
 		if task.PrivateData.TargetQuota != nil {
-			return DeferKKAIOutboxUntil(time.Now().Add(taskBillingRecoveryPollInterval), errors.New("task submission settlement is still pending"))
+			return DeferKKAIOutboxUntil(time.Now().Add(taskBillingRecoveryPollInterval), errors.New("task settlement is still pending"))
 		}
 	}
 

@@ -115,6 +115,8 @@ export interface MembershipOrder {
   account_id?: number
   created_at: number
   paid_at?: number
+  resolved_at?: number
+  can_retry_activation?: boolean
   checkout_state?: 'creating' | 'ready'
   can_check_payment?: boolean
   payment_state?: 'checking' | 'processing' | 'review'

@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -83,17 +87,13 @@ export function MembershipOrders(props: { admin?: boolean }) {
   const client = useQueryClient()
   const previous = useRef<string | null>(null)
   const [reviewing, setReviewing] = useState<MembershipOrder | null>(null)
+  const [adminView, setAdminView] = useState<'recent' | 'exceptions'>('recent')
+  const status =
+    props.admin && adminView === 'exceptions' ? 'paid_exception' : undefined
   const check = useMutation({
     mutationFn: (tradeNo: string) =>
       checkMembershipPayment(tradeNo, !!props.admin),
-    onSuccess: (updatedOrder) => {
-      client.setQueryData<MembershipOrder[]>(
-        ['membership', userId, 'orders', !!props.admin],
-        (current) =>
-          current?.map((order) =>
-            order.id === updatedOrder.id ? updatedOrder : order
-          )
-      )
+    onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['membership', userId] })
       toast.success(
         t('Payment check requested. Confirmation will update automatically.')
@@ -108,15 +108,46 @@ export function MembershipOrders(props: { admin?: boolean }) {
     },
     onError: (error) => handleServerError(error, t('Payment request failed')),
   })
-  const orders = useQuery({
-    queryKey: ['membership', userId, 'orders', !!props.admin],
-    queryFn: () => getMembershipOrders(!!props.admin),
+  const queryKey = [
+    'membership',
+    userId,
+    'orders',
+    !!props.admin,
+    status ?? 'recent',
+  ]
+  const orders = useInfiniteQuery({
+    queryKey,
+    initialPageParam: undefined as number | undefined,
+    queryFn: async ({ pageParam }) => {
+      if (!props.admin) return getMembershipOrders(false)
+      const page = await getMembershipOrders(true, status, pageParam)
+      let previousId = pageParam ?? Infinity
+      for (const order of page) {
+        if (
+          !Number.isSafeInteger(order.id) ||
+          order.id <= 0 ||
+          order.id >= previousId
+        ) {
+          return null
+        }
+        previousId = order.id
+      }
+      return page
+    },
+    getNextPageParam: (lastPage) =>
+      props.admin && lastPage?.length === 50 ? lastPage.at(-1)?.id : undefined,
     refetchInterval: (query) =>
-      query.state.data?.some(isMembershipOrderPending) ? 5000 : false,
+      query.state.data?.pages.some((page) =>
+        page?.some(isMembershipOrderPending)
+      )
+        ? 5000
+        : false,
     refetchIntervalInBackground: false,
   })
-  const states = orders.data
-    ?.map((order) => `${order.id}:${order.status}`)
+  const orderList = orders.data?.pages.flatMap((page) => page ?? []) ?? []
+  const hasInvalidPage = orders.data?.pages.at(-1) === null
+  const states = orderList
+    .map((order) => `${order.id}:${order.status}`)
     .join(',')
   useEffect(() => {
     if (!states) return
@@ -140,27 +171,77 @@ export function MembershipOrders(props: { admin?: boolean }) {
         <Button
           variant='outline'
           size='sm'
-          onClick={() => void orders.refetch()}
+          onClick={() => void client.resetQueries({ queryKey, exact: true })}
           disabled={orders.isFetching}
         >
           {t('Refresh')}
         </Button>
       </div>
+      {props.admin && (
+        <div
+          className='flex gap-2'
+          role='group'
+          aria-label={t('Membership orders')}
+        >
+          <Button
+            type='button'
+            size='sm'
+            variant={adminView === 'recent' ? 'default' : 'outline'}
+            aria-pressed={adminView === 'recent'}
+            onClick={() => setAdminView('recent')}
+          >
+            {t('Recent')}
+          </Button>
+          <Button
+            type='button'
+            size='sm'
+            variant={adminView === 'exceptions' ? 'default' : 'outline'}
+            aria-pressed={adminView === 'exceptions'}
+            onClick={() => setAdminView('exceptions')}
+          >
+            {t('Payment exceptions')}
+          </Button>
+        </div>
+      )}
       {orders.isPending && <Skeleton className='h-24 w-full' />}
-      {orders.isError && (
+      {hasInvalidPage && (
         <Alert variant='destructive'>
           <AlertDescription>
-            {t('Could not load membership orders.')}
+            {t('Pagination')}: {t('Unavailable')}
           </AlertDescription>
         </Alert>
       )}
-      {!orders.isPending && !orders.isError && !orders.data?.length && (
-        <p className='text-muted-foreground rounded-xl border p-5 text-sm'>
-          {t('No membership orders yet.')}
-        </p>
+      {orders.isError && (
+        <Alert variant='destructive'>
+          <AlertDescription>
+            <div className='flex items-center justify-between gap-3'>
+              <span>{t('Could not load membership orders.')}</span>
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={() =>
+                  void (orders.isFetchNextPageError
+                    ? orders.fetchNextPage()
+                    : orders.refetch())
+                }
+                disabled={orders.isFetching}
+              >
+                {t('Retry')}
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
       )}
+      {!orders.isPending &&
+        !orders.isError &&
+        !hasInvalidPage &&
+        !orderList.length && (
+          <p className='text-muted-foreground rounded-xl border p-5 text-sm'>
+            {status ? t('No orders found') : t('No membership orders yet.')}
+          </p>
+        )}
       <div className='space-y-3'>
-        {orders.data?.map((order) => (
+        {orderList.map((order) => (
           <article key={order.id} className='bg-card rounded-xl border p-4'>
             <div className='flex flex-wrap items-center justify-between gap-3'>
               <div>
@@ -277,6 +358,15 @@ export function MembershipOrders(props: { admin?: boolean }) {
           </article>
         ))}
       </div>
+      {props.admin && orders.hasNextPage && !orders.isFetchNextPageError && (
+        <Button
+          variant='outline'
+          onClick={() => void orders.fetchNextPage()}
+          disabled={orders.isFetching}
+        >
+          {orders.isFetchingNextPage ? t('Loading...') : t('Load more')}
+        </Button>
+      )}
       {reviewing && (
         <ResolveMembershipOrderDialog
           key={reviewing.id}

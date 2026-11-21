@@ -49,10 +49,18 @@ export async function getMembershipSelf(): Promise<MembershipSelf> {
 }
 
 export async function getMembershipOrders(
-  admin = false
+  admin = false,
+  status?: 'paid_exception',
+  beforeId?: number
 ): Promise<MembershipOrder[]> {
   const path = admin ? '/api/membership/admin/orders' : '/api/membership/orders'
-  const response = await api.get<MembershipResponse<MembershipOrder[]>>(path)
+  // A refresh after a payment update must not join a pre-update HTTP request.
+  const response = admin
+    ? await api.get<MembershipResponse<MembershipOrder[]>>(path, {
+        params: { status, before_id: beforeId },
+        disableDuplicate: true,
+      })
+    : await api.get<MembershipResponse<MembershipOrder[]>>(path)
   return requireServerSuccess(response.data).data
 }
 

@@ -385,62 +385,57 @@ func recalculateDurableTaskQuota(ctx context.Context, task *model.Task, actualQu
 	}
 }
 
-// RecalculateTaskQuotaByTokens 根据实际 token 消耗重新计费（异步差额结算）。
-// 当任务成功且返回了 totalTokens 时，根据模型倍率和分组倍率重新计算实际扣费额度，
-// 与预扣费的差额进行补扣或退还。支持钱包和订阅计费来源。
-func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTokens int) {
-	if totalTokens <= 0 {
-		return
+func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, tokens int) {
+	if charge := assessTaskQuotaByTokens(task, tokens); charge != nil {
+		RecalculateTaskQuota(ctx, task, charge.Quota, charge.Reason, charge.Clamp)
 	}
-
-	billingContext := task.PrivateData.BillingContext
-	if billingContext == nil || billingContext.ModelRatio <= 0 || billingContext.GroupRatio <= 0 {
-		return
-	}
-
-	// 计算 OtherRatios 乘积（视频折扣等）。seconds 是视频按秒固定价
-	// 的预扣倍率；按 token 结算时，totalTokens 已包含时长，不能重复相乘。
-	otherMultiplier := 1.0
-	if priceData := taskBillingContextPriceData(billingContext); priceData != nil {
-		for key, ratio := range priceData.OtherRatios() {
-			if key != "seconds" && ratio != 1 {
-				otherMultiplier *= ratio
-			}
-		}
-	}
-
-	// 计算实际应扣费额度: totalTokens * modelRatio * groupRatio * otherMultiplier（饱和转换，防止溢出成负数）
-	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * billingContext.ModelRatio * billingContext.GroupRatio * otherMultiplier)
-
-	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, billingContext.ModelRatio, billingContext.GroupRatio, otherMultiplier)
-	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
 }
 
-// RecalculateTaskQuotaBySeconds settles legacy fixed-price video tasks from
-// the completed duration. The frozen OtherRatios keep the request's pricing
-// modifiers (for example reference-video discounts), while seconds comes
-// from the completion usage facts.
-func RecalculateTaskQuotaBySeconds(ctx context.Context, task *model.Task, seconds float64) {
-	if task == nil || seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds > relaycommon.MaxTaskDurationSeconds {
-		return
+func assessTaskQuotaByTokens(task *model.Task, tokens int) *model.TaskCompletionCharge {
+	if task == nil || tokens <= 0 {
+		return nil
 	}
-	billingContext := task.PrivateData.BillingContext
-	if billingContext == nil || billingContext.ModelPrice <= 0 || billingContext.GroupRatio <= 0 {
-		return
+	bc := task.PrivateData.BillingContext
+	if bc == nil || bc.ModelRatio <= 0 || bc.GroupRatio <= 0 {
+		return nil
 	}
+	multiplier := taskCompletionMultiplier(bc)
+	quota, clamp := common.QuotaFromFloatChecked(float64(tokens) * bc.ModelRatio * bc.GroupRatio * multiplier)
+	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", tokens, bc.ModelRatio, bc.GroupRatio, multiplier)
+	return &model.TaskCompletionCharge{Quota: quota, Clamp: clamp, Reason: reason}
+}
 
-	otherMultiplier := 1.0
-	if priceData := taskBillingContextPriceData(billingContext); priceData != nil {
-		for key, ratio := range priceData.OtherRatios() {
-			if key != "seconds" && ratio != 1 {
-				otherMultiplier *= ratio
+func RecalculateTaskQuotaBySeconds(ctx context.Context, task *model.Task, seconds float64) {
+	if charge := assessTaskQuotaBySeconds(task, seconds); charge != nil {
+		RecalculateTaskQuota(ctx, task, charge.Quota, charge.Reason, charge.Clamp)
+	}
+}
+
+func assessTaskQuotaBySeconds(task *model.Task, seconds float64) *model.TaskCompletionCharge {
+	if task == nil || seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds > relaycommon.MaxTaskDurationSeconds {
+		return nil
+	}
+	bc := task.PrivateData.BillingContext
+	if bc == nil || bc.ModelPrice <= 0 || bc.GroupRatio <= 0 {
+		return nil
+	}
+	multiplier := taskCompletionMultiplier(bc)
+	quota, clamp := common.QuotaFromFloatChecked(seconds * bc.ModelPrice * bc.GroupRatio * multiplier * common.QuotaPerUnit)
+	reason := fmt.Sprintf("视频按秒结算：seconds=%.2f, modelPrice=%.6f, groupRatio=%.4f, otherMultiplier=%.4f", seconds, bc.ModelPrice, bc.GroupRatio, multiplier)
+	return &model.TaskCompletionCharge{Quota: quota, Clamp: clamp, Reason: reason}
+}
+
+// The completion's duration or tokens already include the time dimension.
+func taskCompletionMultiplier(bc *model.TaskBillingContext) float64 {
+	multiplier := 1.0
+	if price := taskBillingContextPriceData(bc); price != nil {
+		for key, ratio := range price.OtherRatios() {
+			if key != "seconds" {
+				multiplier *= ratio
 			}
 		}
 	}
-
-	actualQuota, clamp := common.QuotaFromFloatChecked(seconds * billingContext.ModelPrice * billingContext.GroupRatio * otherMultiplier * common.QuotaPerUnit)
-	reason := fmt.Sprintf("视频按秒结算：seconds=%.2f, modelPrice=%.6f, groupRatio=%.4f, otherMultiplier=%.4f", seconds, billingContext.ModelPrice, billingContext.GroupRatio, otherMultiplier)
-	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+	return multiplier
 }
 
 // EvaluateTaskCompletionUsage evaluates actual facts against the frozen task

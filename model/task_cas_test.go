@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -529,6 +530,129 @@ func TestPersistTaskSubmissionAcceptanceKeepsRequestPolicy(t *testing.T) {
 	assert.JSONEq(t, string(audit), string(reloaded.PrivateData.RequestPolicy))
 	assert.Equal(t, 100, reloaded.Quota, "audit persistence does not change the accepted charge")
 	assert.Equal(t, TaskBillingStateAccepted, reloaded.PrivateData.BillingState)
+}
+
+func TestPersistTaskSubmissionAcceptanceRejectsDispatchingCredentialMismatch(t *testing.T) {
+	truncateTables(t)
+	task := &Task{
+		TaskID:    "task_dispatching_credential_guard",
+		Status:    TaskStatusSubmitted,
+		ChannelId: 2,
+		Quota:     100,
+		PrivateData: TaskPrivateData{
+			BillingState:     TaskBillingStateDispatching,
+			UpstreamTaskID:   "upstream-dispatching",
+			CredentialDigest: CredentialDigest("old-credential"),
+		},
+		Data: json.RawMessage(`{}`),
+	}
+	insertTask(t, task)
+
+	updated, accepted, err := PersistTaskSubmissionAcceptance(nil, task.ID, TaskSubmissionAcceptance{
+		UpstreamTaskID:   "upstream-dispatching",
+		ChannelID:        2,
+		CredentialDigest: CredentialDigest("new-credential"),
+		Status:           TaskStatusSubmitted,
+		TargetQuota:      100,
+	})
+	require.ErrorIs(t, err, ErrTaskBillingStateConflict)
+	require.False(t, accepted)
+	require.NotNil(t, updated)
+	assert.Equal(t, TaskBillingStateDispatching, updated.PrivateData.BillingState)
+	assert.Equal(t, CredentialDigest("old-credential"), updated.PrivateData.CredentialDigest)
+}
+
+func TestTaskAcceptanceBindsUnconfirmedReceiptToClaim(t *testing.T) {
+	digest := CredentialDigest("winning-key")
+	for _, path := range []struct {
+		name, state string
+		recover     bool
+	}{
+		{"direct", TaskBillingStateDispatching, false},
+		{"recover dispatching", TaskBillingStateDispatching, true},
+		{"recover ambiguous", TaskBillingStateAmbiguous, true},
+		{"recover closed unknown", TaskBillingStateCompleted, true},
+	} {
+		t.Run(path.name, func(t *testing.T) {
+			truncateTables(t)
+			task := &Task{TaskID: "local", Status: TaskStatusUnknown, ChannelId: 7, Quota: 80,
+				PrivateData: TaskPrivateData{BillingState: path.state, CredentialDigest: digest}}
+			insertTask(t, task)
+			accept := PersistTaskSubmissionAcceptance
+			if path.recover {
+				accept = RecoverTaskSubmissionAcceptance
+			}
+			for _, bad := range []TaskSubmissionAcceptance{
+				{ChannelID: 8, CredentialDigest: digest}, {ChannelID: 7, CredentialDigest: CredentialDigest("other-key")},
+				{ChannelID: 7}, {CredentialDigest: digest},
+			} {
+				bad.UpstreamTaskID, bad.Status = "shared-id", TaskStatusFailure
+				_, applied, err := accept(t.Context(), task.ID, bad)
+				require.ErrorIs(t, err, ErrTaskBillingStateConflict)
+				require.False(t, applied)
+			}
+			var stored Task
+			require.NoError(t, DB.First(&stored, task.ID).Error)
+			assert.Equal(t, 7, stored.ChannelId)
+			assert.Equal(t, path.state, stored.PrivateData.BillingState)
+			assert.Equal(t, 80, stored.Quota)
+			assert.Empty(t, stored.PrivateData.UpstreamTaskID)
+			assert.Equal(t, digest, stored.PrivateData.CredentialDigest)
+			good := TaskSubmissionAcceptance{ChannelID: 7, CredentialDigest: digest, UpstreamTaskID: "shared-id", Status: TaskStatusSubmitted, TargetQuota: 80}
+			row, applied, err := accept(t.Context(), task.ID, good)
+			require.NoError(t, err)
+			require.True(t, applied)
+			assert.EqualValues(t, TaskStatusSubmitted, row.Status)
+			// A pre-digest replay may acknowledge the accepted row, but must
+			// not replace the committed status, result or target.
+			good.CredentialDigest, good.Status, good.TargetQuota = "", TaskStatusUnknown, 0
+			row, applied, err = accept(t.Context(), task.ID, good)
+			require.NoError(t, err)
+			require.True(t, applied)
+			assert.EqualValues(t, TaskStatusSubmitted, row.Status)
+			require.NotNil(t, row.PrivateData.TargetQuota)
+			assert.Equal(t, 80, *row.PrivateData.TargetQuota)
+		})
+	}
+}
+
+func TestTaskAcceptanceRecoversLegacyReceiptWithoutDigest(t *testing.T) {
+	truncateTables(t)
+	task := &Task{TaskID: "legacy", Status: TaskStatusUnknown, ChannelId: 7,
+		PrivateData: TaskPrivateData{BillingState: TaskBillingStateAmbiguous, Key: "legacy-key"}}
+	insertTask(t, task)
+	receipt := TaskSubmissionAcceptance{ChannelID: 7, UpstreamTaskID: "job", Status: TaskStatusSubmitted, CredentialDigest: CredentialDigest("other-key")}
+	_, applied, err := RecoverTaskSubmissionAcceptance(t.Context(), task.ID, receipt)
+	require.ErrorIs(t, err, ErrTaskBillingStateConflict)
+	require.False(t, applied)
+	receipt.CredentialDigest = ""
+	row, applied, err := RecoverTaskSubmissionAcceptance(t.Context(), task.ID, receipt)
+	require.NoError(t, err)
+	require.True(t, applied)
+	assert.Equal(t, "legacy-key", row.PrivateData.Key)
+	assert.Equal(t, "job", row.PrivateData.UpstreamTaskID)
+}
+
+func TestTaskClaimReplacesCredentialsAcrossRetries(t *testing.T) {
+	truncateTables(t)
+	task := &Task{TaskID: "retry", PrivateData: TaskPrivateData{BillingState: TaskBillingStateReserved}}
+	insertTask(t, task)
+	for _, attempt := range []TaskSubmissionAttempt{
+		{ChannelID: 7, ChannelType: constant.ChannelTypeGemini, Credential: "original"},
+		{ChannelID: 8, ChannelType: constant.ChannelTypeOpenAI, Credential: "next"},
+		{ChannelID: 8, ChannelType: constant.ChannelTypeOpenAI},
+	} {
+		row, applied, err := ClaimTaskSubmission(t.Context(), task.ID, &attempt)
+		require.NoError(t, err)
+		require.True(t, applied)
+		assert.Equal(t, CredentialDigest(attempt.Credential), row.PrivateData.CredentialDigest)
+		if attempt.ChannelType == constant.ChannelTypeGemini {
+			assert.Equal(t, attempt.Credential, row.PrivateData.Key)
+		} else {
+			assert.Empty(t, row.PrivateData.Key)
+		}
+		require.NoError(t, ResetTaskSubmissionClaim(t.Context(), row))
+	}
 }
 
 func TestTaskSubmissionInlineFactSurvivesPersistenceWithoutPollingInference(t *testing.T) {

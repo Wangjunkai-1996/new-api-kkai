@@ -58,7 +58,7 @@ describe('invitation API response validation', () => {
 
   it('applies a caller-provided item contract', () => {
     expect(() =>
-      requireInvitationPage(
+      requireInvitationPage<unknown>(
         {
           success: true,
           data: { items: [{}], total: 1, page: 1, pageSize: 10 },

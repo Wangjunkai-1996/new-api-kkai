@@ -1,7 +1,9 @@
 package openai
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -162,6 +164,64 @@ func TestOpenaiImageStreamHandlerUsesCompletedEventCount(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 7, usage.TotalTokens)
 	require.Equal(t, 2.0, info.PriceData.OtherRatios()["n"])
+}
+
+func TestOpenaiImageOverdeliveryObservation(t *testing.T) {
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	const image = `{"url":"https://image.invalid/signed-secret"}`
+	const completed = `data: {"type":"image_generation.completed","url":"https://image.invalid/signed-secret"}` + "\n\n"
+	for _, tc := range []struct {
+		name, source, contentType string
+		handler                   imagePolicyHandler
+		count, settled            int
+	}{
+		{"json", "json_payload", "application/json", OpenaiImageHandler, 2, 2},
+		{"json over maximum", "json_payload", "application/json", OpenaiImageHandler, dto.MaxImageN + 1, 1},
+		{"json converted to stream", "json_payload", "application/json", OpenaiImageStreamHandler, 2, 2},
+		{"completion events", "sse_completed_event", "text/event-stream", OpenaiImageStreamHandler, 2, 2},
+		{"bridge", "sse_json_bridge_payload", "text/event-stream", OpenaiImageJSONBridgeHandler, 2, 2},
+		{"bridge over maximum", "sse_json_bridge_payload", "text/event-stream", OpenaiImageJSONBridgeHandler, dto.MaxImageN + 1, dto.MaxImageN},
+		{"requested count", "json_payload", "application/json", OpenaiImageHandler, 1, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"data":[` + strings.Repeat(image+",", tc.count-1) + image + `]}`
+			if tc.contentType == "text/event-stream" {
+				body = strings.Repeat(completed, tc.count) + "data: [DONE]\n\n"
+			}
+			c, recorder, resp, info := newImageTestContext(t, body, tc.contentType, true)
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), common.RequestIdKey, "req-observation"))
+			info.ChannelId = 42
+			info.ImageRequestCount = 1
+			info.PriceData.UsePrice = true
+			info.PriceData.AddOtherRatio("n", 1)
+			var logs bytes.Buffer
+			common.LogWriterMu.Lock()
+			oldWriter := gin.DefaultErrorWriter
+			gin.DefaultErrorWriter = &logs
+			common.LogWriterMu.Unlock()
+			t.Cleanup(func() {
+				common.LogWriterMu.Lock()
+				gin.DefaultErrorWriter = oldWriter
+				common.LogWriterMu.Unlock()
+			})
+			_, apiErr := tc.handler(c, info, resp)
+			require.Nil(t, apiErr)
+			assert.Equal(t, http.StatusOK, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), "signed-secret")
+			assert.Equal(t, float64(tc.settled), info.PriceData.OtherRatios()["n"])
+			if tc.count == 1 {
+				assert.NotContains(t, logs.String(), "overdelivery")
+				return
+			}
+			assert.Equal(t, 1, strings.Count(logs.String(), "output overdelivery"))
+			assert.Contains(t, logs.String(), "req-observation")
+			assert.Contains(t, logs.String(), fmt.Sprintf("channel_id=42 source=%s requested=1 observed=%d", tc.source, tc.count))
+			assert.NotContains(t, logs.String(), "signed-secret")
+		})
+	}
 }
 
 // blockingBody serves one SSE chunk, then blocks until Close (the scanner's

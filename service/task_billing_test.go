@@ -1464,7 +1464,7 @@ func TestClaimTaskSubmissionAllowsOnlyOneConcurrentDispatcher(t *testing.T) {
 	require.NoError(t, <-errorsCh)
 	assert.NotEqual(t, firstClaim, secondClaim)
 
-	require.NoError(t, model.ResetTaskSubmissionClaim(context.Background(), task.ID))
+	require.NoError(t, model.ResetTaskSubmissionClaim(context.Background(), task))
 	_, claimed, err := model.ClaimTaskSubmission(context.Background(), task.ID, nil)
 	require.NoError(t, err)
 	assert.True(t, claimed)

@@ -484,6 +484,8 @@ func submitPreparedTask(c *gin.Context, info *relaycommon.RelayInfo, adaptor cha
 		UpstreamModelName: info.UpstreamModelName,
 		Execution:         task.PrivateData.Execution,
 		TieredSnapshot:    info.TieredBillingSnapshot,
+		ChannelType:       info.ChannelType,
+		Credential:        info.ApiKey,
 	})
 	if err != nil {
 		return result, service.TaskErrorWrapperLocal(err, "claim_task_submission_failed", http.StatusInternalServerError)
@@ -595,15 +597,16 @@ func submitPreparedTask(c *gin.Context, info *relaycommon.RelayInfo, adaptor cha
 	info.PriceData.Quota = finalQuota
 
 	acceptance := model.TaskSubmissionAcceptance{
-		UpstreamTaskID: response.UpstreamTaskID,
-		TaskData:       response.TaskData,
-		ChannelID:      info.ChannelId,
-		Status:         model.TaskStatusSubmitted,
-		Progress:       taskcommon.ProgressSubmitted,
-		OtherRatios:    info.PriceData.OtherRatios(),
-		TargetQuota:    finalQuota,
-		PluginState:    response.PluginState,
-		TieredSnapshot: info.TieredBillingSnapshot,
+		UpstreamTaskID:   response.UpstreamTaskID,
+		TaskData:         response.TaskData,
+		ChannelID:        info.ChannelId,
+		Status:           model.TaskStatusSubmitted,
+		Progress:         taskcommon.ProgressSubmitted,
+		OtherRatios:      info.PriceData.OtherRatios(),
+		TargetQuota:      finalQuota,
+		CredentialDigest: model.CredentialDigest(info.ApiKey),
+		PluginState:      response.PluginState,
+		TieredSnapshot:   info.TieredBillingSnapshot,
 	}
 	if immediate := response.Immediate; immediate != nil {
 		acceptance.Status = model.TaskStatus(immediate.Status)
@@ -670,21 +673,30 @@ func submitPreparedTask(c *gin.Context, info *relaycommon.RelayInfo, adaptor cha
 	}
 
 	acceptedTask, accepted, err := model.PersistTaskSubmissionAcceptance(c, task.ID, acceptance)
-	if acceptedTask != nil {
+	if err == nil && acceptedTask != nil {
 		task = acceptedTask
 		result.Task = task
 	}
 	if err != nil {
 		result.Response = response
 		result.Quota = finalQuota
-		receiptStored := persistAcceptedTaskRecoveryReceipt(task, acceptance)
-		if !recoverAcceptedTaskPersistence(task, acceptance, fmt.Errorf("persist accepted task: %w", err)) {
-			if !receiptStored {
+		result.Outcome = TaskSubmitUnknown
+		if errors.Is(err, model.ErrTaskBillingStateConflict) {
+			return result, taskSubmissionUnknownError(task.TaskID)
+		}
+		receiptErr := persistAcceptedTaskRecoveryReceipt(task, acceptance)
+		if errors.Is(receiptErr, model.ErrTaskBillingStateConflict) {
+			return result, taskSubmissionUnknownError(task.TaskID)
+		}
+		if err = recoverAcceptedTaskPersistence(task, acceptance, err); err != nil {
+			if errors.Is(err, model.ErrTaskBillingStateConflict) {
+				return result, taskSubmissionUnknownError(task.TaskID)
+			}
+			if receiptErr != nil {
 				common.SysError(fmt.Sprintf("accepted task %s lost both task persistence and recovery receipt; manual reconciliation required for upstream task %s", task.TaskID, acceptance.UpstreamTaskID))
 			}
-			result.Outcome = TaskSubmitUnknown
 			task.PrivateData.TargetQuota = quotaPointer(finalQuota)
-			return result, markTaskSubmissionUnknown(task, errors.New("accepted task persistence retries exhausted"))
+			return result, markTaskSubmissionUnknown(task, err)
 		}
 		accepted = true
 	}
@@ -852,8 +864,10 @@ func markTaskSubmissionUnknown(task *model.Task, cause error) *dto.TaskError {
 	}
 	common.SysError(fmt.Sprintf("task %s submission outcome unknown: %v", task.TaskID, cause))
 	markedTask, marked, err := model.MarkTaskSubmissionAmbiguous(context.Background(), task.ID, model.TaskSubmissionAmbiguity{
-		Reason:      "task submission outcome is unknown",
-		TargetQuota: task.PrivateData.TargetQuota,
+		Reason:           "task submission outcome is unknown",
+		TargetQuota:      task.PrivateData.TargetQuota,
+		ChannelID:        task.ChannelId,
+		CredentialDigest: task.PrivateData.CredentialDigest,
 	})
 	if markedTask != nil {
 		*task = *markedTask
@@ -866,10 +880,7 @@ func markTaskSubmissionUnknown(task *model.Task, cause error) *dto.TaskError {
 	return taskSubmissionUnknownError(task.TaskID)
 }
 
-func recoverAcceptedTaskPersistence(task *model.Task, acceptance model.TaskSubmissionAcceptance, cause error) bool {
-	if cause == nil {
-		cause = errors.New("accepted task persistence outcome is unknown")
-	}
+func recoverAcceptedTaskPersistence(task *model.Task, acceptance model.TaskSubmissionAcceptance, cause error) error {
 	common.SysError(fmt.Sprintf("accepted task %s persistence outcome unknown: %v", task.TaskID, cause))
 	const maxAttempts = 4
 	retryCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -882,29 +893,28 @@ func recoverAcceptedTaskPersistence(task *model.Task, acceptance model.TaskSubmi
 			case <-retryCtx.Done():
 				timer.Stop()
 				common.SysError(fmt.Sprintf("persist recoverable accepted task %s timed out: %v", task.TaskID, retryCtx.Err()))
-				return false
+				return retryCtx.Err()
 			case <-timer.C:
 			}
 		}
 		persisted, accepted, err := model.PersistTaskSubmissionAcceptance(retryCtx, task.ID, acceptance)
-		if persisted != nil {
-			*task = *persisted
-		}
 		if err == nil && accepted {
-			return true
+			*task = *persisted
+			return nil
 		}
-		if err == nil {
+		if err == nil || errors.Is(err, model.ErrTaskBillingStateConflict) {
 			common.SysError(fmt.Sprintf("persist recoverable accepted task %s skipped because task state changed", task.TaskID))
-			return false
+			return model.ErrTaskBillingStateConflict
 		}
+		cause = err
 		common.SysError(fmt.Sprintf("persist recoverable accepted task %s attempt %d/%d failed: %v", task.TaskID, attempt+1, maxAttempts, err))
 	}
-	return false
+	return cause
 }
 
-func persistAcceptedTaskRecoveryReceipt(task *model.Task, acceptance model.TaskSubmissionAcceptance) bool {
+func persistAcceptedTaskRecoveryReceipt(task *model.Task, acceptance model.TaskSubmissionAcceptance) error {
 	if task == nil || task.ID <= 0 {
-		return false
+		return model.ErrTaskBillingInvalidRequest
 	}
 	if acceptance.ResultDiscarded {
 		acceptance.TaskData = nil
@@ -927,11 +937,13 @@ func persistAcceptedTaskRecoveryReceipt(task *model.Task, acceptance model.TaskS
 		FinishTime:       acceptance.FinishTime,
 		OtherRatios:      acceptance.OtherRatios,
 		TargetQuota:      acceptance.TargetQuota,
+		CredentialDigest: acceptance.CredentialDigest,
 	}
 
 	const maxAttempts = 4
 	retryCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+	var err error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			delay := time.Duration(25*(1<<(attempt-1))) * time.Millisecond
@@ -940,24 +952,24 @@ func persistAcceptedTaskRecoveryReceipt(task *model.Task, acceptance model.TaskS
 			case <-retryCtx.Done():
 				timer.Stop()
 				common.SysError(fmt.Sprintf("persist accepted task recovery receipt %s timed out: %v", task.TaskID, retryCtx.Err()))
-				return false
+				return retryCtx.Err()
 			case <-timer.C:
 			}
 		}
-		if err := service.StoreTaskBillingRecoveryAcceptanceReceipt(retryCtx, task.ID, receipt); err == nil {
-			return true
-		} else {
-			common.SysError(fmt.Sprintf("persist accepted task recovery receipt %s attempt %d/%d failed: %v", task.TaskID, attempt+1, maxAttempts, err))
+		err = service.StoreTaskBillingRecoveryAcceptanceReceipt(retryCtx, task.ID, receipt)
+		if err == nil || errors.Is(err, model.ErrTaskBillingStateConflict) {
+			return err
 		}
+		common.SysError(fmt.Sprintf("persist accepted task recovery receipt %s attempt %d/%d failed: %v", task.TaskID, attempt+1, maxAttempts, err))
 	}
-	return false
+	return err
 }
 
 func resetTaskSubmissionClaim(task *model.Task) error {
 	if task == nil || task.ID <= 0 {
 		return model.ErrTaskBillingInvalidRequest
 	}
-	if err := model.ResetTaskSubmissionClaim(context.Background(), task.ID); err != nil {
+	if err := model.ResetTaskSubmissionClaim(context.Background(), task); err != nil {
 		common.SysError(fmt.Sprintf("reset task submission claim %s failed: %v", task.TaskID, err))
 		return err
 	}
@@ -1120,7 +1132,7 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 	// Gemini/Vertex support an immediate status refresh. Asset-hosted tasks may
 	// persist the provider result for the archive worker, but the response below
 	// remains redacted.
-	if realtimeResp := tryRealtimeFetch(originTask, isOpenAIVideoAPI); len(realtimeResp) > 0 {
+	if realtimeResp := tryRealtimeFetch(c.Request.Context(), originTask, isOpenAIVideoAPI); len(realtimeResp) > 0 {
 		respBody = realtimeResp
 		return
 	}
@@ -1173,7 +1185,7 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 // tryRealtimeFetch 尝试从上游实时拉取 Gemini/Vertex 任务状态。
 // 仅当渠道类型为 Gemini 或 Vertex 时触发；其他渠道或出错时返回 nil。
 // 当非 OpenAI Video API 时，还会构建自定义格式的响应体。
-func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
+func tryRealtimeFetch(ctx context.Context, task *model.Task, isOpenAIVideoAPI bool) []byte {
 	if task == nil {
 		return nil
 	}
@@ -1187,94 +1199,26 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 	if channelModel.Type != constant.ChannelTypeVertexAi && channelModel.Type != constant.ChannelTypeGemini {
 		return nil
 	}
-	if task.IsAssetHostedResult() {
-		if service.GetTaskAdaptorFunc == nil {
+	// One provider query owns the status transition and billing, including
+	// when a background worker finishes while this request is in flight.
+	if task.Status != model.TaskStatusSuccess && task.Status != model.TaskStatusFailure {
+		pollErr := service.PollTask(ctx, task)
+		if ctx.Err() != nil {
 			return nil
 		}
-		// The poller owns terminal billing and archive-source persistence.
-		// Refresh once, then return through the caller's redacted projection.
-		upstreamID := task.GetUpstreamTaskID()
-		if err := service.UpdateVideoTasks(context.Background(), task.Platform,
-			map[int][]string{task.ChannelId: {upstreamID}}, map[string]*model.Task{upstreamID: task}); err != nil {
+		refreshed, exists, err := model.GetTaskForProtocolObservation(ctx, task.UserId, task.Platform, task.TaskID)
+		if err != nil || !exists || refreshed.ID != task.ID || refreshed.ChannelId != task.ChannelId {
 			return nil
 		}
-		if refreshed, exists, err := model.GetByTaskId(task.UserId, task.TaskID); err == nil && exists {
-			*task = *refreshed
-		}
-		return nil
-	}
-
-	baseURL := constant.GetChannelBaseURL(channelModel.Type)
-	if channelModel.GetBaseURL() != "" {
-		baseURL = channelModel.GetBaseURL()
-	}
-	proxy := channelModel.GetSetting().Proxy
-	adaptor := GetTaskAdaptor(constant.TaskPlatform(strconv.Itoa(channelModel.Type)))
-	if adaptor == nil {
-		return nil
-	}
-	adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
-		ChannelType:     channelModel.Type,
-		ChannelId:       channelModel.Id,
-		ChannelBaseUrl:  baseURL,
-		ApiKey:          channelModel.Key,
-		ChannelSetting:  channelModel.GetSetting(),
-		HeadersOverride: channelModel.GetHeaderOverride(),
-	}})
-
-	resp, err := adaptor.FetchTask(baseURL, channelModel.Key, task, proxy)
-	if err != nil || resp == nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil
-	}
-
-	ti, err := adaptor.ParseTaskResult(task, resp, body)
-	if err != nil || ti == nil {
-		return nil
-	}
-
-	snap := task.Snapshot()
-	status := model.TaskStatus(ti.Status)
-	finished := status == model.TaskStatusSuccess || status == model.TaskStatusFailure
-	if finished && snap.Status != model.TaskStatusSuccess && snap.Status != model.TaskStatusFailure {
-		// Finishing a task settles or refunds it. Let the poller record the
-		// final status, as it does for every other task, so that happens once.
-		upstreamID := task.GetUpstreamTaskID()
-		_ = service.UpdateVideoTasks(context.Background(), task.Platform,
-			map[int][]string{task.ChannelId: {upstreamID}}, map[string]*model.Task{upstreamID: task})
-	} else {
-		// 将上游最新状态更新到 task
-		if ti.Status != "" {
-			task.Status = status
-		}
-		if ti.Progress != "" {
-			task.Progress = ti.Progress
-		}
-		if strings.HasPrefix(ti.Url, "data:") {
-			// data: URI — kept in Data, not ResultURL
-		} else if ti.Url != "" {
-			task.PrivateData.ResultURL = ti.Url
-		} else if task.Status == model.TaskStatusSuccess {
-			// No URL from adaptor — construct proxy URL using public task ID
-			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
-		}
-
-		if !snap.Equal(task.Snapshot()) {
-			_, _ = task.UpdateWithStatusPreservingBilling(snap)
+		*task = *refreshed
+		if pollErr != nil && !errors.Is(pollErr, service.ErrTaskPollingCASLost) && task.Status != model.TaskStatusSuccess && task.Status != model.TaskStatusFailure {
+			return nil
 		}
 	}
-
-	// OpenAI Video API 由调用者的 ConvertToOpenAIVideo 分支处理
-	if isOpenAIVideoAPI {
+	if task.IsAssetHostedResult() || isOpenAIVideoAPI {
 		return nil
 	}
-
-	// 非 OpenAI Video API: 构建自定义格式响应
-	format := detectVideoFormat(body)
+	format := detectVideoFormat(task.Data)
 	out := map[string]any{
 		"error":    nil,
 		"format":   format,

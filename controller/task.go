@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -245,7 +246,7 @@ func validateProjectedTaskArtifacts(artifacts []relaychannel.TaskArtifact) ([]re
 	return artifacts, nil
 }
 
-func initTaskArtifactAdaptor(task *model.Task) (relaychannel.TaskAdaptor, error) {
+func buildTaskArtifactContentRequest(ctx context.Context, task *model.Task, artifactKey string, request relaychannel.TaskArtifactClientRequest) (*relaychannel.TaskContentRequest, error) {
 	if task == nil || !taskHasPluginExecution(task) {
 		return nil, errTaskArtifactPluginUnavailable
 	}
@@ -257,10 +258,12 @@ func initTaskArtifactAdaptor(task *model.Task) (relaychannel.TaskAdaptor, error)
 	if adaptor == nil {
 		return nil, errTaskArtifactPluginUnavailable
 	}
-	pluginKey := task.PrivateData.Key
-	if pluginKey == "" {
-		pluginKey = channelModel.Key
+	provider, ok := adaptor.(relaychannel.TaskContentRequestProvider)
+	if !ok {
+		return nil, errTaskArtifactPluginUnavailable
 	}
+	pluginKey, bound := task.ResolveChannelCredential(channelModel)
+	request.CredentiallessOnly = !bound
 	baseURL := channelModel.GetBaseURL()
 	if baseURL == "" {
 		baseURL = constant.GetChannelBaseURL(channelModel.Type)
@@ -274,7 +277,7 @@ func initTaskArtifactAdaptor(task *model.Task) (relaychannel.TaskAdaptor, error)
 			HeadersOverride: channelModel.GetHeaderOverride(),
 		},
 	})
-	return adaptor, nil
+	return provider.BuildContentRequest(ctx, task, artifactKey, request)
 }
 
 func taskHasPluginExecution(task *model.Task) bool {
@@ -416,21 +419,15 @@ func TaskArtifactContent(c *gin.Context) {
 		return
 	}
 
-	adaptor, err := initTaskArtifactAdaptor(task)
-	if err != nil {
-		writeTaskArtifactProjectionError(c, err)
-		return
-	}
-	provider, ok := adaptor.(relaychannel.TaskContentRequestProvider)
-	if !ok {
-		writeTaskArtifactError(c, http.StatusServiceUnavailable, "artifact_plugin_unavailable", "Artifact content plugin is unavailable")
-		return
-	}
 	clientRequest := relaychannel.TaskArtifactClientRequest{
 		Method:  c.Request.Method,
 		Headers: taskArtifactClientHeaders(c.Request.Header),
 	}
-	descriptor, err := provider.BuildContentRequest(c.Request.Context(), task, artifactKey, clientRequest)
+	descriptor, err := buildTaskArtifactContentRequest(c.Request.Context(), task, artifactKey, clientRequest)
+	if errors.Is(err, relaychannel.ErrTaskCredentialUnavailable) || errors.Is(err, errTaskArtifactPluginUnavailable) {
+		writeTaskArtifactProjectionError(c, errTaskArtifactPluginUnavailable)
+		return
+	}
 	if err != nil || descriptor == nil {
 		if err != nil {
 			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Failed to resolve plugin %s content for task %s: %v", artifactKey, task.TaskID, err))

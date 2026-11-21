@@ -18,7 +18,7 @@ func TestClaimTaskSubmissionPersistsRetryGroupOnlyForWinningClaim(t *testing.T) 
 	}
 	insertTask(t, task)
 	ctx := context.Background()
-	require.NoError(t, ResetTaskSubmissionClaim(ctx, task.ID))
+	require.NoError(t, ResetTaskSubmissionClaim(ctx, task))
 
 	claimedTask, claimed, err := ClaimTaskSubmission(ctx, task.ID, &TaskSubmissionAttempt{ChannelID: 2, Group: "group-b"})
 	require.NoError(t, err)

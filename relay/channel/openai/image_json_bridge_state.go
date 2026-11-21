@@ -20,6 +20,7 @@ const (
 )
 
 type openAIImageJSONBridgeState struct {
+	observedImages  int64
 	completedImages [][]byte
 	responseMeta    []byte
 	usageRaw        []byte
@@ -267,6 +268,7 @@ func formatOpenAIImageJSONDiagnosticCounts(counts map[string]int) string {
 }
 
 func (state *openAIImageJSONBridgeState) addCompletedImage(info *relaycommon.RelayInfo, data []byte) *types.NewAPIError {
+	state.observedImages++
 	if len(state.completedImages) >= dto.MaxImageN {
 		err := fmt.Errorf("upstream image stream exceeded the maximum image count")
 		info.StreamStatus.RecordError(err.Error())

@@ -465,10 +465,12 @@ func TestTaskArtifactContentAllowsConfiguredPrivateChannel(t *testing.T) {
 	}))
 	defer upstream.Close()
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", task.ChannelId).Updates(map[string]any{
-		"type": constant.ChannelTypeSora, "key": "provider-key", "base_url": upstream.URL,
+		"type": constant.ChannelTypeSora, "key": "first-key\nprovider-key", "base_url": upstream.URL,
+		"channel_info": model.ChannelInfo{IsMultiKey: true},
 	}).Error)
 	task.Platform = constant.TaskPlatform("sora")
 	task.PrivateData.UpstreamTaskID = "provider-video"
+	task.PrivateData.CredentialDigest = model.CredentialDigest("provider-key")
 	task.PrivateData.Execution = &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{
 		Key: "sora", Name: "Sora", Version: "1.1.0", APIVersion: 1,
 	}}
@@ -495,6 +497,77 @@ func TestTaskArtifactContentAllowsConfiguredPrivateChannel(t *testing.T) {
 			}
 		})
 	}
+
+	// The same plugin needs the key to retrieve provider-owned content.
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", task.ChannelId).Update("key", "first-key").Error)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("id", task.UserId)
+	c.Params = gin.Params{{Key: "key", Value: task.TaskID}, {Key: "artifact_key", Value: "video"}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/content", nil)
+	TaskArtifactContent(c)
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+}
+
+func TestCredentiallessPluginArtifactAfterKeyRemoval(t *testing.T) {
+	task := setupGenericTaskTest(t)
+	allowPrivateTaskMediaTest(t)
+	previousMemoryCache := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemoryCache })
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Empty(t, r.Header.Get("Authorization"))
+		assert.Empty(t, r.Header.Get("X-API-Key"))
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("archived-video"))
+	}))
+	defer cdn.Close()
+	task.Platform = "alibaba"
+	task.PrivateData.Execution = &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{Key: "alibaba"}}
+	task.PrivateData.CredentialDigest = model.CredentialDigest("removed-key")
+	task.SetData(map[string]any{"output": map[string]any{"video_url": cdn.URL + "/result.mp4"}})
+	require.NoError(t, model.DB.Save(task).Error)
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", task.ChannelId).Updates(map[string]any{
+		"key": "other-key", "header_override": `{"X-API-Key":"{api_key}"}`,
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("id", task.UserId)
+	c.Params = gin.Params{{Key: "key", Value: task.TaskID}, {Key: "artifact_key", Value: "video"}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/content", nil)
+	TaskArtifactContent(c)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "archived-video", recorder.Body.String())
+}
+
+func TestPluginArtifactWithMissingKeyDoesNotFetchSignedURL(t *testing.T) {
+	task := setupGenericTaskTest(t)
+	previousMemoryCache := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemoryCache })
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("provider lookup attempted without the submission credential")
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer upstream.Close()
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", task.ChannelId).Update("base_url", upstream.URL).Error)
+	task.Platform = "hailuo"
+	task.PrivateData.Execution = &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{Key: "hailuo"}}
+	task.PrivateData.CredentialDigest = model.CredentialDigest("removed-key")
+	task.SetData(map[string]any{"file_id": "provider-file"})
+	descriptor, err := buildTaskArtifactContentRequest(context.Background(), task, "video", relaychannel.TaskArtifactClientRequest{Method: http.MethodGet})
+	require.ErrorIs(t, err, relaychannel.ErrTaskCredentialUnavailable)
+	assert.Nil(t, descriptor)
+	task.PrivateData.ResultURL = "/v1/videos/" + task.TaskID + "/content"
+	require.NoError(t, model.DB.Save(task).Error)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("id", task.UserId)
+	c.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	c.Request = httptest.NewRequest(http.MethodGet, task.PrivateData.ResultURL, nil)
+	VideoProxy(c)
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 }
 
 func TestProxyTaskMediaPrivateChannelTrustIsOriginBound(t *testing.T) {

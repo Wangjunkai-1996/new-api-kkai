@@ -108,7 +108,7 @@ func TestVideoProxyAllowsProviderManagedPrivateBaseURL(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			channel := model.Channel{Id: 60, Type: tt.channelType, Key: "channel-key", BaseURL: common.GetPointer(upstream.URL)}
+			channel := model.Channel{Id: 60, Type: tt.channelType, Key: "another-key\nchannel-key", ChannelInfo: model.ChannelInfo{IsMultiKey: true}, BaseURL: common.GetPointer(upstream.URL)}
 			require.NoError(t, model.DB.Create(&channel).Error)
 			require.NoError(t, model.DB.Create(&model.Task{
 				TaskID:    "task_public",
@@ -116,7 +116,7 @@ func TestVideoProxyAllowsProviderManagedPrivateBaseURL(t *testing.T) {
 				ChannelId: 60,
 				Status:    model.TaskStatusSuccess,
 				PrivateData: model.TaskPrivateData{
-					UpstreamTaskID: "videos_test",
+					UpstreamTaskID: "videos_test", CredentialDigest: model.CredentialDigest("channel-key"),
 				},
 			}).Error)
 
@@ -136,6 +136,11 @@ func TestVideoProxyAllowsProviderManagedPrivateBaseURL(t *testing.T) {
 			assert.Equal(t, "video/mp4", recorder.Header().Get("Content-Type"))
 			assert.Equal(t, "bytes 0-3/9", recorder.Header().Get("Content-Range"))
 			assert.Equal(t, "mock", recorder.Body.String())
+
+			require.NoError(t, model.DB.Model(&channel).Update("key", "another-key").Error)
+			recorder = httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 		})
 	}
 }
@@ -310,7 +315,7 @@ func TestVideoProxyPreservesCrossOriginGeminiMediaQueryWithoutProviderHeader(t *
 		Status:    model.TaskStatusSuccess,
 		Data:      []byte(fmt.Sprintf(`{"uri":%q}`, mediaURL)),
 		PrivateData: model.TaskPrivateData{
-			Key: providerAPIKey,
+			CredentialDigest: model.CredentialDigest(providerAPIKey),
 		},
 	}).Error)
 
@@ -346,6 +351,30 @@ func TestVideoProxyPreservesCrossOriginGeminiMediaQueryWithoutProviderHeader(t *
 	assert.Equal(t, mediaURL, requestedURL)
 	assert.Empty(t, providerHeader)
 	assert.NotContains(t, requestedURL, providerAPIKey)
+}
+
+func TestLegacyGeminiVideoWithoutSavedKeyCannotUseCurrentKey(t *testing.T) {
+	setupVideoProxyTestDB(t)
+	baseURL := "https://generativelanguage.googleapis.com"
+	channel := model.Channel{Id: 73, Type: constant.ChannelTypeGemini, Key: "replacement-key", BaseURL: &baseURL}
+	require.NoError(t, model.DB.Create(&channel).Error)
+	task := model.Task{TaskID: "legacy-gemini", UserId: 1, ChannelId: channel.Id, Status: model.TaskStatusSuccess}
+	task.SetData(map[string]any{"uri": baseURL + "/files/video"})
+	require.NoError(t, model.DB.Create(&task).Error)
+	client := service.GetHttpClient()
+	previousTransport := client.Transport
+	client.Transport = videoProxyTestRoundTripper(func(*http.Request) (*http.Response, error) {
+		t.Fatal("legacy task tried provider download with the current key")
+		return nil, nil
+	})
+	t.Cleanup(func() { client.Transport = previousTransport })
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("id", 1)
+	c.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/content", nil)
+	VideoProxy(c)
+	assert.Equal(t, http.StatusBadGateway, recorder.Code)
 }
 
 func TestVideoProxyScopesGeminiAPIKeyAcrossRedirects(t *testing.T) {

@@ -304,10 +304,14 @@ func (a *TaskAdaptor) AdjustBillingOnSubmit(info *relaycommon.RelayInfo, taskDat
 }
 
 func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, result *relaycommon.TaskInfo) int {
-	if !a.hasHook(context.Background(), "extractUsageOnComplete") {
+	return a.AdjustBillingOnCompleteContext(context.Background(), task, result)
+}
+
+func (a *TaskAdaptor) AdjustBillingOnCompleteContext(ctx context.Context, task *model.Task, result *relaycommon.TaskInfo) int {
+	if !a.hasHook(ctx, "extractUsageOnComplete") {
 		return 0
 	}
-	value, err := a.plugin.Engine.Call(context.Background(), "extractUsageOnComplete", jsonValue(task), jsonValue(result))
+	value, err := a.plugin.Engine.Call(ctx, "extractUsageOnComplete", jsonValue(task), jsonValue(result))
 	if err != nil {
 		return 0
 	}
@@ -795,7 +799,27 @@ func (a *TaskAdaptor) GetModelList() []string { return append([]string(nil), a.p
 func (a *TaskAdaptor) GetChannelName() string { return a.plugin.Meta.Name }
 func (a *TaskAdaptor) FetchMode() string      { return a.plugin.Meta.FetchMode }
 
+// The factory Sora status endpoint returns metadata, with video bytes served
+// by /content. Its status document uses the persisted task-data budget. Other
+// protocols can carry inline media and remain unbounded until their limits are
+// proven by protocol-specific acceptance.
+func (a *TaskAdaptor) PollResponseBodyLimit(taskCount int) int64 {
+	if a.plugin.IsFactory() && a.plugin.Meta.Key == "sora" {
+		if taskCount > 0 && taskCount <= math.MaxInt64/maxTaskPluginPersistedJSONBytes {
+			return int64(taskCount) * maxTaskPluginPersistedJSONBytes
+		}
+	}
+	return 0
+}
+
 func (a *TaskAdaptor) FetchBatchTasks(baseURL, key string, tasks []*model.Task, proxy string) (*http.Response, error) {
+	return a.FetchBatchTasksContext(context.Background(), baseURL, key, tasks, proxy)
+}
+
+func (a *TaskAdaptor) FetchBatchTasksContext(ctx context.Context, baseURL, key string, tasks []*model.Task, proxy string) (*http.Response, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	taskContexts := make([]map[string]any, 0, len(tasks))
 	for _, task := range tasks {
 		taskCtx, err := a.queryContext(task, key, baseURL, proxy)
@@ -804,30 +828,37 @@ func (a *TaskAdaptor) FetchBatchTasks(baseURL, key string, tasks []*model.Task, 
 		}
 		taskContexts = append(taskContexts, taskCtx)
 	}
-	ctx, err := a.batchQueryContext(key, baseURL, proxy, taskContexts)
+	hookInput, err := a.batchQueryContext(key, baseURL, proxy, taskContexts)
 	if err != nil {
 		return nil, err
 	}
-	descriptor, err := a.requestDescriptor(pluginruntime.WithFetcher(context.Background(), a.hookFetcher(baseURL, proxy)), "buildBatchQueryRequest", ctx, taskContexts)
+	descriptor, err := a.requestDescriptor(pluginruntime.WithFetcher(ctx, a.hookFetcher(baseURL, proxy)), "buildBatchQueryRequest", hookInput, taskContexts)
 	if err != nil {
 		return nil, err
 	}
-	return a.doFetchDescriptor(baseURL, key, proxy, descriptor)
+	return a.doFetchDescriptorContext(ctx, baseURL, key, proxy, descriptor)
 }
 
 func (a *TaskAdaptor) FetchTask(baseURL, key string, task *model.Task, proxy string) (*http.Response, error) {
-	if task != nil && task.PrivateData.Key != "" {
+	return a.FetchTaskContext(context.Background(), baseURL, key, task, proxy)
+}
+
+func (a *TaskAdaptor) FetchTaskContext(ctx context.Context, baseURL, key string, task *model.Task, proxy string) (*http.Response, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if task != nil && task.PrivateData.CredentialDigest == "" && task.PrivateData.Key != "" {
 		key = task.PrivateData.Key
 	}
-	ctx, err := a.queryContext(task, key, baseURL, proxy)
+	hookInput, err := a.queryContext(task, key, baseURL, proxy)
 	if err != nil {
 		return nil, err
 	}
-	descriptor, err := a.requestDescriptor(pluginruntime.WithFetcher(context.Background(), a.hookFetcher(baseURL, proxy)), "buildQueryRequest", ctx)
+	descriptor, err := a.requestDescriptor(pluginruntime.WithFetcher(ctx, a.hookFetcher(baseURL, proxy)), "buildQueryRequest", hookInput)
 	if err != nil {
 		return nil, err
 	}
-	return a.doFetchDescriptor(baseURL, key, proxy, descriptor)
+	return a.doFetchDescriptorContext(ctx, baseURL, key, proxy, descriptor)
 }
 
 // hookFetcher sends a driver hook's utils.fetch requests to the hosts its
@@ -877,6 +908,13 @@ func (a *TaskAdaptor) hookFetcher(baseURL, proxy string) pluginruntime.Fetcher {
 }
 
 func (a *TaskAdaptor) doFetchDescriptor(baseURL, key, proxy string, descriptor requestDescriptor) (*http.Response, error) {
+	return a.doFetchDescriptorContext(context.Background(), baseURL, key, proxy, descriptor)
+}
+
+func (a *TaskAdaptor) doFetchDescriptorContext(ctx context.Context, baseURL, key, proxy string, descriptor requestDescriptor) (*http.Response, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := pluginruntime.ValidateRequestURL(descriptor.URL, baseURL, a.plugin.Meta.AllowedHosts); err != nil {
 		return nil, err
 	}
@@ -898,7 +936,7 @@ func (a *TaskAdaptor) doFetchDescriptor(baseURL, key, proxy string, descriptor r
 	if method == "" {
 		method = http.MethodGet
 	}
-	req, err := http.NewRequest(method, descriptor.URL, requestBody)
+	req, err := http.NewRequestWithContext(ctx, method, descriptor.URL, requestBody)
 	if err != nil {
 		return nil, err
 	}
@@ -1002,11 +1040,17 @@ func (a *TaskAdaptor) doFetchDescriptor(baseURL, key, proxy string, descriptor r
 }
 
 func (a *TaskAdaptor) ParseBatchResult(tasks []*model.Task, resp *http.Response, body []byte) (map[string]*service.BatchTaskResult, error) {
+	return a.ParseBatchResultContext(context.Background(), tasks, resp, body)
+}
+
+func (a *TaskAdaptor) ParseBatchResultContext(ctx context.Context, tasks []*model.Task, resp *http.Response, body []byte) (map[string]*service.BatchTaskResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	started := time.Now()
-	input := any(string(body))
-	var decoded any
-	if common.Unmarshal(body, &decoded) == nil {
-		input = decoded
+	var input any
+	if common.Unmarshal(body, &input) != nil {
+		input = string(body)
 	}
 	key, baseURL, proxy := a.queryCredentials()
 	taskContexts := make([]map[string]any, 0, len(tasks))
@@ -1017,7 +1061,7 @@ func (a *TaskAdaptor) ParseBatchResult(tasks []*model.Task, resp *http.Response,
 		}
 		taskContexts = append(taskContexts, taskCtx)
 	}
-	ctx, err := a.batchQueryContext(key, baseURL, proxy, taskContexts)
+	hookInput, err := a.batchQueryContext(key, baseURL, proxy, taskContexts)
 	if err != nil {
 		return nil, err
 	}
@@ -1034,7 +1078,7 @@ func (a *TaskAdaptor) ParseBatchResult(tasks []*model.Task, resp *http.Response,
 		Data       any    `json:"data"`
 		State      any    `json:"state"`
 	}
-	if err = a.plugin.Engine.CallInto(pluginruntime.WithFetcher(context.Background(), a.hookFetcher(baseURL, proxy)), &parsed, "parseBatchResult", ctx, input, hookHTTPResponse(resp)); err != nil {
+	if err = a.plugin.Engine.CallInto(pluginruntime.WithFetcher(ctx, a.hookFetcher(baseURL, proxy)), &parsed, "parseBatchResult", hookInput, input, hookHTTPResponse(resp)); err != nil {
 		reason := "hook_failed"
 		var invalid *pluginruntime.ResultError
 		if errors.As(err, &invalid) {
@@ -1043,10 +1087,34 @@ func (a *TaskAdaptor) ParseBatchResult(tasks []*model.Task, resp *http.Response,
 		logger.LogDebug(context.Background(), "task_plugin subsystem=adaptor event=parse_batch_failed plugin=%q reason=%s body_bytes=%d elapsed_ms=%d", a.plugin.Meta.Key, reason, len(body), time.Since(started).Milliseconds())
 		return nil, err
 	}
-	results := make(map[string]*service.BatchTaskResult, len(parsed))
-	hasCompletionUsage := a.hasHook(context.Background(), "extractUsageOnComplete")
+	// Keep opaque provider IDs byte-for-byte. A repeated ID in either direction
+	// has no unique local row, even when its first returned item looks valid.
+	requested := make(map[string]int, len(tasks))
+	for index, task := range tasks {
+		if task == nil {
+			continue
+		}
+		id := task.GetUpstreamTaskID()
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		if _, exists := requested[id]; exists {
+			requested[id] = -1
+			continue
+		}
+		requested[id] = index
+	}
+	responseCounts := make(map[string]int, len(requested))
 	for _, item := range parsed {
-		if strings.TrimSpace(item.TaskID) == "" {
+		if _, exists := requested[item.TaskID]; exists {
+			responseCounts[item.TaskID]++
+		}
+	}
+	results := make(map[string]*service.BatchTaskResult, len(requested))
+	hasCompletionUsage := a.hasHook(ctx, "extractUsageOnComplete")
+	for _, item := range parsed {
+		index, exists := requested[item.TaskID]
+		if !exists || index < 0 || responseCounts[item.TaskID] != 1 {
 			continue
 		}
 		info := relaycommon.TaskInfo{TaskID: item.TaskID, Status: item.Status, Progress: item.Progress, Reason: item.Reason, Url: item.URL}
@@ -1063,23 +1131,17 @@ func (a *TaskAdaptor) ParseBatchResult(tasks []*model.Task, resp *http.Response,
 			if usageBody == nil {
 				usageBody = jsonValue(item)
 			}
-			itemCtx := ctx
-			var polledTask *model.Task
-			for index, taskCtx := range taskContexts {
-				if fmt.Sprint(taskCtx["taskId"]) == item.TaskID {
-					itemCtx = taskCtx
-					polledTask = tasks[index]
-					break
-				}
-			}
-			facts, hookErr := a.plugin.Engine.Call(context.Background(), "extractUsageOnComplete", itemCtx, completionHookResult(&info), usageBody)
-			if err := a.applyPolledCompletionUsage(polledTask, &info, facts, hookErr); err != nil {
+			facts, hookErr := a.plugin.Engine.Call(ctx, "extractUsageOnComplete", taskContexts[index], completionHookResult(&info), usageBody)
+			if err := a.applyPolledCompletionUsage(tasks[index], &info, facts, hookErr); err != nil {
 				info.Status = model.TaskStatusUnknown
 				info.Progress = ""
 				info.Reason = err.Error()
 			}
 		}
 		results[item.TaskID] = &service.BatchTaskResult{TaskInfo: info, Action: item.Action, SubmitTime: item.SubmitTime, StartTime: item.StartTime, FinishTime: item.FinishTime, Data: item.Data}
+	}
+	if skipped := len(parsed) - len(results); skipped > 0 {
+		logger.LogWarn(ctx, "task_plugin event=batch_results_skipped plugin=%q requested=%d received=%d skipped=%d", a.plugin.Meta.Key, len(tasks), len(parsed), skipped)
 	}
 	logger.LogDebug(
 		context.Background(),
@@ -1094,21 +1156,27 @@ func (a *TaskAdaptor) ParseBatchResult(tasks []*model.Task, resp *http.Response,
 }
 
 func (a *TaskAdaptor) ParseTaskResult(task *model.Task, resp *http.Response, body []byte) (*relaycommon.TaskInfo, error) {
+	return a.ParseTaskResultContext(context.Background(), task, resp, body)
+}
+
+func (a *TaskAdaptor) ParseTaskResultContext(ctx context.Context, task *model.Task, resp *http.Response, body []byte) (*relaycommon.TaskInfo, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	started := time.Now()
-	input := any(string(body))
-	var decoded any
-	if common.Unmarshal(body, &decoded) == nil {
-		input = decoded
+	var input any
+	if common.Unmarshal(body, &input) != nil {
+		input = string(body)
 	}
 	key, baseURL, proxy := a.queryCredentials()
-	if task != nil && task.PrivateData.Key != "" {
+	if task != nil && task.PrivateData.CredentialDigest == "" && task.PrivateData.Key != "" {
 		key = task.PrivateData.Key
 	}
-	ctx, err := a.queryContext(task, key, baseURL, proxy)
+	hookInput, err := a.queryContext(task, key, baseURL, proxy)
 	if err != nil {
 		return nil, err
 	}
-	value, err := a.plugin.Engine.Call(pluginruntime.WithFetcher(context.Background(), a.hookFetcher(baseURL, proxy)), "parseTaskResult", ctx, input, hookHTTPResponse(resp))
+	value, err := a.plugin.Engine.Call(pluginruntime.WithFetcher(ctx, a.hookFetcher(baseURL, proxy)), "parseTaskResult", hookInput, input, hookHTTPResponse(resp))
 	if err != nil {
 		logger.LogDebug(context.Background(), "task_plugin subsystem=adaptor event=parse_task_failed plugin=%q reason=hook_failed body_bytes=%d elapsed_ms=%d", a.plugin.Meta.Key, len(body), time.Since(started).Milliseconds())
 		return nil, err
@@ -1138,8 +1206,8 @@ func (a *TaskAdaptor) ParseTaskResult(task *model.Task, resp *http.Response, bod
 	}
 	// The raw polling response only exists at this boundary. Capture upstream
 	// units here so the host settlement path can consume them from TaskInfo.
-	if a.hasHook(context.Background(), "extractUsageOnComplete") {
-		facts, hookErr := a.plugin.Engine.Call(context.Background(), "extractUsageOnComplete", ctx, completionHookResult(result), input)
+	if a.hasHook(ctx, "extractUsageOnComplete") {
+		facts, hookErr := a.plugin.Engine.Call(ctx, "extractUsageOnComplete", hookInput, completionHookResult(result), input)
 		if err := a.applyPolledCompletionUsage(task, result, facts, hookErr); err != nil {
 			return nil, err
 		}
@@ -1328,11 +1396,26 @@ func (a *TaskAdaptor) BuildContentRequest(ctx context.Context, task *model.Task,
 	hookContext["artifactKey"] = artifactKey
 	hookContext["baseUrl"] = a.info.ChannelBaseUrl
 	hookContext["clientRequest"] = jsonValue(clientRequest)
-	if err = a.applyUpstreamCredentials(hookContext, a.info.ChannelType, a.info.ApiKey, a.info.ChannelSetting.Proxy); err != nil {
-		return nil, err
+	// A signed CDN URL may already be in task data. Without the accepted key,
+	// only a local projection into an explicitly credentialless request is safe.
+	var fetcher pluginruntime.Fetcher
+	if clientRequest.CredentiallessOnly {
+		kind := pluginruntime.UpstreamKindVendor
+		if a.info.ChannelType == constant.ChannelTypeNewAPI {
+			kind = pluginruntime.UpstreamKindNewAPI
+		}
+		hookContext["upstream"] = map[string]any{"kind": kind}
+		hookContext["auth"] = map[string]any{}
+	} else {
+		if err = a.applyUpstreamCredentials(hookContext, a.info.ChannelType, a.info.ApiKey, a.info.ChannelSetting.Proxy); err != nil {
+			return nil, err
+		}
+		fetcher = a.hookFetcher(a.info.ChannelBaseUrl, a.info.ChannelSetting.Proxy)
 	}
-	fetchContext := pluginruntime.WithFetcher(ctx, a.hookFetcher(a.info.ChannelBaseUrl, a.info.ChannelSetting.Proxy))
-	descriptor, err := a.requestDescriptor(fetchContext, "buildContentRequest", hookContext)
+	descriptor, err := a.requestDescriptor(pluginruntime.WithFetcher(ctx, fetcher), "buildContentRequest", hookContext)
+	if clientRequest.CredentiallessOnly && (err != nil || !descriptor.Credentialless) {
+		return nil, channel.ErrTaskCredentialUnavailable
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1484,7 +1567,7 @@ func (a *TaskAdaptor) queryContext(task *model.Task, key, baseURL, proxy string)
 			}
 			ctx["state"] = state
 		}
-		if task.PrivateData.Key != "" {
+		if task.PrivateData.CredentialDigest == "" && task.PrivateData.Key != "" {
 			key = task.PrivateData.Key
 		}
 	}

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,34 +78,29 @@ func VideoProxy(c *gin.Context) {
 
 	if taskHasPluginExecution(task) {
 		var descriptor *relaychannel.TaskContentRequest
-		if taskHasPluginExecution(task) {
-			artifacts, projectionErr := projectTaskArtifacts(task)
-			if projectionErr == nil {
-				for _, artifact := range artifacts {
-					if artifact.Type != "video" {
-						continue
-					}
-					adaptor, adaptorErr := initTaskArtifactAdaptor(task)
-					if adaptorErr == nil {
-						if provider, ok := adaptor.(relaychannel.TaskContentRequestProvider); ok {
-							descriptor, adaptorErr = provider.BuildContentRequest(c.Request.Context(), task, artifact.Key, relaychannel.TaskArtifactClientRequest{
-								Method:  c.Request.Method,
-								Headers: taskArtifactClientHeaders(c.Request.Header),
-							})
-						}
-					}
-					if adaptorErr != nil {
-						logger.LogWarn(c.Request.Context(), common.LogText("Failed to resolve plugin video content for task %s: %v", taskID, adaptorErr))
-						descriptor = nil
-					}
-					break
+		artifacts, projectionErr := projectTaskArtifacts(task)
+		if projectionErr == nil {
+			for _, artifact := range artifacts {
+				if artifact.Type != "video" {
+					continue
 				}
-			} else {
-				logger.LogWarn(c.Request.Context(), common.LogText("Failed to project plugin video for task %s", taskID))
+				descriptor, err = buildTaskArtifactContentRequest(c.Request.Context(), task, artifact.Key, relaychannel.TaskArtifactClientRequest{
+					Method: c.Request.Method, Headers: taskArtifactClientHeaders(c.Request.Header),
+				})
+				if err != nil {
+					logger.LogWarn(c.Request.Context(), common.LogText("Failed to resolve plugin video content for task row %d (%T)", task.ID, err))
+				}
+				break
 			}
+		} else {
+			logger.LogWarn(c.Request.Context(), common.LogText("Failed to project plugin video for task %s", taskID))
 		}
 		if descriptor == nil {
 			resultURL := task.GetResultURL()
+			if errors.Is(err, relaychannel.ErrTaskCredentialUnavailable) && (strings.TrimSpace(resultURL) == "" || isTaskMediaFallbackLoop(resultURL, task.TaskID)) {
+				videoProxyError(c, http.StatusServiceUnavailable, "server_error", "Video provider credential unavailable")
+				return
+			}
 			if isTaskMediaFallbackLoop(resultURL, task.TaskID) {
 				writeTaskMediaProxyError(c, &taskMediaProxyError{
 					status: http.StatusGone, code: "artifact_gone",
@@ -166,11 +162,10 @@ func VideoProxy(c *gin.Context) {
 
 	switch channel.Type {
 	case constant.ChannelTypeGemini:
-		apiKey := task.PrivateData.Key
-		if apiKey == "" {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Missing stored API key for Gemini task %s", taskID))
-			videoProxyError(c, http.StatusInternalServerError, "server_error", "API key not stored for task")
-			return
+		var apiKey string
+		// Legacy Gemini downloads only used a key explicitly saved on the task.
+		if task.PrivateData.CredentialDigest != "" || task.PrivateData.Key != "" {
+			apiKey, _ = task.ResolveChannelCredential(channel)
 		}
 		var useAPIKey bool
 		videoURL, useAPIKey, err = getGeminiVideoURL(channel, task, apiKey)
@@ -192,7 +187,14 @@ func VideoProxy(c *gin.Context) {
 		}
 	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora:
 		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", strings.TrimRight(baseURL, "/"), task.GetUpstreamTaskID())
-		req.Header.Set("Authorization", "Bearer "+channel.Key)
+		key, ok := task.ResolveChannelCredential(channel)
+		if !ok {
+			videoProxyError(c, http.StatusServiceUnavailable, "server_error", "Video provider credential unavailable")
+			return
+		}
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
 		if proxy == "" {
 			client = service.GetHttpClient()
 		}

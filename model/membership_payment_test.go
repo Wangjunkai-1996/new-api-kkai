@@ -255,6 +255,30 @@ func TestMembershipPaymentReviewListPreservesUserOwnership(t *testing.T) {
 	assert.Empty(t, orders)
 }
 
+func TestMembershipPaymentReviewListSupportsIDCursor(t *testing.T) {
+	user, _ := setupMembershipPaymentTest(t)
+	var seeded []MembershipOrder
+	for i := range 101 {
+		status := MembershipOrderException
+		if i >= 51 {
+			status = MembershipOrderSuccess
+		}
+		seeded = append(seeded, MembershipOrder{UserID: user.Id, TradeNo: fmt.Sprintf("cursor-%d", i), Status: status, PaidAt: 1})
+	}
+	require.NoError(t, DB.CreateInBatches(&seeded, 25).Error)
+	first, err := ListMembershipOrdersBefore(0, MembershipOrderException, 50, 0)
+	require.NoError(t, err)
+	require.Len(t, first, 50)
+	for index, order := range first {
+		assert.Equal(t, seeded[50-index].ID, order.ID)
+	}
+	require.NoError(t, DB.Create(&MembershipOrder{UserID: user.Id, TradeNo: "new-exception", Status: MembershipOrderException, PaidAt: 1}).Error)
+	second, err := ListMembershipOrdersBefore(0, MembershipOrderException, 50, first[len(first)-1].ID)
+	require.NoError(t, err)
+	require.Len(t, second, 1)
+	assert.Equal(t, seeded[0].ID, second[0].ID)
+}
+
 func TestMembershipPaymentManualResolutionClosesReviewWithoutRegrant(t *testing.T) {
 	for _, action := range []string{"grant", "dismiss"} {
 		t.Run(action, func(t *testing.T) {

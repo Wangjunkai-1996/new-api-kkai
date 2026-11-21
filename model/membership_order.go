@@ -253,6 +253,10 @@ func GetMembershipOrder(tradeNo string, userID int) (*MembershipOrder, error) {
 }
 
 func ListMembershipOrders(userID int, status string, limit int) ([]MembershipOrder, error) {
+	return ListMembershipOrdersBefore(userID, status, limit, 0)
+}
+
+func ListMembershipOrdersBefore(userID int, status string, limit int, beforeID int64) ([]MembershipOrder, error) {
 	if err := CheckMembershipSchema(); err != nil {
 		return nil, err
 	}
@@ -261,6 +265,9 @@ func ListMembershipOrders(userID int, status string, limit int) ([]MembershipOrd
 		limit = 50
 	}
 	query := DB.Order("id desc").Limit(limit)
+	if beforeID > 0 {
+		query = query.Where("id < ?", beforeID)
+	}
 	if userID > 0 {
 		query = query.Where("user_id = ?", userID)
 	}
@@ -640,6 +647,12 @@ func activateMembershipOrderTx(tx *gorm.DB, order *MembershipOrder, state *Membe
 	return nil
 }
 
+func (order *MembershipOrder) CanRetryActivation() bool {
+	return order.PaidAt > 0 && order.Status == MembershipOrderException && order.Resolution == "" &&
+		order.ReceiptKey != nil && order.ActualOneTime && order.ActualProvider == order.Provider &&
+		order.ActualAmountMinor == order.AmountMinor && order.ActualCurrency == order.Currency
+}
+
 func ResolveMembershipOrder(tradeNo string, actorID int, operationID, action, reason string) (*MembershipOrder, error) {
 	operationID, reason = strings.TrimSpace(operationID), strings.TrimSpace(reason)
 	if actorID <= 0 || operationID == "" || len(operationID) > 128 || reason == "" || len(reason) > 2048 || (action != "grant" && action != "dismiss") {
@@ -697,7 +710,7 @@ func ResolveMembershipOrder(tradeNo string, actorID int, operationID, action, re
 		}
 		now := common.GetTimestamp()
 		if action == "grant" {
-			if result.ReceiptKey == nil || !result.ActualOneTime || result.ActualProvider != result.Provider || result.ActualAmountMinor != result.AmountMinor || result.ActualCurrency != result.Currency {
+			if !result.CanRetryActivation() {
 				return fmt.Errorf("%w: verified payment does not match order terms", ErrMembershipConflict)
 			}
 			if err := activateMembershipOrderTx(tx, &result, state, now, paymentSchemaReady); err != nil {

@@ -3,6 +3,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -294,6 +295,86 @@ func TestMembershipOrderCannotBeReadByAnotherUser(t *testing.T) {
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/orders/"+order.TradeNo, nil))
 	assert.Equal(t, http.StatusNotFound, recorder.Code)
 	assert.NotContains(t, recorder.Body.String(), "9900")
+}
+
+func TestAdminMembershipOrderCursorAndGrantEligibility(t *testing.T) {
+	db, order := membershipControllerFixture(t, model.PaymentProviderStripe, "USD")
+	key := "stripe:verified"
+	order.Status, order.PaidAt, order.ReceiptKey = model.MembershipOrderException, 1, &key
+	order.ActualAmountMinor, order.ActualCurrency, order.ActualProvider, order.ActualOneTime = order.AmountMinor, order.Currency, order.Provider, true
+	require.NoError(t, db.Save(order).Error)
+	router := gin.New()
+	router.GET("/orders", AdminGetMembershipOrders)
+	for _, cursor := range []string{"", "0", "-1", "bad", "1&before_id=2", "9223372036854775808"} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/orders?before_id="+cursor, nil))
+		assert.Equal(t, http.StatusBadRequest, w.Code, cursor)
+	}
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/orders?status=paid_exception", nil))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"can_retry_activation":true`)
+	order.ReceiptKey = nil // A duplicate receipt belongs to a different order.
+	require.NoError(t, db.Save(order).Error)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/orders?status=paid_exception", nil))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), order.TradeNo)
+	assert.NotContains(t, w.Body.String(), `"can_retry_activation":true`)
+}
+
+func TestAdminMembershipOrderQueueResponses(t *testing.T) {
+	db, first := membershipControllerFixture(t, model.PaymentProviderStripe, "USD")
+	require.NoError(t, db.Model(first).Updates(map[string]any{"status": model.MembershipOrderException, "paid_at": 1}).Error)
+	second := model.MembershipOrder{
+		TradeNo: "extra-receipt", UserID: first.UserID, Terms: first.Terms,
+		Status: model.MembershipOrderSuccess, PaidAt: 2, ResolvedAt: 3, Resolution: `{"reason":"original receipt handled"}`,
+	}
+	require.NoError(t, db.Create(&second).Error)
+	receipt := model.MembershipPaymentReceipt{ReceiptKey: "stripe:extra", OrderID: second.ID, ReceiptID: "extra", Status: model.MembershipOrderException}
+	require.NoError(t, db.Create(&receipt).Error)
+	router := gin.New()
+	router.GET("/orders", AdminGetMembershipOrders)
+	router.POST("/orders/:trade_no/resolve", func(c *gin.Context) { c.Set("id", first.UserID) }, AdminResolveMembershipOrder)
+	read := func(query string) []membershipOrderView {
+		t.Helper()
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/orders?"+query, nil))
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var body struct {
+			Success bool                  `json:"success"`
+			Data    []membershipOrderView `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(w.Body.Bytes(), &body))
+		require.True(t, body.Success)
+		require.NotNil(t, body.Data)
+		return body.Data
+	}
+	const queue = "status=paid_exception&limit=1"
+	page := read(queue)
+	require.Len(t, page, 1)
+	assert.Equal(t, second.ID, page[0].ID)
+	assert.Equal(t, second.ResolvedAt, page[0].ResolvedAt)
+	assert.False(t, page[0].CanGrant)
+	require.Len(t, page[0].Payments, 1)
+	assert.Equal(t, receipt.ReceiptID, page[0].Payments[0].ReceiptID)
+	page = read(fmt.Sprintf("%s&before_id=%d", queue, page[0].ID))
+	require.Len(t, page, 1)
+	assert.Equal(t, first.ID, page[0].ID)
+	assert.Empty(t, read(fmt.Sprintf("%s&before_id=%d", queue, page[0].ID)))
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/orders/"+second.TradeNo+"/resolve", strings.NewReader(`{"action":"dismiss","reason":"extra receipt handled","operation_id":"queue-test"}`)))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	page = read(queue)
+	require.Len(t, page, 1)
+	assert.Equal(t, first.ID, page[0].ID)
+	recent := read("limit=1")
+	require.Len(t, recent, 1)
+	assert.Equal(t, second.ID, recent[0].ID)
+	assert.Equal(t, "extra receipt handled", recent[0].ResolutionNote)
+	require.Len(t, recent[0].Payments, 1)
+	assert.Equal(t, "resolved", recent[0].Payments[0].Status)
 }
 
 func TestMembershipStripeCheckoutUsesFrozenOneTimePrice(t *testing.T) {

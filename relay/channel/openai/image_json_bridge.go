@@ -134,6 +134,7 @@ func finishOpenAIImageJSONBridge(
 	}
 	normalizeOpenAIUsage(usage)
 	applyUsagePostProcessing(info, usage, state.usageRaw)
+	observeOpenAIImageCount(c.Request.Context(), info, state.observedImages, "sse_json_bridge_payload")
 	updateOpenAIImageCount(info, int64(len(state.completedImages)))
 
 	responseFormat := ""

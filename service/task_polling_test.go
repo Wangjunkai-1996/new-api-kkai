@@ -583,7 +583,7 @@ func TestUpdateVideoSingleTaskManagedFailureKeepsProviderReasonOutOfUserLogs(t *
 	assert.Equal(t, rawProviderReason, adminInfo["provider_failure_reason"])
 }
 
-func TestUpdateVideoSingleTaskUnmanagedPollingRetainsDebugResponse(t *testing.T) {
+func TestUpdateVideoSingleTaskUnmanagedPollingLogsOnlyBoundedMetadata(t *testing.T) {
 	truncate(t)
 
 	const channelID = 107
@@ -602,13 +602,14 @@ func TestUpdateVideoSingleTaskUnmanagedPollingRetainsDebugResponse(t *testing.T)
 	common.DebugEnabled = true
 	var logs bytes.Buffer
 	common.LogWriterMu.Lock()
-	previousErrorWriter := gin.DefaultErrorWriter
+	previousWriter, previousErrorWriter := gin.DefaultWriter, gin.DefaultErrorWriter
+	gin.DefaultWriter = &logs
 	gin.DefaultErrorWriter = &logs
 	common.LogWriterMu.Unlock()
 	t.Cleanup(func() {
 		common.DebugEnabled = previousDebug
 		common.LogWriterMu.Lock()
-		gin.DefaultErrorWriter = previousErrorWriter
+		gin.DefaultWriter, gin.DefaultErrorWriter = previousWriter, previousErrorWriter
 		common.LogWriterMu.Unlock()
 	})
 
@@ -616,7 +617,15 @@ func TestUpdateVideoSingleTaskUnmanagedPollingRetainsDebugResponse(t *testing.T)
 		task.GetUpstreamTaskID(): task,
 	})
 	require.NoError(t, err)
-	assert.Contains(t, logs.String(), debugMarker)
+	assert.Contains(t, logs.String(), fmt.Sprintf("response_bytes=%d", len(responseBody)))
+	assert.NotContains(t, logs.String(), debugMarker)
+	adaptor.result = &relaycommon.TaskInfo{Status: model.TaskStatusFailure, Reason: "https://example.test/failure?signature=provider-secret"}
+	require.NoError(t, model.DB.First(task, task.ID).Error)
+	require.NoError(t, pollVideoTask(context.Background(), adaptor, &channel, channel.Key, task))
+	assert.Contains(t, logs.String(), fmt.Sprintf("local_id=%d", task.ID))
+	assert.NotContains(t, logs.String(), task.GetUpstreamTaskID())
+	assert.NotContains(t, logs.String(), "provider-secret")
+	assert.NotContains(t, logs.String(), debugMarker)
 }
 
 func TestUpdateVideoTasksDefaultSleepDoesNotBlockOtherChannels(t *testing.T) {

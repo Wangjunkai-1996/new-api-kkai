@@ -198,3 +198,48 @@ func TestVideoFetchByIDPersistsManagedRealtimeResultWithoutExposingIt(t *testing
 	assert.Empty(t, persisted.PrivateData.ResultURL)
 	assert.Empty(t, persisted.PrivateData.ArchiveSource)
 }
+
+func TestVideoFetchByIDReturnsCommittedResultAfterFailedRefresh(t *testing.T) {
+	setupTaskReliabilityDB(t)
+	channel := model.Channel{Type: constant.ChannelTypeGemini, Key: "provider-key", BaseURL: common.GetPointer("https://provider.example")}
+	require.NoError(t, model.DB.Create(&channel).Error)
+	task := model.Task{
+		UserId: 42, ChannelId: channel.Id, TaskID: "task_background_finish",
+		Platform: constant.TaskPlatform(strconv.Itoa(channel.Type)), Status: model.TaskStatusInProgress, Progress: "50%",
+		PrivateData: model.TaskPrivateData{UpstreamTaskID: taskcommon.EncodeLocalTaskID("operations/generation")},
+	}
+	require.NoError(t, model.DB.Create(&task).Error)
+	service.InitHttpClient()
+	client := service.GetHttpClient()
+	originalFactory, originalTransport := service.GetTaskAdaptorFunc, client.Transport
+	t.Cleanup(func() { service.GetTaskAdaptorFunc, client.Transport = originalFactory, originalTransport })
+	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor { return GetTaskAdaptor(platform) }
+	const videoURL = "https://media.example/final.mp4"
+	requests := 0
+	client.Transport = taskVisibilityRoundTripper(func(req *http.Request) (*http.Response, error) {
+		requests++
+		committed := task
+		committed.Status, committed.Progress = model.TaskStatusSuccess, "100%"
+		committed.PrivateData.ResultURL = videoURL
+		won, err := committed.UpdateWithStatusPreservingBilling(task.Snapshot())
+		require.NoError(t, err)
+		require.True(t, won)
+		return &http.Response{StatusCode: http.StatusBadGateway, Body: http.NoBody, Request: req}, nil
+	})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/video/generations/"+task.TaskID, nil)
+	c.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	c.Set("id", task.UserId)
+	body, taskErr := videoFetchByIDRespBodyBuilder(c)
+	require.Nil(t, taskErr)
+	var result struct {
+		Data struct {
+			Status string `json:"status"`
+			URL    string `json:"url"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(body, &result))
+	assert.Equal(t, "succeeded", result.Data.Status)
+	assert.Equal(t, videoURL, result.Data.URL)
+	assert.Equal(t, 1, requests)
+}

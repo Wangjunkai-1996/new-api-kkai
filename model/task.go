@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql/driver"
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -135,27 +136,32 @@ type TaskPrivateData struct {
 	RequestPolicy              json.RawMessage                    `json:"request_policy,omitempty"`
 	Execution                  *TaskExecutionSnapshot             `json:"execution,omitempty"`
 	Key                        string                             `json:"key,omitempty"`
-	UpstreamTaskID             string                             `json:"upstream_task_id,omitempty"`    // 上游真实 task ID
-	ResultURL                  string                             `json:"result_url,omitempty"`          // 任务成功后的结果 URL（视频地址等）
-	ArchiveSource              string                             `json:"archive_source,omitempty"`      // 仅供内部资产归档读取，可能是临时 URL 或 data URI
-	AssetHostedResult          bool                               `json:"asset_hosted_result,omitempty"` // 结果由资产系统托管，禁止通用 Task 出口暴露或代理
-	ResponsesBackground        bool                               `json:"responses_background,omitempty"`
-	PluginState                json.RawMessage                    `json:"plugin_state,omitempty"`
-	PollFailures               int                                `json:"poll_failures,omitempty"`
-	ResultDiscarded            bool                               `json:"result_discarded,omitempty"`
+	// CredentialDigest binds polling and artifact access to the credential that
+	// the accepted submission actually used without persisting that credential.
+	CredentialDigest    string          `json:"credential_digest,omitempty"`
+	UpstreamTaskID      string          `json:"upstream_task_id,omitempty"`    // 上游真实 task ID
+	ResultURL           string          `json:"result_url,omitempty"`          // 任务成功后的结果 URL（视频地址等）
+	ArchiveSource       string          `json:"archive_source,omitempty"`      // 仅供内部资产归档读取，可能是临时 URL 或 data URI
+	AssetHostedResult   bool            `json:"asset_hosted_result,omitempty"` // 结果由资产系统托管，禁止通用 Task 出口暴露或代理
+	ResponsesBackground bool            `json:"responses_background,omitempty"`
+	PluginState         json.RawMessage `json:"plugin_state,omitempty"`
+	PollFailures        int             `json:"poll_failures,omitempty"`
+	ResultDiscarded     bool            `json:"result_discarded,omitempty"`
 	// SubmissionInline is frozen from the submit response, never from later polling.
 	SubmissionInline bool `json:"submission_inline,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
-	BillingSource              string                   `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
-	SubscriptionId             int                      `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
-	TokenId                    int                      `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
-	NodeName                   string                   `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
-	BillingContext             *TaskBillingContext      `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
-	BillingState               string                   `json:"billing_state,omitempty"`
-	TokenQuota                 int                      `json:"token_quota,omitempty"`
-	TokenBilling               bool                     `json:"token_billing,omitempty"`
-	RecoveryAt                 int64                    `json:"billing_recovery_at,omitempty"`
-	TargetQuota                *int                     `json:"billing_target_quota,omitempty"`
+	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
+	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
+	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
+	NodeName       string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
+	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	BillingState   string              `json:"billing_state,omitempty"`
+	TokenQuota     int                 `json:"token_quota,omitempty"`
+	TokenBilling   bool                `json:"token_billing,omitempty"`
+	RecoveryAt     int64               `json:"billing_recovery_at,omitempty"`
+	TargetQuota    *int                `json:"billing_target_quota,omitempty"`
+	// Retained after settlement so a late submission adjustment cannot replace the final charge.
+	CompletionCharge           *TaskCompletionCharge    `json:"billing_completion_charge,omitempty"`
 	BillingRevision            int64                    `json:"billing_revision,omitempty"`
 	AccountingState            string                   `json:"accounting_state,omitempty"`
 	AccountingQuota            int                      `json:"accounting_quota,omitempty"`
@@ -166,6 +172,51 @@ type TaskPrivateData struct {
 	MembershipAssessedQuota    int64                    `json:"membership_assessed_quota,omitempty"`
 	MembershipExcessQuota      int64                    `json:"membership_excess_quota,omitempty"`
 	MembershipCompletionQuota  *int                     `json:"membership_completion_quota,omitempty"`
+}
+
+// CredentialDigest returns the stable identifier used to resolve a channel
+// credential after reordering. The digest of an empty key identifies a
+// keyless submission and differs from a legacy row without a binding.
+func CredentialDigest(key string) string {
+	return hex.EncodeToString(common.Sha256Raw([]byte(key)))
+}
+
+// ResolveChannelCredential finds the credential bound to this task in the
+// current channel configuration. A digest always takes precedence over the
+// legacy plaintext key, so a retry cannot accidentally poll with an earlier
+// attempt's credential.
+func (t *Task) ResolveChannelCredential(channel *Channel) (string, bool) {
+	if t == nil || channel == nil {
+		return "", false
+	}
+	digest := t.PrivateData.CredentialDigest
+	if digest == "" && t.PrivateData.Key != "" {
+		return t.PrivateData.Key, true
+	}
+	if !channel.ChannelInfo.IsMultiKey {
+		if digest == "" || CredentialDigest(channel.Key) == digest {
+			return channel.Key, true
+		}
+		return "", false
+	}
+	// Read only the configured key list. Other fields on cached channels
+	// (including the round-robin cursor) can change during dispatch.
+	keys := (&Channel{Key: channel.Key}).GetKeys()
+	if digest == "" && len(keys) == 1 && strings.TrimSpace(keys[0]) != "" {
+		return keys[0], true
+	}
+	for _, key := range keys {
+		if key != "" && CredentialDigest(key) == digest {
+			return key, true
+		}
+	}
+	return "", false
+}
+
+type TaskCompletionCharge struct {
+	Quota  int                `json:"quota"`
+	Reason string             `json:"reason"`
+	Clamp  *common.QuotaClamp `json:"clamp,omitempty"`
 }
 
 func (t *Task) ResultRetrievable() bool {
@@ -234,12 +285,12 @@ func (p *TaskPrivateData) Scan(val interface{}) error {
 }
 
 func (p TaskPrivateData) Value() (driver.Value, error) {
-	if p.StudioSpecificationVersion == 0 && p.Key == "" && p.UpstreamTaskID == "" && p.ResultURL == "" && p.ArchiveSource == "" &&
+	if p.StudioSpecificationVersion == 0 && p.Key == "" && p.CredentialDigest == "" && p.UpstreamTaskID == "" && p.ResultURL == "" && p.ArchiveSource == "" &&
 		!p.AssetHostedResult && p.Execution == nil && !p.ResponsesBackground && len(p.PluginState) == 0 &&
 		p.PollFailures == 0 && len(p.RequestPolicy) == 0 && !p.ResultDiscarded && p.BillingSource == "" && p.SubscriptionId == 0 &&
 		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil && p.BillingState == "" &&
 		p.TokenQuota == 0 && !p.TokenBilling && p.RecoveryAt == 0 && p.TargetQuota == nil &&
-		p.BillingRevision == 0 && p.AccountingState == "" && p.AccountingQuota == 0 && !p.AccountingRequired &&
+		p.BillingRevision == 0 && p.CompletionCharge == nil && p.AccountingState == "" && p.AccountingQuota == 0 && !p.AccountingRequired &&
 		p.AccountingContext == nil && p.Failure == nil && len(p.VideoPosters) == 0 {
 		return nil, nil
 	}

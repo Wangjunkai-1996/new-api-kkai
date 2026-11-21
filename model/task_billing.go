@@ -52,10 +52,12 @@ type TaskSubmissionAttempt struct {
 	TieredSnapshot    *billingexpr.BillingSnapshot
 	Platform          constant.TaskPlatform
 	ChannelID         int
+	ChannelType       int
 	Group             string
 	Action            string
 	OriginModelName   string
 	UpstreamModelName string
+	Credential        string
 }
 
 type TaskSubmissionAcceptance struct {
@@ -75,11 +77,14 @@ type TaskSubmissionAcceptance struct {
 	FinishTime       int64
 	OtherRatios      map[string]float64
 	TargetQuota      int
+	CredentialDigest string
 }
 
 type TaskSubmissionAmbiguity struct {
-	Reason      string
-	TargetQuota *int
+	Reason           string
+	TargetQuota      *int
+	ChannelID        int
+	CredentialDigest string
 }
 
 type TaskBillingMutation struct {
@@ -213,6 +218,11 @@ func ClaimTaskSubmission(ctx context.Context, taskID int64, attempt *TaskSubmiss
 			task.Action = attempt.Action
 			task.Properties.OriginModelName = attempt.OriginModelName
 			task.Properties.UpstreamModelName = attempt.UpstreamModelName
+			task.PrivateData.CredentialDigest = CredentialDigest(attempt.Credential)
+			task.PrivateData.Key = ""
+			if attempt.ChannelType == constant.ChannelTypeGemini || attempt.ChannelType == constant.ChannelTypeVertexAi {
+				task.PrivateData.Key = attempt.Credential
+			}
 		}
 		task.PrivateData.BillingState = TaskBillingStateDispatching
 		if err := tx.Save(task).Error; err != nil {
@@ -224,20 +234,27 @@ func ClaimTaskSubmission(ctx context.Context, taskID int64, attempt *TaskSubmiss
 	return claimedTask, claimed, err
 }
 
-func ResetTaskSubmissionClaim(ctx context.Context, taskID int64) error {
-	if taskID <= 0 {
+func (task *Task) matchesSubmissionClaim(channelID int, digest string) bool {
+	return task.ChannelId == channelID && task.PrivateData.CredentialDigest == digest
+}
+
+func ResetTaskSubmissionClaim(ctx context.Context, claimed *Task) error {
+	if claimed == nil || claimed.ID <= 0 {
 		return ErrTaskBillingInvalidRequest
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	return DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		task, err := lockTaskBillingRow(tx, taskID)
+		task, err := lockTaskBillingRow(tx, claimed.ID)
 		if err != nil {
 			return err
 		}
 		if task.PrivateData.BillingState != TaskBillingStateDispatching {
 			return fmt.Errorf("%w: cannot reset submission from %s", ErrTaskBillingStateConflict, task.PrivateData.BillingState)
+		}
+		if !task.matchesSubmissionClaim(claimed.ChannelId, claimed.PrivateData.CredentialDigest) {
+			return ErrTaskBillingStateConflict
 		}
 		task.PrivateData.BillingState = TaskBillingStateReserved
 		return tx.Save(task).Error
@@ -269,6 +286,10 @@ func MarkTaskSubmissionAmbiguous(ctx context.Context, taskID int64, ambiguity Ta
 		}
 		if task.Status == TaskStatusSuccess || task.Status == TaskStatusFailure {
 			return nil
+		}
+		if (ambiguity.ChannelID > 0 || ambiguity.CredentialDigest != "") &&
+			!task.matchesSubmissionClaim(ambiguity.ChannelID, ambiguity.CredentialDigest) {
+			return ErrTaskBillingStateConflict
 		}
 
 		if task.PrivateData.BillingState == TaskBillingStateDispatching {
@@ -314,6 +335,36 @@ func MarkTaskSubmissionAmbiguous(ctx context.Context, taskID int64, ambiguity Ta
 	return ambiguousTask, marked, err
 }
 
+// An old receipt can acknowledge an existing result without changing it. New
+// claims require the submitted channel and digest before accepting new data.
+func (a TaskSubmissionAcceptance) matchesClaim(task *Task, replay bool) bool {
+	upstreamID := task.PrivateData.UpstreamTaskID
+	if upstreamID != "" && upstreamID != a.UpstreamTaskID || a.ChannelID > 0 && a.ChannelID != task.ChannelId {
+		return false
+	}
+	digest := task.PrivateData.CredentialDigest
+	if digest == "" {
+		return a.CredentialDigest == "" || task.PrivateData.Key == "" || a.CredentialDigest == CredentialDigest(task.PrivateData.Key)
+	}
+	if a.CredentialDigest != "" {
+		return task.matchesSubmissionClaim(a.ChannelID, a.CredentialDigest)
+	}
+	return replay && upstreamID != "" && a.ChannelID == task.ChannelId
+}
+
+// ValidateTaskSubmissionReceiptTx keeps the claim locked until the outbox
+// receipt is stored, so a retry cannot rebind it between checking and writing.
+func ValidateTaskSubmissionReceiptTx(tx *gorm.DB, taskID int64, acceptance TaskSubmissionAcceptance) error {
+	task, err := lockTaskBillingRow(tx, taskID)
+	if err != nil {
+		return err
+	}
+	if !acceptance.matchesClaim(task, false) {
+		return ErrTaskBillingStateConflict
+	}
+	return nil
+}
+
 func PersistTaskSubmissionAcceptance(ctx context.Context, taskID int64, acceptance TaskSubmissionAcceptance) (*Task, bool, error) {
 	if taskID <= 0 || acceptance.UpstreamTaskID == "" || acceptance.TargetQuota < 0 ||
 		!validTaskAcceptanceStatus(acceptance.Status) {
@@ -335,12 +386,17 @@ func PersistTaskSubmissionAcceptance(ctx context.Context, taskID int64, acceptan
 			if task.PrivateData.UpstreamTaskID != acceptance.UpstreamTaskID {
 				return nil
 			}
+			if !acceptance.matchesClaim(task, true) {
+				return ErrTaskBillingStateConflict
+			}
 			accepted = true
-			if acceptance.Status != TaskStatusUnknown || task.Status == TaskStatusSuccess || task.Status == TaskStatusFailure || task.Status == TaskStatusUnknown {
+			if acceptance.Status != TaskStatusUnknown || task.Status == TaskStatusSuccess || task.Status == TaskStatusFailure || task.Status == TaskStatusUnknown || !acceptance.matchesClaim(task, false) {
 				return enqueueTaskAccounting(tx, task)
 			}
 		} else if task.PrivateData.BillingState != TaskBillingStateDispatching {
 			return nil
+		} else if !acceptance.matchesClaim(task, false) {
+			return ErrTaskBillingStateConflict
 		}
 
 		applyTaskSubmissionAcceptance(task, acceptance)
@@ -373,12 +429,17 @@ func RecoverTaskSubmissionAcceptance(ctx context.Context, taskID int64, acceptan
 			return err
 		}
 		recoveredTask = task
-		if task.PrivateData.MembershipBillingRequestID != "" &&
-			(task.PrivateData.BillingState == TaskBillingStateCompleted || task.PrivateData.BillingState == TaskBillingStateRefunded) {
-			return nil
+		if task.PrivateData.BillingState == TaskBillingStateRefunded || task.PrivateData.BillingState == TaskBillingStateCompleted {
+			if task.PrivateData.UpstreamTaskID != "" {
+				recovered = acceptance.matchesClaim(task, true)
+				return nil
+			}
+			if task.PrivateData.MembershipBillingRequestID != "" {
+				return nil
+			}
 		}
 		if task.PrivateData.UpstreamTaskID != "" {
-			if task.PrivateData.UpstreamTaskID != acceptance.UpstreamTaskID {
+			if !acceptance.matchesClaim(task, true) {
 				return ErrTaskBillingStateConflict
 			}
 			recovered = task.PrivateData.BillingState == TaskBillingStateAccepted
@@ -396,6 +457,9 @@ func RecoverTaskSubmissionAcceptance(ctx context.Context, taskID int64, acceptan
 			return nil
 		}
 
+		if !acceptance.matchesClaim(task, false) {
+			return ErrTaskBillingStateConflict
+		}
 		applyTaskSubmissionAcceptance(task, acceptance)
 		if err := tx.Save(task).Error; err != nil {
 			return err
@@ -426,6 +490,9 @@ func applyTaskSubmissionAcceptance(task *Task, acceptance TaskSubmissionAcceptan
 	task.PrivateData.ResultDiscarded = acceptance.ResultDiscarded
 	task.PrivateData.SubmissionInline = acceptance.SubmissionInline
 	task.PrivateData.UpstreamTaskID = acceptance.UpstreamTaskID
+	if acceptance.CredentialDigest != "" {
+		task.PrivateData.CredentialDigest = acceptance.CredentialDigest
+	}
 	if acceptance.ChannelID > 0 {
 		task.ChannelId = acceptance.ChannelID
 	}
@@ -487,6 +554,12 @@ func AdjustTaskBillingWithAudit(ctx context.Context, taskID int64, targetQuota i
 		}
 		if task.PrivateData.MembershipBillingRequestID != "" {
 			return settleTaskMembershipTx(tx, task, targetQuota, audit, mutation)
+		}
+		if charge := task.PrivateData.CompletionCharge; task.Status == TaskStatusSuccess && charge != nil {
+			targetQuota = charge.Quota
+			audit.Reason = charge.Reason
+			audit.QuotaClamps = []*common.QuotaClamp{charge.Clamp}
+			audit.TieredSnapshot = nil // The terminal CAS already stored the final usage.
 		}
 		if billingContext := task.PrivateData.BillingContext; billingContext != nil && billingContext.MaxQuota != nil && targetQuota > *billingContext.MaxQuota {
 			targetQuota = *billingContext.MaxQuota
@@ -664,6 +737,9 @@ func CompleteTaskBillingRecovery(ctx context.Context, taskID int64) error {
 		if task.PrivateData.BillingState == TaskBillingStateRefunded || task.PrivateData.BillingState == TaskBillingStateCompleted {
 			return nil
 		}
+		if task.Status == TaskStatusSuccess && task.PrivateData.TargetQuota != nil {
+			return ErrTaskAccountingNotReady
+		}
 		if task.PrivateData.MembershipBillingRequestID != "" {
 			var record MembershipBillingRecord
 			if err := tx.Where("request_id = ?", task.PrivateData.MembershipBillingRequestID).First(&record).Error; err != nil {
@@ -697,6 +773,11 @@ func (task *Task) UpdateWithStatusPreservingBilling(from TaskSnapshot) (bool, er
 			(current.PrivateData.BillingState == TaskBillingStateCompleted || current.PrivateData.BillingState == TaskBillingStateRefunded) {
 			return nil
 		}
+		// Submission retries can rebind a row without changing its progress.
+		if current.UserId != task.UserId || current.ChannelId != task.ChannelId || current.TaskID != task.TaskID ||
+			current.Platform != task.Platform || current.GetUpstreamTaskID() != task.GetUpstreamTaskID() || current.PrivateData.Key != task.PrivateData.Key || current.PrivateData.CredentialDigest != task.PrivateData.CredentialDigest {
+			return nil
+		}
 		if !current.Snapshot().Equal(from) || !from.Allows(task.Snapshot()) {
 			return nil
 		}
@@ -707,11 +788,20 @@ func (task *Task) UpdateWithStatusPreservingBilling(from TaskSnapshot) (bool, er
 			}
 		}
 		privateData := current.PrivateData
-		if privateData.MembershipBillingRequestID != "" && task.Status == TaskStatusSuccess && task.PrivateData.MembershipCompletionQuota != nil {
-			privateData.MembershipCompletionQuota = common.GetPointer(*task.PrivateData.MembershipCompletionQuota)
-			privateData.TargetQuota = common.GetPointer(*task.PrivateData.MembershipCompletionQuota)
-			if privateData.BillingContext != nil && task.PrivateData.BillingContext != nil {
-				privateData.BillingContext.TieredSnapshot = task.PrivateData.BillingContext.TieredSnapshot
+		if from.Status != TaskStatusSuccess && from.Status != TaskStatusFailure && task.Status == TaskStatusSuccess {
+			var finalQuota *int
+			if privateData.MembershipBillingRequestID != "" {
+				finalQuota = task.PrivateData.MembershipCompletionQuota
+				privateData.MembershipCompletionQuota = finalQuota
+			} else if charge := task.PrivateData.CompletionCharge; privateData.BillingState != "" && charge != nil {
+				privateData.CompletionCharge = charge
+				finalQuota = &charge.Quota
+			}
+			if finalQuota != nil {
+				privateData.TargetQuota = common.GetPointer(*finalQuota)
+				if privateData.BillingContext != nil && task.PrivateData.BillingContext != nil {
+					privateData.BillingContext.TieredSnapshot = task.PrivateData.BillingContext.TieredSnapshot
+				}
 			}
 		}
 		privateData.ResultURL = task.PrivateData.ResultURL

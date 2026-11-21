@@ -166,9 +166,12 @@ type OpenAIVideoConverter interface {
 
 type TaskArtifact = types.TaskArtifact
 
+var ErrTaskCredentialUnavailable = errors.New("task credential unavailable")
+
 type TaskArtifactClientRequest struct {
-	Method  string            `json:"method"`
-	Headers map[string]string `json:"headers,omitempty"`
+	CredentiallessOnly bool              `json:"-"`
+	Method             string            `json:"method"`
+	Headers            map[string]string `json:"headers,omitempty"`
 }
 
 type TaskArtifactProvider interface {

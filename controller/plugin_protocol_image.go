@@ -95,7 +95,7 @@ func serveTaskPluginImageProtocol(c *gin.Context, pinned pluginruntime.PinnedEnd
 	}
 	task := outcome.Task
 	if task.Status != model.TaskStatusSuccess && task.Status != model.TaskStatusFailure {
-		if taskErr = waitTaskPluginImageTask(c, task, deps); taskErr != nil {
+		if task, taskErr = waitTaskPluginImageTask(c, task, deps); taskErr != nil {
 			if c.Request.Context().Err() == nil {
 				respondTaskPluginImageError(c, taskErr)
 			}
@@ -173,39 +173,42 @@ func serveTaskPluginImageProtocol(c *gin.Context, pinned pluginruntime.PinnedEnd
 // billing exactly as the background poller would, until the task is terminal
 // or the protocol timeout elapses. A client disconnect stops waiting; the
 // background poller then finishes the durable task.
-func waitTaskPluginImageTask(c *gin.Context, task *model.Task, deps pluginProtocolBridgeDeps) *dto.TaskError {
+func waitTaskPluginImageTask(c *gin.Context, submitted *model.Task, deps pluginProtocolBridgeDeps) (*model.Task, *dto.TaskError) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), deps.submissionTimeout)
 	defer cancel()
+	current := submitted
 	for {
+		// Pollers update a private snapshot. Only the committed row can tell
+		// us which worker won the transition and which result to render.
+		task, exists, err := deps.loadTask(ctx, submitted.UserId, submitted.Platform, submitted.TaskID)
+		if err == nil {
+			if !exists || task == nil || task.ID != submitted.ID || task.ChannelId != submitted.ChannelId {
+				return nil, service.TaskErrorWrapperLocal(errors.New("image task could not be observed"), "task_observation_failed", http.StatusInternalServerError)
+			}
+			current = task
+			if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
+				return task, nil
+			}
+		} else if ctx.Err() == nil {
+			logger.LogWarn(c, "task protocol image reload failed for local task %d", submitted.ID)
+		}
+
 		timer := time.NewTimer(deps.imagePollInterval)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) && c.Request.Context().Err() == nil {
-				return service.TaskErrorWrapperLocal(fmt.Errorf("image generation is still running; task %s settles when it completes", task.TaskID), "task_timeout", http.StatusGatewayTimeout)
+				return nil, service.TaskErrorWrapperLocal(fmt.Errorf("image generation is still running; task %s settles when it completes", submitted.TaskID), "task_timeout", http.StatusGatewayTimeout)
 			}
-			return service.TaskErrorWrapperLocal(ctx.Err(), "request_cancelled", http.StatusRequestTimeout)
+			return nil, service.TaskErrorWrapperLocal(ctx.Err(), "request_cancelled", http.StatusRequestTimeout)
 		case <-timer.C:
 		}
-		if err := deps.pollTask(ctx, task); err != nil {
-			logger.LogWarn(c, common.LogText("task protocol image poll failed for task %s: %s", task.TaskID, common.MaskSensitiveInfo(err.Error(), common.UpstreamAddresses(c)...)))
-			continue
-		}
-		if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
-			return nil
+		if ctx.Err() == nil {
+			if pollErr := deps.pollTask(ctx, current); pollErr != nil && ctx.Err() == nil {
+				logger.LogWarn(c, "task protocol image poll failed for local task %d", submitted.ID)
+			}
 		}
 	}
-}
-
-// pollTaskPluginImageTask runs one poll round for a single task through the
-// same code path as the scheduled task poller, including status CAS and
-// completion settlement.
-func pollTaskPluginImageTask(ctx context.Context, task *model.Task) error {
-	upstreamID := task.GetUpstreamTaskID()
-	if upstreamID == "" {
-		return errors.New("task has no upstream id")
-	}
-	return service.UpdateVideoTasks(ctx, task.Platform, map[int][]string{task.ChannelId: {upstreamID}}, map[string]*model.Task{upstreamID: task})
 }
 
 func taskPluginImageResponseFormat(request pluginruntime.ProtocolRequestContext) string {

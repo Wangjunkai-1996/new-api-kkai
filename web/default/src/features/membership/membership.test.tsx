@@ -1495,7 +1495,185 @@ describe('membership payment safety', () => {
     }
   )
 
-  it('never re-grants a successful order and handles its extra receipt by trade number', async () => {
+  it.each(['older page', 'ignored cursor', 'partially overlapping page'])(
+    'handles an exception queue with an %s',
+    async (result) => {
+      const order = (id: number): MembershipOrder => ({
+        id,
+        trade_no: `EX-${id}`,
+        tier_id: tier.id,
+        tier_name: tier.name,
+        status: 'paid_exception',
+        price_minor: 1000,
+        currency: 'USD',
+        quota: 1000,
+        created_at: 1,
+      })
+      const first = Array.from({ length: 50 }, (_, i) => order(100 - i))
+      let attempt = 0
+      vi.mocked(getMembershipOrders).mockImplementation(
+        async (_admin, status, beforeId) => {
+          if (!status) return []
+          if (beforeId === undefined) return first
+          if (attempt++ === 0) throw new Error('network')
+          if (result === 'older page') return [order(50)]
+          return result === 'ignored cursor' ? first : [order(100), order(49)]
+        }
+      )
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      render(
+        <QueryClientProvider client={client}>
+          <MembershipOrders admin />
+        </QueryClientProvider>
+      )
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Payment exceptions' })
+      )
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Load more' })
+      )
+      const retry = await screen.findByRole('button', { name: 'Retry' })
+      expect(screen.getByText('EX-100')).toBeVisible()
+      expect(getMembershipOrders).toHaveBeenLastCalledWith(
+        true,
+        'paid_exception',
+        51
+      )
+      await userEvent.click(retry)
+      expect(getMembershipOrders).toHaveBeenLastCalledWith(
+        true,
+        'paid_exception',
+        51
+      )
+      expect(screen.getByText('EX-100')).toBeVisible()
+      if (result === 'older page') {
+        expect(await screen.findByText('EX-50')).toBeVisible()
+      } else {
+        expect(await screen.findByText('Pagination: Unavailable')).toBeVisible()
+        expect(screen.getAllByText('EX-100')).toHaveLength(1)
+        expect(screen.queryByText('EX-49')).not.toBeInTheDocument()
+      }
+      expect(
+        screen.queryByRole('button', { name: 'Load more' })
+      ).not.toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+      expect(getMembershipOrders).toHaveBeenLastCalledWith(
+        true,
+        'paid_exception',
+        undefined
+      )
+    }
+  )
+
+  it('refreshes both order views after checking and resolving a payment', async () => {
+    let order: MembershipOrder = {
+      id: 17,
+      trade_no: 'EX-17',
+      tier_id: tier.id,
+      tier_name: tier.name,
+      status: 'closed',
+      price_minor: 1000,
+      currency: 'USD',
+      quota: 1000,
+      created_at: 1,
+      can_check_payment: true,
+    }
+    vi.mocked(getMembershipOrders).mockImplementation(async (_, status) =>
+      !status || (order.status === status && !order.resolved_at) ? [order] : []
+    )
+    vi.mocked(checkMembershipPayment).mockImplementation(async () => {
+      order = {
+        ...order,
+        status: 'paid_exception',
+        paid_at: 2,
+        can_check_payment: false,
+      }
+      return order
+    })
+    vi.mocked(resolveMembershipOrder).mockImplementation(async () => {
+      order = { ...order, resolved_at: 3, resolution_note: 'Handled manually' }
+    })
+    // Cached views remain fresh until a mutation explicitly invalidates them.
+    const client = new QueryClient({
+      defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <MembershipOrders admin />
+      </QueryClientProvider>
+    )
+    await screen.findByText('Order closed')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Payment exceptions' })
+    )
+    await screen.findByText('No orders found')
+    await userEvent.click(screen.getByRole('button', { name: 'Recent' }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Check payment' })
+    )
+    await screen.findByText('Payment received, needs review')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Payment exceptions' })
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Review payment' })
+    )
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Handling reason' }),
+      'Handled manually'
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Confirm handling' })
+    )
+    await screen.findByText('No orders found')
+    await userEvent.click(screen.getByRole('button', { name: 'Recent' }))
+    expect(await screen.findByText('Handled manually')).toBeVisible()
+    expect(checkMembershipPayment).toHaveBeenCalledTimes(1)
+    expect(resolveMembershipOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['unpaid', 0, undefined, false],
+    ['handled', 100, 110, false],
+    ['eligible', 100, undefined, true],
+  ] as const)(
+    'uses the available payment actions for a %s order',
+    (_kind, paidAt, resolvedAt, canGrant) => {
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <ResolveMembershipOrderDialog
+            order={{
+              id: 2,
+              trade_no: 'review',
+              tier_id: tier.id,
+              tier_name: tier.name,
+              price_minor: 1000,
+              currency: 'USD',
+              quota: 1000,
+              created_at: 1,
+              paid_at: paidAt,
+              status: 'paid_exception',
+              resolved_at: resolvedAt,
+              can_retry_activation: canGrant,
+            }}
+            onClose={vi.fn()}
+          />
+        </QueryClientProvider>
+      )
+      if (!canGrant) {
+        expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: 'Confirm handling' })
+        ).not.toBeInTheDocument()
+      } else {
+        expect(screen.getByRole('combobox')).toHaveValue('grant')
+      }
+    }
+  )
+
+  it('only dismisses an additional receipt on an already handled exception order', async () => {
     vi.mocked(resolveMembershipOrder).mockResolvedValue()
     const client = new QueryClient()
     render(
@@ -1506,7 +1684,9 @@ describe('membership payment safety', () => {
             trade_no: 'success-1',
             tier_id: 'gold',
             tier_name: 'Gold',
-            status: 'success',
+            status: 'paid_exception',
+            paid_at: 1000,
+            resolved_at: 1010,
             price_minor: 1000,
             currency: 'USD',
             quota: 1000,

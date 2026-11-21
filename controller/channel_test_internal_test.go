@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -39,16 +40,47 @@ func TestSettleTestQuotaUsesTieredBilling(t *testing.T) {
 		},
 	}
 
-	quota, result := settleTestQuota(info, types.PriceData{
+	quota, result, err := settleTestQuota(info, types.PriceData{
 		ModelRatio:      1,
 		CompletionRatio: 2,
 	}, &dto.Usage{
 		PromptTokens: 1000,
 	})
 
+	require.NoError(t, err)
 	require.Equal(t, 1500, quota)
 	require.NotNil(t, result)
 	require.Equal(t, "stream", result.MatchedTier)
+}
+
+func TestSettleTestQuotaPreservesRoundingAndRejectsInvalidCharges(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		price   types.PriceData
+		usage   dto.Usage
+		want    int
+		wantErr bool
+	}{
+		{name: "round completion before model ratio", price: types.PriceData{ModelRatio: 2, CompletionRatio: 0.5}, usage: dto.Usage{CompletionTokens: 1}, want: 2},
+		{name: "truncate fixed price", price: types.PriceData{UsePrice: true, ModelPrice: 1.75 / common.QuotaPerUnit}, want: 1},
+		{name: "nonzero model minimum", price: types.PriceData{ModelRatio: 1}, want: 1},
+		{name: "free price"},
+		{name: "intermediate beyond int32", price: types.PriceData{ModelRatio: 0.25, CompletionRatio: 4}, usage: dto.Usage{CompletionTokens: 1000000000}, want: 1000000000},
+		{name: "unbounded token sum", price: types.PriceData{ModelRatio: 1, CompletionRatio: 1}, usage: dto.Usage{PromptTokens: math.MaxInt, CompletionTokens: math.MaxInt}, wantErr: true},
+		{name: "negative input", usage: dto.Usage{PromptTokens: -1}, wantErr: true},
+		{name: "nonfinite ratio", price: types.PriceData{ModelRatio: math.Inf(1)}, wantErr: true},
+		{name: "nonfinite fixed price", price: types.PriceData{UsePrice: true, ModelPrice: math.NaN()}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			quota, _, err := settleTestQuota(nil, tc.price, &tc.usage)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, quota)
+		})
+	}
 }
 
 func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {

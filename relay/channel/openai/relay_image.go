@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
+
+func observeOpenAIImageCount(ctx context.Context, info *relaycommon.RelayInfo, count int64, source string) {
+	if info == nil || count <= 0 {
+		return
+	}
+	requested := info.RequestedImageCount()
+	if count > int64(requested) {
+		logger.LogWarn(ctx, common.LogText("openai image output overdelivery: channel_id=%d source=%s requested=%d observed=%d max=%d", info.GetChannelID(), source, requested, count, dto.MaxImageN))
+	}
+}
 
 func updateOpenAIImageCount(info *relaycommon.RelayInfo, count int64) {
 	if info == nil || count <= 0 || count > int64(dto.MaxImageN) {
@@ -58,7 +69,7 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 	}
 
-	if _, err := recordImageResponseOutputs(info, responseBody); err != nil {
+	if _, err := recordImageResponseOutputs(c.Request.Context(), info, responseBody); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 	}
 
@@ -101,13 +112,15 @@ func openaiImageResponseCount(data ojson.Result) int64 {
 	return max(urls, b64s)
 }
 
-func recordImageResponseOutputs(info *relaycommon.RelayInfo, body []byte) (ojson.Result, error) {
+func recordImageResponseOutputs(ctx context.Context, info *relaycommon.RelayInfo, body []byte) (ojson.Result, error) {
 	data := ojson.GetBytesNoCopy(body, "data")
 	if info.GetChannelType() == constant.ChannelTypeSiliconFlow && !data.Exists() {
 		images := ojson.GetBytesNoCopy(body, "images")
 		return images, service.RecordImageOutputCount(info, int(openaiImageResponseCount(images)))
 	}
-	updateOpenAIImageCount(info, openaiImageResponseCount(data))
+	count := openaiImageResponseCount(data)
+	observeOpenAIImageCount(ctx, info, count, "json_payload")
+	updateOpenAIImageCount(info, count)
 	return data, nil
 }
 
@@ -207,6 +220,7 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 			sr.Stop(err)
 		}
 	})
+	observeOpenAIImageCount(c.Request.Context(), info, completedImages, "sse_completed_event")
 	if streamErr != nil {
 		return nil, streamErr
 	}
@@ -328,7 +342,7 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 
-	outputs, err := recordImageResponseOutputs(info, responseBody)
+	outputs, err := recordImageResponseOutputs(c.Request.Context(), info, responseBody)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 	}

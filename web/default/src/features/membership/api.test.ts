@@ -16,17 +16,84 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 
 import {
   checkMembershipPayment,
   getMembershipOrder,
+  getMembershipOrders,
   resolveMembershipOrder,
 } from './api'
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
+
+beforeEach(() => vi.clearAllMocks())
+
+describe('membership order list transport', () => {
+  it('reads a fresh admin list after an update while the previous read is pending', async () => {
+    const { api: http } =
+      await vi.importActual<typeof import('@/lib/http-client')>(
+        '@/lib/http-client'
+      )
+    vi.mocked(api.get).mockImplementation(http.get.bind(http))
+    const originalAdapter = http.defaults.adapter
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let reads = 0
+    http.defaults.adapter = async (config) => {
+      const beforeUpdate = reads++ === 0
+      if (beforeUpdate) {
+        await pending
+      }
+      return {
+        config,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: { success: true, data: beforeUpdate ? [{ id: 17 }] : [] },
+      }
+    }
+    try {
+      const before = getMembershipOrders(true, 'paid_exception')
+      await vi.waitFor(() => expect(reads).toBe(1))
+      const after = getMembershipOrders(true, 'paid_exception')
+      release()
+      expect(await before).toEqual([{ id: 17 }])
+      expect(await after).toEqual([])
+    } finally {
+      release()
+      http.defaults.adapter = originalAdapter
+    }
+  })
+
+  it('passes the admin exception filter and cursor', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { success: true, data: [] },
+    })
+    await expect(
+      getMembershipOrders(true, 'paid_exception', 42)
+    ).resolves.toEqual([])
+    expect(api.get).toHaveBeenCalledExactlyOnceWith(
+      '/api/membership/admin/orders',
+      {
+        params: { status: 'paid_exception', before_id: 42 },
+        disableDuplicate: true,
+      }
+    )
+  })
+
+  it('keeps the personal list request unchanged', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { success: true, data: [] },
+    })
+    await expect(getMembershipOrders()).resolves.toEqual([])
+    expect(api.get).toHaveBeenCalledExactlyOnceWith('/api/membership/orders')
+  })
+})
 
 it.each([
   [false, '/api/membership/orders'],

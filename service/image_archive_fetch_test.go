@@ -30,8 +30,9 @@ func TestHTTPImageArchiveFetcherValidatesBase64Image(t *testing.T) {
 }
 
 func TestHTTPImageArchiveFetcherAllowsPaddedPayloadAtExactByteLimit(t *testing.T) {
-	payload := imageArchiveTestPNG(t, 3, 2)
-	encoded := base64.StdEncoding.EncodeToString(payload)
+	const encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+	payload, err := base64.StdEncoding.DecodeString(encoded)
+	require.NoError(t, err)
 	require.Greater(t, base64.StdEncoding.DecodedLen(len(encoded)), len(payload))
 	fetcher := NewHTTPImageArchiveFetcher(t.TempDir())
 	fetcher.availableBytes = func(string) (uint64, error) { return math.MaxUint64, nil }
@@ -40,6 +41,8 @@ func TestHTTPImageArchiveFetcherAllowsPaddedPayloadAtExactByteLimit(t *testing.T
 	require.NoError(t, err)
 	t.Cleanup(archive.Remove)
 	assert.Equal(t, int64(len(payload)), archive.SizeBytes)
+	_, err = fetcher.FetchBase64(encoded, int64(len(payload)-1), 100)
+	require.ErrorIs(t, err, ErrImageArchiveTooLarge)
 }
 
 func TestHTTPImageArchiveFetcherRejectsMIMEConfusionAndPixelOverflow(t *testing.T) {

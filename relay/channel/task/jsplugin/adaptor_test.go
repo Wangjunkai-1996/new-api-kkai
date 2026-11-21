@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -1692,6 +1693,7 @@ func TestTaskAdaptorBatchBridge(t *testing.T) {
 		_, _ = w.Write([]byte(`{"items":[
 			{"id":"task-a","action":"music","status":"SUCCESS","progress":"100%","urls":["https://cdn.example/a1.mp3","https://cdn.example/a2.mp3"],"finish":1700000000,"usage":23},
 			{"id":"task-b","status":"IN_PROGRESS","progress":"40%"},
+			{"id":"task-unknown","status":"SUCCESS"},
 			{"id":"","status":"SUCCESS"}
 		]}`))
 	}))
@@ -1732,6 +1734,86 @@ func TestTaskAdaptorBatchBridge(t *testing.T) {
 	assert.Equal(t, "IN_PROGRESS", pending.TaskInfo.Status)
 	assert.Equal(t, "40%", pending.TaskInfo.Progress)
 	assert.Empty(t, pending.TaskInfo.Url)
+}
+
+func TestTaskAdaptorPollCancelWhileReadingBody(t *testing.T) {
+	service.InitHttpClient()
+	closed := make(chan struct{})
+	stop := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{"))
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+			close(closed)
+		case <-stop:
+		}
+	}))
+	defer server.Close()
+	defer close(stop)
+	plugin, err := pluginruntime.NewRegistry().Register(batchMockPlugin, pluginruntime.Options{})
+	require.NoError(t, err)
+	task := &model.Task{TaskID: "poll"}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	resp, err := New(plugin).FetchBatchTasksContext(ctx, server.URL, "", []*model.Task{task}, "")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	buf := make([]byte, 1)
+	_, err = io.ReadFull(resp.Body, buf)
+	require.NoError(t, err)
+	require.Equal(t, "{", string(buf))
+	done := make(chan error, 1)
+	go func() {
+		_, err := io.ReadAll(resp.Body)
+		done <- err
+	}()
+	cancel()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(3 * time.Second):
+		t.Fatal("poll body reader remained blocked after cancellation")
+	}
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("upstream did not observe the cancellation")
+	}
+}
+
+func TestTaskAdaptorSoraPollingMetadataBudget(t *testing.T) {
+	source, err := plugins.Source("sora")
+	require.NoError(t, err)
+	plugin, err := pluginruntime.NewRegistry().RegisterFactory(source, pluginruntime.Options{Key: "sora"})
+	require.NoError(t, err)
+	assert.Equal(t, int64(maxTaskPluginPersistedJSONBytes), New(plugin).PollResponseBodyLimit(1))
+	assert.Equal(t, int64(2*maxTaskPluginPersistedJSONBytes), New(plugin).PollResponseBodyLimit(2))
+
+	custom, err := pluginruntime.NewRegistry().Register(strings.Replace(batchMockPlugin, `key: "mock-batch"`, `key: "sora"`, 1), pluginruntime.Options{Key: "sora"})
+	require.NoError(t, err)
+	assert.Zero(t, New(custom).PollResponseBodyLimit(1))
+}
+
+func TestTaskAdaptorBatchResultDefersEveryDuplicateID(t *testing.T) {
+	plugin, err := pluginruntime.NewRegistry().Register(batchMockPlugin, pluginruntime.Options{})
+	require.NoError(t, err)
+	adaptor := New(plugin)
+	tasks := []*model.Task{
+		{TaskID: "a"}, {TaskID: " b "}, {TaskID: "b"}, {TaskID: "shared"}, {TaskID: "shared"},
+	}
+	resp := &http.Response{StatusCode: http.StatusOK}
+	for _, states := range [][]string{{"SUCCESS", "FAILURE"}, {"FAILURE", "SUCCESS"}} {
+		body := fmt.Sprintf(`{"items":[{"id":"a","status":%q},{"id":"a","status":%q},{"id":" b ","status":"SUCCESS","usage":9},{"id":"b","status":"IN_PROGRESS"},{"id":"unknown","status":"SUCCESS"},{"id":"shared","status":"SUCCESS"}]}`, states[0], states[1])
+		results, err := adaptor.ParseBatchResult(tasks, resp, []byte(body))
+		require.NoError(t, err)
+		require.Len(t, results, 2)
+		require.Contains(t, results, " b ")
+		require.Contains(t, results, "b")
+		assert.Equal(t, 9, results[" b "].TaskInfo.TotalTokens)
+		assert.Equal(t, "IN_PROGRESS", results["b"].TaskInfo.Status)
+	}
 }
 
 const mappingOrderAdaptorPlugin = `

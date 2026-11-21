@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -213,7 +214,7 @@ func TestResolveVideoArchiveSourceScopesSoraProviderContentToConfiguredBase(t *t
 	db := newVideoPipelineTestDB(t)
 	providerBaseURL := "http://seedance-special-adapter:8080"
 	channel := model.Channel{
-		Id: 55, Type: constant.ChannelTypeSora, Key: "provider-key",
+		Id: 55, Type: constant.ChannelTypeSora, Key: "other-key\nprovider-key", ChannelInfo: model.ChannelInfo{IsMultiKey: true},
 		BaseURL: common.GetPointer(providerBaseURL),
 	}
 	require.NoError(t, db.Create(&channel).Error)
@@ -222,6 +223,7 @@ func TestResolveVideoArchiveSourceScopesSoraProviderContentToConfiguredBase(t *t
 		PrivateData: model.TaskPrivateData{
 			ArchiveSource:     "https://api.kkrich.ltd/v1/videos/task_public/content",
 			UpstreamTaskID:    "upstream-private",
+			CredentialDigest:  model.CredentialDigest("provider-key"),
 			AssetHostedResult: true,
 		},
 	}
@@ -241,6 +243,22 @@ func TestResolveVideoArchiveSourceScopesSoraProviderContentToConfiguredBase(t *t
 	require.Equal(t, providerBaseURL+"/v1/videos/upstream-private/content", resolved.fetch.Source)
 	require.Equal(t, providerBaseURL, resolved.fetch.ProviderContentBaseURL)
 	require.Equal(t, "Bearer provider-key", resolved.fetch.Headers["Authorization"])
+
+	require.NoError(t, db.Model(&channel).Update("key", "other-key").Error)
+	payload, err := common.Marshal(VideoAssetEventPayload{AssetID: asset.ID})
+	require.NoError(t, err)
+	pipeline := &VideoAssetPipeline{db: db, now: time.Now}
+	err = pipeline.HandleArchive(context.Background(), model.KKAIOutboxEvent{Payload: string(payload)})
+	var deferred deferredKKAIOutboxError
+	require.ErrorAs(t, err, &deferred)
+	require.ErrorIs(t, err, errVideoArchiveCredentialUnavailable)
+	require.NoError(t, db.First(&asset, asset.ID).Error)
+	assert.Equal(t, model.VideoAssetStateProcessing, asset.State)
+	assert.Equal(t, videoTaskResultArchiveSource(task.ID), asset.ArchiveSourceURL)
+	require.NoError(t, db.Model(&channel).Update("key", "provider-key\nother-key").Error)
+	resumed, err := pipeline.resolveVideoArchiveSource(context.Background(), asset)
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer provider-key", resumed.fetch.Headers["Authorization"])
 }
 
 func TestVideoAssetPipelineInspectsVideoReferenceAndCreatesPoster(t *testing.T) {

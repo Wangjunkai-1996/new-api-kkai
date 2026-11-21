@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -17,7 +16,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/video_studio_setting"
 
 	"gorm.io/gorm"
@@ -41,6 +39,8 @@ const (
 	videoArchiveFetchHardTimeout           = 15 * time.Minute
 	videoArchivePutHardTimeout             = 15 * time.Minute
 )
+
+var errVideoArchiveCredentialUnavailable = errors.New("video archive task credential unavailable")
 
 var errVideoArchiveTaskSourceChanged = errors.New("video archive task source changed")
 
@@ -321,7 +321,13 @@ func (pipeline *VideoAssetPipeline) resolveVideoArchiveSource(ctx context.Contex
 				return resolvedVideoArchiveSource{}, ErrVideoArchiveSourceRejected
 			}
 			resolved.fetch.Source = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, url.PathEscape(task.GetUpstreamTaskID()))
-			resolved.fetch.Headers = map[string]string{"Authorization": "Bearer " + channel.Key}
+			key, ok := pollingCredential(&channel, &task)
+			if !ok {
+				return resolvedVideoArchiveSource{}, errVideoArchiveCredentialUnavailable
+			}
+			if key != "" {
+				resolved.fetch.Headers = map[string]string{"Authorization": "Bearer " + key}
+			}
 			resolved.fetch.ProviderContentBaseURL = baseURL
 		default:
 			refreshed, err := pipeline.refreshVideoArchiveSource(ctx, task, channel)
@@ -337,12 +343,9 @@ func (pipeline *VideoAssetPipeline) resolveVideoArchiveSource(ctx context.Contex
 			geminiBaseURL = constant.GetChannelBaseURL(channel.Type)
 		}
 		if VideoSourceCanUseProviderCredentials(resolved.fetch.Source, geminiBaseURL) {
-			key := strings.TrimSpace(task.PrivateData.Key)
-			if key == "" {
-				key = strings.TrimSpace(channel.Key)
-			}
-			if key == "" {
-				return resolvedVideoArchiveSource{}, ErrVideoArchiveSourceRejected
+			key, ok := pollingCredential(&channel, &task)
+			if !ok || strings.TrimSpace(key) == "" {
+				return resolvedVideoArchiveSource{}, errVideoArchiveCredentialUnavailable
 			}
 			resolved.fetch.Headers = map[string]string{"x-goog-api-key": key}
 		}
@@ -358,34 +361,24 @@ func (pipeline *VideoAssetPipeline) refreshVideoArchiveSource(ctx context.Contex
 	if adaptor == nil {
 		return "", ErrVideoArchiveSourceRejected
 	}
-	baseURL := channel.GetBaseURL()
-	if baseURL == "" {
-		baseURL = constant.GetChannelBaseURL(channel.Type)
+	key, ok := pollingCredential(&channel, &task)
+	if !ok {
+		return "", errVideoArchiveCredentialUnavailable
 	}
-	key := channel.Key
-	if task.PrivateData.Key != "" {
-		key = task.PrivateData.Key
-	}
-	adaptor.Init(&relaycommon.RelayInfo{
-		ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: baseURL, ApiKey: key},
-	})
+	baseURL := initPollingAdaptor(adaptor, &channel, key)
 	taskCopy := task
-	response, err := adaptor.FetchTask(baseURL, key, &taskCopy, channel.GetSetting().Proxy)
+	response, fetchErr := fetchTaskWithContext(ctx, adaptor, baseURL, key, &taskCopy, channel.GetSetting().Proxy)
+	body, err := consumePollingResponse(ctx, adaptor, response, fetchErr, 1, false)
 	if err != nil {
+		if fetchErr == nil && response != nil && response.Body != nil && (response.StatusCode < 200 || response.StatusCode >= 300) {
+			return "", &videoArchiveHTTPStatusError{statusCode: response.StatusCode}
+		}
 		return "", err
 	}
-	if response == nil || response.Body == nil {
-		return "", ErrVideoArchiveResponseRejected
-	}
-	defer response.Body.Close()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return "", &videoArchiveHTTPStatusError{statusCode: response.StatusCode}
-	}
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
+	result, err := parseTaskResultWithContext(ctx, adaptor, &taskCopy, response, body)
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	result, err := adaptor.ParseTaskResult(&taskCopy, response, body)
 	if err != nil || result == nil {
 		return "", ErrVideoArchiveResponseRejected
 	}
@@ -765,6 +758,9 @@ func (pipeline *VideoAssetPipeline) markVideoAssetReady(ctx context.Context, ass
 func (pipeline *VideoAssetPipeline) assetProcessingError(ctx context.Context, assetID int64, err error) error {
 	if contextErr := ctx.Err(); contextErr != nil && errors.Is(err, contextErr) {
 		return DeferKKAIOutboxUntil(pipeline.now(), err)
+	}
+	if errors.Is(err, errVideoArchiveCredentialUnavailable) {
+		return DeferKKAIOutboxUntil(pipeline.now().Add(time.Minute), err)
 	}
 	if !isPermanentVideoAssetError(err) {
 		return err

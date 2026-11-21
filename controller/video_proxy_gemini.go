@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 )
 
@@ -26,6 +27,9 @@ func getGeminiVideoURL(channel *model.Channel, task *model.Task, apiKey string) 
 		baseURL = channel.GetBaseURL()
 	}
 	if videoURL := extractGeminiVideoURLFromTaskData(task); videoURL != "" {
+		if apiKey == "" && service.VideoSourceCanUseProviderCredentials(videoURL, baseURL) {
+			return "", false, fmt.Errorf("api key not available for task")
+		}
 		videoURL, useAPIKey := geminiVideoURLWithCredentials(baseURL, videoURL, apiKey)
 		return videoURL, useAPIKey, nil
 	}
@@ -39,8 +43,11 @@ func getGeminiVideoURL(channel *model.Channel, task *model.Task, apiKey string) 
 		return "", false, fmt.Errorf("api key not available for task")
 	}
 
-	proxy := channel.GetSetting().Proxy
-	resp, err := adaptor.FetchTask(baseURL, apiKey, task, proxy)
+	setting := channel.GetSetting()
+	adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+		ChannelType: channel.Type, ChannelBaseUrl: baseURL, ApiKey: apiKey, ChannelSetting: setting, HeadersOverride: channel.GetHeaderOverride(),
+	}})
+	resp, err := adaptor.FetchTask(baseURL, apiKey, task, setting.Proxy)
 	if err != nil {
 		return "", false, fmt.Errorf("fetch task failed: %w", err)
 	}
@@ -180,12 +187,16 @@ func getVertexVideoURL(channel *model.Channel, task *model.Task) (string, error)
 		return "", fmt.Errorf("vertex task adaptor not found")
 	}
 
-	key := getVertexTaskKey(channel, task)
-	if key == "" {
+	key, ok := task.ResolveChannelCredential(channel)
+	if !ok {
 		return "", fmt.Errorf("vertex key not available for task")
 	}
 
-	resp, err := adaptor.FetchTask(baseURL, key, task, channel.GetSetting().Proxy)
+	setting := channel.GetSetting()
+	adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+		ChannelType: channel.Type, ChannelBaseUrl: baseURL, ApiKey: key, ChannelSetting: setting, HeadersOverride: channel.GetHeaderOverride(),
+	}})
+	resp, err := adaptor.FetchTask(baseURL, key, task, setting.Proxy)
 	if err != nil {
 		return "", fmt.Errorf("fetch task failed: %w", err)
 	}
@@ -214,25 +225,6 @@ func isTaskProxyContentURL(url string, taskID string) bool {
 		return false
 	}
 	return strings.Contains(url, "/v1/videos/"+taskID+"/content")
-}
-
-func getVertexTaskKey(channel *model.Channel, task *model.Task) string {
-	if task != nil {
-		if key := strings.TrimSpace(task.PrivateData.Key); key != "" {
-			return key
-		}
-	}
-	if channel == nil {
-		return ""
-	}
-	keys := channel.GetKeys()
-	for _, key := range keys {
-		key = strings.TrimSpace(key)
-		if key != "" {
-			return key
-		}
-	}
-	return strings.TrimSpace(channel.Key)
 }
 
 func extractVertexVideoURLFromTaskData(task *model.Task) string {

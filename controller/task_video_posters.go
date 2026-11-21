@@ -207,15 +207,7 @@ func resolveTaskVideoPosterSource(ctx context.Context, task *model.Task, key str
 	}
 	descriptor := &relaychannel.TaskContentRequest{URL: task.GetResultURL(), Method: http.MethodGet, Credentialless: true}
 	if taskHasPluginExecution(task) {
-		adaptor, err := initTaskArtifactAdaptor(task)
-		if err != nil {
-			return service.TaskVideoPosterSource{}, err
-		}
-		provider, ok := adaptor.(relaychannel.TaskContentRequestProvider)
-		if !ok {
-			return service.TaskVideoPosterSource{}, service.ErrTaskVideoPosterUnavailable
-		}
-		descriptor, err = provider.BuildContentRequest(ctx, task, key, relaychannel.TaskArtifactClientRequest{Method: http.MethodGet})
+		descriptor, err = buildTaskArtifactContentRequest(ctx, task, key, relaychannel.TaskArtifactClientRequest{Method: http.MethodGet})
 		if err != nil {
 			return service.TaskVideoPosterSource{}, err
 		}

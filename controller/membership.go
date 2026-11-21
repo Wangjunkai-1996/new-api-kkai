@@ -53,6 +53,7 @@ type membershipOrderView struct {
 	ActualProvider    string                  `json:"actual_provider,omitempty"`
 	ActualOneTime     bool                    `json:"actual_one_time,omitempty"`
 	ResolvedAt        int64                   `json:"resolved_at,omitempty"`
+	CanGrant          bool                    `json:"can_retry_activation,omitempty"`
 	CheckoutState     string                  `json:"checkout_state,omitempty"`
 	ExceptionReason   string                  `json:"exception_reason,omitempty"`
 	ResolutionNote    string                  `json:"resolution_note,omitempty"`
@@ -100,6 +101,7 @@ func membershipOrderResponse(order *model.MembershipOrder, admin bool) (*members
 	view.ActualProvider = order.ActualProvider
 	view.ActualOneTime = order.ActualOneTime
 	view.ResolvedAt = order.ResolvedAt
+	view.CanGrant = order.CanRetryActivation()
 	view.ExceptionReason = order.ExceptionReason
 	if order.Resolution != "" {
 		var resolution struct {
@@ -269,15 +271,38 @@ func GetMembershipSelf(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"runtime_enabled": true, "server_time": self.ServerTime, "account": self.Account, "tier": self.Tier, "discounts": quotes, "pending_order": pending, "available_quota": available})
 }
 
-func GetMembershipOrders(c *gin.Context)      { listMembershipOrders(c, c.GetInt("id")) }
-func AdminGetMembershipOrders(c *gin.Context) { listMembershipOrders(c, 0) }
+func GetMembershipOrders(c *gin.Context) {
+	userID := c.GetInt("id")
+	if userID <= 0 {
+		membershipAPIError(c, model.ErrMembershipInvalidInput)
+		return
+	}
+	listMembershipOrders(c, userID, 0)
+}
 
-func listMembershipOrders(c *gin.Context, userID int) {
+func AdminGetMembershipOrders(c *gin.Context) {
+	var beforeID uint64
+	if values, ok := c.GetQueryArray("before_id"); ok {
+		if len(values) != 1 {
+			membershipAPIError(c, model.ErrMembershipInvalidInput)
+			return
+		}
+		var err error
+		beforeID, err = strconv.ParseUint(values[0], 10, 63)
+		if err != nil || beforeID == 0 {
+			membershipAPIError(c, model.ErrMembershipInvalidInput)
+			return
+		}
+	}
+	listMembershipOrders(c, 0, int64(beforeID))
+}
+
+func listMembershipOrders(c *gin.Context, userID int, beforeID int64) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	if limit < 1 || limit > 100 {
 		limit = 50
 	}
-	orders, err := model.ListMembershipOrders(userID, c.Query("status"), limit)
+	orders, err := model.ListMembershipOrdersBefore(userID, c.Query("status"), limit, beforeID)
 	if err != nil {
 		membershipAPIError(c, err)
 		return

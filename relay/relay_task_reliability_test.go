@@ -868,6 +868,148 @@ func TestSubmitPreparedTaskDoesNotOverwriteDispatchingStateFromStaleReplay(t *te
 	assert.Equal(t, "first-upstream-model", persisted.Properties.UpstreamModelName)
 }
 
+func TestRejectedTaskAttemptCannotResetAnotherClaim(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		channelID int
+		key       string
+		preWrite  bool
+	}{
+		{"definitive rejection after channel change", 10, "original", false},
+		{"pre-write failure after credential change", 9, "replacement", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupTaskReliabilityDB(t)
+			_, ctx, info := newTaskReliabilityContext(t)
+			info.ApiKey = "original"
+			var winner *model.Task
+			adaptor := &reliabilityTaskAdaptor{doRequest: func(_ *gin.Context, _ *relaycommon.RelayInfo, _ io.Reader) (*http.Response, error) {
+				var current model.Task
+				require.NoError(t, db.Where("task_id = ?", info.PublicTaskID).First(&current).Error)
+				require.NoError(t, model.ResetTaskSubmissionClaim(ctx, &current))
+				var claimed bool
+				var err error
+				winner, claimed, err = model.ClaimTaskSubmission(ctx, current.ID, &model.TaskSubmissionAttempt{
+					ChannelID: tc.channelID, ChannelType: info.ChannelType, Credential: tc.key, Platform: current.Platform,
+				})
+				require.NoError(t, err)
+				require.True(t, claimed)
+				if tc.preWrite {
+					return nil, channel.NewTaskRequestError(errors.New("dial failed"), false)
+				}
+				return &http.Response{StatusCode: http.StatusBadRequest, Body: io.NopCloser(strings.NewReader("invalid request"))}, nil
+			}}
+			result, taskErr := submitPreparedTask(ctx, info, adaptor, "reliability", nil)
+			require.NotNil(t, taskErr)
+			require.NotNil(t, winner)
+			assert.Equal(t, TaskSubmitUnknown, result.Outcome)
+			assert.False(t, result.CanRetry())
+			assert.False(t, result.CanRefund())
+			var stored model.Task
+			require.NoError(t, db.First(&stored, winner.ID).Error)
+			assert.Equal(t, model.TaskBillingStateDispatching, stored.PrivateData.BillingState)
+			assert.Equal(t, tc.channelID, stored.ChannelId)
+			assert.Equal(t, model.CredentialDigest(tc.key), stored.PrivateData.CredentialDigest)
+			assert.Nil(t, stored.PrivateData.TargetQuota)
+			assert.Equal(t, winner.Status, stored.Status)
+			assert.Equal(t, winner.Quota, stored.Quota)
+			var accounting int64
+			require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where("topic = ?", service.KKAIOutboxTopicTaskAccounting).Count(&accounting).Error)
+			assert.Zero(t, accounting)
+		})
+	}
+}
+
+func TestSubmitPreparedTaskLeavesReboundClaimDispatching(t *testing.T) {
+	for _, phase := range []string{"before acceptance", "before recovery receipt", "after recovery receipt"} {
+		t.Run(phase, func(t *testing.T) {
+			db := setupTaskReliabilityDB(t)
+			recorder, ctx, info := newTaskReliabilityContext(t)
+			info.ApiKey = "original"
+			var row model.Task
+			rebind := func(tx *gorm.DB) {
+				privateData := row.PrivateData
+				privateData.CredentialDigest = model.CredentialDigest("new-owner")
+				require.NoError(t, tx.Model(&model.Task{}).Where("id = ?", row.ID).Update("private_data", privateData).Error)
+			}
+			recoveryReads, recoveryWrites := 0, 0
+			require.NoError(t, db.Callback().Query().Before("gorm:query").Register("test:rebind_before_receipt", func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*model.KKAIOutboxEvent); !ok {
+					return
+				}
+				recoveryReads++
+				if phase == "before recovery receipt" && recoveryReads == 1 {
+					rebind(db)
+				}
+			}))
+			require.NoError(t, db.Callback().Update().Before("gorm:update").Register("test:lose_first_acceptance", func(tx *gorm.DB) {
+				if task, ok := tx.Statement.Dest.(*model.Task); ok && phase != "before acceptance" && task.PrivateData.UpstreamTaskID == "upstream-task" {
+					tx.AddError(errors.New("temporary task write error"))
+				}
+			}))
+			require.NoError(t, db.Callback().Update().After("gorm:update").Register("test:rebind_after_receipt", func(tx *gorm.DB) {
+				if tx.Statement.Table == "kkai_outbox" {
+					recoveryWrites++
+					if phase == "after recovery receipt" {
+						rebind(tx.Session(&gorm.Session{NewDB: true, SkipHooks: true}))
+					}
+				}
+			}))
+			adaptor := &reliabilityTaskAdaptor{
+				doRequest: func(_ *gin.Context, _ *relaycommon.RelayInfo, _ io.Reader) (*http.Response, error) {
+					require.NoError(t, db.Where("task_id = ?", info.PublicTaskID).First(&row).Error)
+					if phase == "before acceptance" {
+						rebind(db)
+					}
+					return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+				},
+				doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+					return &channel.TaskSubmitResponse{UpstreamTaskID: "upstream-task", TaskData: []byte("{}")}, nil
+				},
+			}
+			result, taskErr := submitPreparedTask(ctx, info, adaptor, "reliability", nil)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, "task_submission_unknown", taskErr.Code)
+			assert.False(t, result.CanRetry())
+			assert.False(t, result.CanRefund())
+			assert.Empty(t, recorder.Body.String())
+			if phase == "before acceptance" {
+				assert.Zero(t, recoveryReads)
+			}
+			var stored model.Task
+			require.NoError(t, db.First(&stored, row.ID).Error)
+			assert.Equal(t, model.TaskBillingStateDispatching, stored.PrivateData.BillingState)
+			assert.Equal(t, model.CredentialDigest("new-owner"), stored.PrivateData.CredentialDigest)
+			assert.Nil(t, stored.PrivateData.TargetQuota)
+			assert.Empty(t, stored.PrivateData.UpstreamTaskID)
+			assert.Equal(t, row.Quota, stored.Quota)
+			assert.Equal(t, row.Status, stored.Status)
+			var accounting int64
+			require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where("topic = ?", service.KKAIOutboxTopicTaskAccounting).Count(&accounting).Error)
+			assert.Zero(t, accounting)
+			if phase == "after recovery receipt" {
+				assert.Equal(t, 1, recoveryWrites)
+				var event model.KKAIOutboxEvent
+				require.NoError(t, db.Where("topic = ?", service.KKAIOutboxTopicTaskBillingRecovery).First(&event).Error)
+				require.ErrorIs(t, (service.TaskBillingRecoveryHandler{}).Handle(ctx, event), model.ErrTaskBillingStateConflict)
+				winning := service.TaskBillingRecoveryAcceptanceReceipt{
+					UpstreamTaskID: "winning-operation", ChannelID: stored.ChannelId,
+					CredentialDigest: stored.PrivateData.CredentialDigest, Status: model.TaskStatusSubmitted,
+					RawResponse: []byte("{}"),
+				}
+				require.NoError(t, service.StoreTaskBillingRecoveryAcceptanceReceipt(ctx, stored.ID, winning))
+				require.NoError(t, db.First(&event, event.ID).Error)
+				var payload service.TaskBillingRecoveryPayload
+				require.NoError(t, common.UnmarshalJsonStr(event.Payload, &payload))
+				require.NotNil(t, payload.Acceptance)
+				assert.Equal(t, winning, *payload.Acceptance)
+			} else {
+				assert.Zero(t, recoveryWrites)
+			}
+		})
+	}
+}
+
 func TestEnforceTaskMaxQuotaSupportsZeroCeiling(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

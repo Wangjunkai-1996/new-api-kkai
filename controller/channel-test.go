@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -40,6 +41,7 @@ import (
 type testResult struct {
 	context     *gin.Context
 	localErr    error
+	quotaErr    error
 	newAPIError *relaytypes.NewAPIError
 }
 
@@ -492,7 +494,11 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 	info.SetEstimatePromptTokens(usage.PromptTokens)
 
-	quota, tieredResult := settleTestQuota(info, priceData, usage)
+	quota, tieredResult, quotaErr := settleTestQuota(info, priceData, usage)
+	if quotaErr != nil {
+		logger.LogWarn(c, "channel test %d completed with invalid diagnostic quota: %v", channel.Id, quotaErr)
+		return testResult{context: c, quotaErr: quotaErr}
+	}
 	tok := time.Now()
 	milliseconds := tok.Sub(tik).Milliseconds()
 	consumedTime := float64(milliseconds) / 1000.0
@@ -531,26 +537,41 @@ func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Requ
 	return nil
 }
 
-func settleTestQuota(info *relaycommon.RelayInfo, priceData types.PriceData, usage *dto.Usage) (int, *billingexpr.TieredResult) {
-	if usage != nil && info != nil && info.TieredBillingSnapshot != nil {
+func settleTestQuota(info *relaycommon.RelayInfo, priceData types.PriceData, usage *dto.Usage) (int, *billingexpr.TieredResult, error) {
+	if usage == nil || usage.PromptTokens < 0 || usage.CompletionTokens < 0 {
+		return 0, nil, errors.New("invalid token counts in channel test")
+	}
+	if info != nil && info.TieredBillingSnapshot != nil {
 		isClaudeUsageSemantic := usage.UsageSemantic == "anthropic" || info.GetFinalRequestRelayFormat() == relaytypes.RelayFormatClaude
 		usedVars := billingexpr.UsedVars(info.TieredBillingSnapshot.ExprString)
 		if ok, quota, result := service.TryTieredSettle(info, service.BuildTieredTokenParams(usage, isClaudeUsageSemantic, usedVars)); ok {
-			return quota, result
+			if info.QuotaClamp != nil {
+				return 0, nil, info.QuotaClamp
+			}
+			return quota, result, nil
 		}
 	}
 
-	quota := 0
-	if !priceData.UsePrice {
-		quota = usage.PromptTokens + int(math.Round(float64(usage.CompletionTokens)*priceData.CompletionRatio))
-		quota = int(math.Round(float64(quota) * priceData.ModelRatio))
-		if priceData.ModelRatio != 0 && quota <= 0 {
-			quota = 1
+	if priceData.UsePrice {
+		if priceData.ModelPrice < 0 || math.IsNaN(priceData.ModelPrice) || math.IsInf(priceData.ModelPrice, 0) {
+			return 0, nil, errors.New("invalid fixed price in channel test")
 		}
-		return quota, nil
+		quota, err := common.QuotaFromFloatStrict(priceData.ModelPrice * common.QuotaPerUnit)
+		return quota, nil, err
 	}
-
-	return int(priceData.ModelPrice * common.QuotaPerUnit), nil
+	if priceData.ModelRatio < 0 || math.IsNaN(priceData.ModelRatio) || math.IsInf(priceData.ModelRatio, 0) ||
+		priceData.CompletionRatio < 0 || math.IsNaN(priceData.CompletionRatio) || math.IsInf(priceData.CompletionRatio, 0) {
+		return 0, nil, errors.New("invalid token price ratio in channel test")
+	}
+	if priceData.ModelRatio == 0 {
+		return 0, nil, nil
+	}
+	weighted := float64(usage.PromptTokens) + math.Round(float64(usage.CompletionTokens)*priceData.CompletionRatio)
+	quota, err := common.QuotaRoundStrict(weighted * priceData.ModelRatio)
+	if err != nil {
+		return 0, nil, err
+	}
+	return max(1, quota), nil, nil
 }
 
 func buildTestLogOther(c *gin.Context, info *relaycommon.RelayInfo, priceData types.PriceData, usage *dto.Usage, tieredResult *billingexpr.TieredResult) *model.LogOther {
@@ -895,9 +916,13 @@ func TestChannel(c *gin.Context) {
 		})
 		return
 	}
+	message := ""
+	if result.quotaErr != nil {
+		message = result.quotaErr.Error()
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "",
+		"message": message,
 		"time":    consumedTime,
 	})
 }
@@ -953,6 +978,11 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 	}
 
 	summary.Tested++
+	if result.quotaErr != nil {
+		summary.Succeeded++
+		channel.UpdateResponseTime(milliseconds)
+		return summary
+	}
 
 	newAPIError := result.newAPIError
 	policyDetected := processChannelTestPolicyError(channel, result)
