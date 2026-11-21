@@ -68,8 +68,7 @@ export function useWalletBalance({
       if (
         response?.success !== true ||
         !data ||
-        !Number.isSafeInteger(data.quota) ||
-        data.quota < 0
+        !Number.isSafeInteger(data.quota)
       ) {
         throw new Error('Wallet balance unavailable')
       }

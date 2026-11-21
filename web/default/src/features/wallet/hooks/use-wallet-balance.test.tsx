@@ -133,6 +133,17 @@ describe('useWalletBalance', () => {
     expect(result.current.data).toBeUndefined()
   })
 
+  it('keeps a negative balance visible for overdue users', async () => {
+    vi.mocked(getWalletBalance).mockResolvedValue({
+      success: true,
+      data: balance(-1166),
+    })
+    const { result } = renderHook(() => useWalletBalance(), { wrapper })
+
+    await waitFor(() => expect(result.current.data?.quota).toBe(-1166))
+    expect(result.current.isError).toBe(false)
+  })
+
   it('keeps the cached balance visible when a refresh fails', async () => {
     const queryKey = [
       'wallet-payment',
