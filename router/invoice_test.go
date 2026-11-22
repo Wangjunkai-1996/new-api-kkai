@@ -19,7 +19,7 @@ func TestInvoiceFinancialRoutesRequireAuthentication(t *testing.T) {
 		{"POST", "/api/invoices/payments/verify"},
 		{"GET", "/api/invoices/notifications"}, {"POST", "/api/invoices/notifications/read-all"}, {"POST", "/api/invoices/notifications/event/read"},
 		{"GET", "/api/invoices/private"}, {"GET", "/api/invoices/private/files/file"}, {"POST", "/api/invoices/private/attachments"},
-		{"POST", "/api/invoices/private/confirm"}, {"POST", "/api/invoices/private/disputes"}, {"POST", "/api/invoices/private/disputes/dispute/messages"},
+		{"POST", "/api/invoices/private/withdraw"}, {"POST", "/api/invoices/private/confirm"}, {"POST", "/api/invoices/private/disputes"}, {"POST", "/api/invoices/private/disputes/dispute/messages"},
 		{"GET", "/api/invoice-profiles"}, {"POST", "/api/invoice-profiles"}, {"GET", "/api/invoice-profiles/profile"}, {"PATCH", "/api/invoice-profiles/profile"}, {"DELETE", "/api/invoice-profiles/profile"},
 		{"GET", "/api/admin/invoices"}, {"GET", "/api/admin/invoices/summary"}, {"GET", "/api/admin/invoices/private"},
 		{"GET", "/api/admin/invoices/notifications"}, {"POST", "/api/admin/invoices/notifications/read-all"}, {"POST", "/api/admin/invoices/notifications/event/read"},

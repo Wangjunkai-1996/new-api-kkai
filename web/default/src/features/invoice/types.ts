@@ -7,6 +7,7 @@ export type InvoiceStatus =
   | 'awaiting_reconfirmation'
   | 'finance_hold'
   | 'rejected'
+  | 'withdrawn'
 
 export interface InvoiceProfile {
   id?: string

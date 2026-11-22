@@ -174,6 +174,9 @@ func (s InvoiceService) Mutate(ctx context.Context, scope InvoiceScope, id, acti
 	if err := invoiceValidateScope(scope); err != nil {
 		return InvoiceDTO{}, err
 	}
+	if action == "withdraw" && scope.Admin {
+		return InvoiceDTO{}, invoiceError(409, "INVALID_STATE")
+	}
 	var committedCode string
 	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
 		var initial model.InvoiceRequest
@@ -187,6 +190,9 @@ func (s InvoiceService) Mutate(ctx context.Context, scope InvoiceScope, id, acti
 		if replay {
 			committedCode = operation.ResultCode
 			return nil
+		}
+		if action == "withdraw" && input.Version <= 0 {
+			return invoiceError(400, "VALIDATION_FAILED")
 		}
 		snapshot, err := s.lockPayments(tx, initial)
 		if err != nil {
@@ -265,9 +271,8 @@ func (s InvoiceService) Mutate(ctx context.Context, scope InvoiceScope, id, acti
 				if err != nil {
 					return err
 				}
-				if err = tx.Where("tenant_id = ? AND request_id = ?", row.TenantID, row.ID).Delete(&model.InvoiceOrderClaim{}).Error; err != nil {
-					return err
-				}
+			case "withdraw":
+				row.Status = model.InvoiceWithdrawn
 			case "hold":
 				if !invoiceDescription(input.Reason) {
 					return invoiceError(400, "VALIDATION_FAILED")
@@ -379,6 +384,11 @@ func (s InvoiceService) Mutate(ctx context.Context, scope InvoiceScope, id, acti
 		}
 		if update.RowsAffected != 1 {
 			return invoiceError(409, "VERSION_CONFLICT")
+		}
+		if row.Status == model.InvoiceRejected || row.Status == model.InvoiceWithdrawn {
+			if err = tx.Where("tenant_id = ? AND request_id = ?", row.TenantID, row.ID).Delete(&model.InvoiceOrderClaim{}).Error; err != nil {
+				return err
+			}
 		}
 		kind := action
 		if committedCode != "" {

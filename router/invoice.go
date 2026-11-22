@@ -26,6 +26,7 @@ func registerInvoiceRoutes(api *gin.RouterGroup) {
 	user.GET("/:public_id", controller.InvoiceDetail(false))
 	user.GET("/:public_id/files/:file_id", controller.InvoiceFile(false))
 	user.POST("/:public_id/attachments", middleware.UserCriticalRateLimit("invoice-upload"), controller.InvoiceUpload(false))
+	user.POST("/:public_id/withdraw", middleware.UserCriticalRateLimit("invoice-withdraw"), controller.InvoiceAction(false, "withdraw"))
 	user.POST("/:public_id/confirm", controller.InvoiceAction(false, "confirm"))
 	user.POST("/:public_id/disputes", controller.InvoiceAction(false, "dispute"))
 	user.POST("/:public_id/disputes/:dispute_id/messages", controller.InvoiceAction(false, "message"))

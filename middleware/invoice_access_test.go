@@ -14,7 +14,7 @@ func TestInvoiceRoutesRejectScopedAndLegacyTokensAndTenantHosts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, endpoint := range []struct{ method, path string }{
 		{"GET", "/api/invoices/policy"}, {"GET", "/api/invoices"}, {"POST", "/api/invoices"}, {"POST", "/api/invoices/quote"},
-		{"GET", "/api/invoices/:public_id/files/:file_id"}, {"POST", "/api/invoices/:public_id/attachments"}, {"POST", "/api/invoices/:public_id/confirm"},
+		{"GET", "/api/invoices/:public_id/files/:file_id"}, {"POST", "/api/invoices/:public_id/attachments"}, {"POST", "/api/invoices/:public_id/confirm"}, {"POST", "/api/invoices/:public_id/withdraw"},
 		{"POST", "/api/invoices/:public_id/disputes"}, {"POST", "/api/invoices/:public_id/disputes/:dispute_id/messages"},
 		{"POST", "/api/invoices/notifications/:event_id/read"}, {"POST", "/api/invoices/notifications/read-all"},
 		{"GET", "/api/invoice-profiles"}, {"GET", "/api/invoice-profiles/:id"}, {"PATCH", "/api/invoice-profiles/:id"}, {"DELETE", "/api/invoice-profiles/:id"},

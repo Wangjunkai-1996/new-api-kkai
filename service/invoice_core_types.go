@@ -243,7 +243,7 @@ type InvoiceSummary struct {
 	ProcessingCount           int64               `json:"processing_count"`
 	AwaitingConfirmationCount int64               `json:"awaiting_confirmation_count"`
 	UnreadCount               int64               `json:"unread_count"`
-	Counts                    map[string]int64    `json:"-"`
+	Counts                    map[string]int64    `json:"counts"`
 }
 type InvoiceNotification struct {
 	InvoiceEventDTO

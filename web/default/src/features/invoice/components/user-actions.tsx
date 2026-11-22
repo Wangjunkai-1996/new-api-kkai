@@ -19,12 +19,12 @@ import type { InvoiceAttachment, InvoiceRequest } from '../types'
 import { InvoiceError } from './shared'
 import { InvoiceUpload } from './upload'
 
+type UserAction = 'confirm' | 'dispute' | 'message' | 'withdraw'
+
 export function InvoiceUserActions(props: { invoice: InvoiceRequest }) {
   const { t } = useTranslation()
   const invoice = props.invoice
-  const [dialog, setDialog] = useState<
-    'confirm' | 'dispute' | 'message' | null
-  >(null)
+  const [dialog, setDialog] = useState<UserAction | null>(null)
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('title_tax')
   const [attachment, setAttachment] = useState<InvoiceAttachment | null>(null)
@@ -34,7 +34,7 @@ export function InvoiceUserActions(props: { invoice: InvoiceRequest }) {
     version: invoice.version,
     delivery_version: invoice.current_delivery_version,
   })
-  function openDialog(value: 'confirm' | 'dispute' | 'message') {
+  function openDialog(value: UserAction) {
     setActionVersion({
       version: invoice.version,
       delivery_version: invoice.current_delivery_version,
@@ -42,10 +42,12 @@ export function InvoiceUserActions(props: { invoice: InvoiceRequest }) {
     op.setError(null)
     setDialog(value)
   }
+  const canWithdraw = invoice.allowed_actions.includes('withdraw')
   const stale =
     !!dialog &&
     (actionVersion.version !== invoice.version ||
-      actionVersion.delivery_version !== invoice.current_delivery_version)
+      actionVersion.delivery_version !== invoice.current_delivery_version ||
+      (dialog === 'withdraw' && !canWithdraw))
   const canConfirm = invoice.allowed_actions.includes('confirm')
   const canDispute =
     invoice.allowed_actions.includes('dispute') ||
@@ -53,13 +55,13 @@ export function InvoiceUserActions(props: { invoice: InvoiceRequest }) {
   const canMessage =
     invoice.allowed_actions.includes('message') ||
     invoice.allowed_actions.includes('messages')
+  const needsFeedback = dialog === 'message' || dialog === 'dispute'
   async function submit() {
-    if (stale) return
-    let action = 'confirm'
-    let payload: object = {
-      ...actionVersion,
-    }
-    if (dialog !== 'confirm') {
+    if (!dialog || stale) return
+    let action: string = dialog
+    let payload: object =
+      dialog === 'withdraw' ? { version: actionVersion.version } : actionVersion
+    if (needsFeedback) {
       action =
         dialog === 'message'
           ? `disputes/${invoice.active_dispute?.id}/messages`
@@ -87,7 +89,23 @@ export function InvoiceUserActions(props: { invoice: InvoiceRequest }) {
   }
   let submitLabel = t('Submit feedback')
   if (dialog === 'confirm') submitLabel = t('Confirm correct')
+  if (dialog === 'withdraw') submitLabel = t('Withdraw request')
   if (op.busy) submitLabel = t('Processing...')
+  let dialogTitle = t('Report an invoice problem')
+  let dialogDescription = t(
+    'Your feedback stays linked to the current invoice version. Orders remain reserved.'
+  )
+  if (dialog === 'confirm') {
+    dialogTitle = t('Confirm this invoice?')
+    dialogDescription = t(
+      'Check the current invoice title, tax ID, amount and attachment. Confirmation does not waive correction rights.'
+    )
+  } else if (dialog === 'withdraw') {
+    dialogTitle = t('Withdraw this invoice request?')
+    dialogDescription = t(
+      'Withdrawing releases the associated payments. Submit a new request if needed.'
+    )
+  }
   return (
     <>
       <div className='flex flex-wrap gap-2'>
@@ -106,6 +124,11 @@ export function InvoiceUserActions(props: { invoice: InvoiceRequest }) {
             {t('Add more information')}
           </Button>
         )}
+        {canWithdraw && (
+          <Button variant='destructive' onClick={() => openDialog('withdraw')}>
+            {t('Withdraw request')}
+          </Button>
+        )}
       </div>
       <Dialog
         open={!!dialog}
@@ -115,22 +138,10 @@ export function InvoiceUserActions(props: { invoice: InvoiceRequest }) {
       >
         <DialogContent className='sm:max-w-lg'>
           <DialogHeader>
-            <DialogTitle>
-              {dialog === 'confirm'
-                ? t('Confirm this invoice?')
-                : t('Report an invoice problem')}
-            </DialogTitle>
-            <DialogDescription>
-              {dialog === 'confirm'
-                ? t(
-                    'Check the current invoice title, tax ID, amount and attachment. Confirmation does not waive correction rights.'
-                  )
-                : t(
-                    'Your feedback stays linked to the current invoice version. Orders remain reserved.'
-                  )}
-            </DialogDescription>
+            <DialogTitle>{dialogTitle}</DialogTitle>
+            <DialogDescription>{dialogDescription}</DialogDescription>
           </DialogHeader>
-          {dialog !== 'confirm' && (
+          {needsFeedback && (
             <div className='space-y-4'>
               {dialog !== 'message' && (
                 <label className='grid gap-2 text-sm'>
@@ -189,11 +200,12 @@ export function InvoiceUserActions(props: { invoice: InvoiceRequest }) {
               {t('Cancel')}
             </Button>
             <Button
+              variant={dialog === 'withdraw' ? 'destructive' : 'default'}
               disabled={
                 op.busy ||
                 stale ||
                 uploading ||
-                (dialog !== 'confirm' && !description.trim())
+                (needsFeedback && !description.trim())
               }
               onClick={() => void submit()}
             >

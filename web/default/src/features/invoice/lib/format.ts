@@ -18,6 +18,7 @@ export const invoiceStatuses: InvoiceStatus[] = [
   'awaiting_reconfirmation',
   'finance_hold',
   'rejected',
+  'withdrawn',
 ]
 export const statusKeys: Record<InvoiceStatus, string> = {
   pending_review: 'Pending review',
@@ -28,6 +29,7 @@ export const statusKeys: Record<InvoiceStatus, string> = {
   awaiting_reconfirmation: 'Awaiting reconfirmation',
   finance_hold: 'Finance review required',
   rejected: 'Rejected',
+  withdrawn: 'Withdrawn',
 }
 export const reasonKeys: Record<string, string> = {
   PAYMENT_UNVERIFIED: 'Payment evidence needs verification',

@@ -91,11 +91,20 @@ func TestInvoiceMembershipReceiptAmountChangeHoldsEveryLinkedClaim(t *testing.T)
 		require.NoError(t, DB.Create(&InvoiceOrderClaim{CanonicalPaymentKey: key, RequestID: request.ID}).Error)
 		require.NoError(t, DB.Create(&InvoiceRequestItem{UserID: user.Id, RequestID: request.ID, CanonicalPaymentKey: key, OrderNo: order.TradeNo, PaymentLabel: order.ActualProvider}).Error)
 	}
+	// A stale legacy claim can still point to the withdrawn application. It
+	// must not prevent the same callback from holding the active requests.
+	withdrawn := InvoiceRequest{PublicID: "INV-old-withdrawn", UserID: user.Id, Status: InvoiceWithdrawn, Version: 2}
+	require.NoError(t, DB.Create(&withdrawn).Error)
+	legacyKey := sha256.Sum256([]byte("payment:v1:0:" + order.ActualProvider + ":" + order.TradeNo))
+	require.NoError(t, DB.Create(&InvoiceOrderClaim{CanonicalPaymentKey: hex.EncodeToString(legacyKey[:]), RequestID: withdrawn.ID}).Error)
 	_, err := CompleteMembershipPayment(MembershipPaymentInput{TradeNo: order.TradeNo, Provider: order.Provider, ReceiptID: order.ReceiptID,
 		AmountMinor: order.AmountMinor - 1, Currency: order.Currency, Paid: true, OneTime: true})
 	require.NoError(t, err)
 	var held []InvoiceRequest
-	require.NoError(t, DB.Order("id ASC").Find(&held).Error)
+	require.NoError(t, DB.First(&withdrawn, withdrawn.ID).Error)
+	assert.Equal(t, InvoiceWithdrawn, withdrawn.Status)
+	assert.EqualValues(t, 2, withdrawn.Version)
+	require.NoError(t, DB.Where("id <> ?", withdrawn.ID).Order("id ASC").Find(&held).Error)
 	require.Len(t, held, 2)
 	for _, request := range held {
 		assert.Equal(t, InvoiceFinanceHold, request.Status)

@@ -84,7 +84,7 @@ func holdInvoiceRequestForPaymentExceptionTx(tx *gorm.DB, requestID int64, now i
 	if err := lockForUpdate(tx).Where("id = ? AND tenant_id = ?", requestID, PlatformTenantID).First(&request).Error; err != nil {
 		return err
 	}
-	if request.Status == InvoiceRejected || request.Status == InvoiceFinanceHold {
+	if request.Status == InvoiceRejected || request.Status == InvoiceWithdrawn || request.Status == InvoiceFinanceHold {
 		return nil
 	}
 	switch request.Status {

@@ -6,6 +6,12 @@ import { expect, test } from 'vitest'
 test('invoice center copy is translated in every supported locale', () => {
   const keys = [
     'Invoiced amount',
+    'Withdraw request',
+    'Withdraw this invoice request?',
+    'Withdrawing releases the associated payments. Submit a new request if needed.',
+    'Invoice request withdrawn',
+    'Withdrawn',
+    'Create a new invoice request',
     'Invoices delivered to your account',
     'Request note',
     'Request note (optional, visible to reviewers)',

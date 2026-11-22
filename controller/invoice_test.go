@@ -53,6 +53,12 @@ func TestInvoiceHandlersRequireTrustedSessionHostAndAdmin(t *testing.T) {
 				InvoiceVerifyPayment(verifyContext)
 				assert.Equal(t, http.StatusForbidden, verifyResponse.Code)
 				assert.Contains(t, verifyResponse.Body.String(), test.code)
+				recorder := httptest.NewRecorder()
+				withdrawContext, _ := gin.CreateTestContext(recorder)
+				withdrawContext.Request, withdrawContext.Keys = ctx.Request, ctx.Keys
+				InvoiceAction(false, "withdraw")(withdrawContext)
+				assert.Equal(t, http.StatusForbidden, recorder.Code)
+				assert.Contains(t, recorder.Body.String(), test.code)
 			}
 		})
 	}

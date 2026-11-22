@@ -317,6 +317,8 @@ export const STATIC_I18N_KEYS = [
   'Amount due',
   'An authorization reference must be checked by an authorized operator. A release approval does not authorize historical data processing.',
   'Apply for invoice',
+  'Withdrawn',
+  'Invoice request withdrawn',
   'Awaiting payment',
   'Back to edit',
   'Back to order',

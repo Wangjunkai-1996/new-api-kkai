@@ -29,6 +29,7 @@ const eventKeys: Record<string, string> = {
   reissue: 'Corrected invoice delivered',
   hold: 'Finance review required',
   resume: 'Invoice processing resumed',
+  withdraw: 'Invoice request withdrawn',
 }
 const disputeCategoryKeys: Record<string, string> = {
   title_tax: 'Incorrect title or tax ID',
@@ -300,7 +301,7 @@ export function InvoiceDetail(props: {
             ))}
           </ol>
         </section>
-        {invoice.status === 'rejected' && !props.admin && (
+        {['rejected', 'withdrawn'].includes(invoice.status) && !props.admin && (
           <Link
             to='/invoices/new'
             className='text-primary inline-block text-sm underline'

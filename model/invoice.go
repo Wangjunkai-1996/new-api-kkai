@@ -11,6 +11,7 @@ const (
 	InvoiceAwaitingReconfirmation = "awaiting_reconfirmation"
 	InvoiceFinanceHold            = "finance_hold"
 	InvoiceRejected               = "rejected"
+	InvoiceWithdrawn              = "withdrawn"
 )
 
 type InvoiceRequest struct {

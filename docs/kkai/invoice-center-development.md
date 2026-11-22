@@ -13,7 +13,7 @@
 以下是开发统一口径：
 
 1. 常用抬头的新增、编辑、选择、软删除和安全持久化属于一期；不能做成空页签或仅浏览器缓存。
-2. 一次最多 50 笔付款；不拆单、不部分开票，不提供提交后撤回、删除、导出、OCR、自动税务开票或自动红冲。
+2. 一次最多 50 笔付款；不拆单、不部分开票，允许本人撤销待审核且没有开具或交付证据的申请，不提供删除、导出、OCR、自动税务开票或自动红冲。
 3. 同一笔真实付款即使同时存在充值/旧订阅镜像，也只能形成一份候选及一份有效占用。唯一性基于规范付款身份，不能只锁来源行 ID。
 4. 金额只来自核验的真实实收；未知金额显示“待核验”，不得使用标价、额度或浮点数估算。首批仅开启配置完整的 CNY 来源。
 5. 首期只有主站用户和主站平台管理员；租户开票能力在卖方主体、税务规则及权限方案完成前关闭。tenant 由 Host scope 决定，不由客户端指定。
@@ -94,7 +94,7 @@
 | --- | --- |
 | `invoice_requests` | 内部 ID、public ID、tenant/user、status、CAS version、policy/seller/tax-rule 快照、profile 引用（可空）及**加密不可变抬头快照**、币种/金额、备注、current_delivery_version、active_dispute_id、hold_from_status/原因、ever_delivered/已实际开具证据、关键时间。历史抬头不能被 profile 编辑影响。 |
 | `invoice_request_items` | request/tenant/user、canonical key、来源类型/行 ID/订单号、实收额/币种/付款时间/渠道标签、最小付款校验摘要及税务组快照。不能复制卡号、回执密钥或原始 payload。 |
-| `invoice_order_claims` | tenant + canonical key 唯一，request 关联；一笔付款同时只有一个活动 claim。rejected 合法释放后 item/event 历史仍保留；其他状态不释放。 |
+| `invoice_order_claims` | tenant + canonical key 唯一，request 关联；一笔付款同时只有一个活动 claim。withdrawn 或 rejected 合法释放后 item/event 历史仍保留；其他状态不释放。 |
 | `invoice_attachments` | 不透明 ID、tenant/request、uploader/purpose（`invoice` 或 `dispute_evidence`）、随机私有 key、净化文件名、MIME/大小/hash、验证状态、绑定/过期/创建时间。暂存与正式交付分开，附件不能跨申请或用途复用。 |
 | `invoice_deliveries` | request + delivery_version 唯一；一期每版一个正式文件，引用 validated attachment；发票号、开票日期、金额/币种/按需税额、交付人/时间。交付后不可变；新版本不覆盖旧文件。 |
 | `invoice_disputes` | request、delivery_version、round、分类/说明、可选一个佐证附件、状态/处理回复/处理人/时间。每申请只允许一个未解决异议轮次，通过request.active_dispute_id及request锁串行保证，不依赖跨DB不兼容的partial index；新补充追加事件，不新建并行未解决异议。 |
@@ -119,7 +119,7 @@ profiles 和申请快照中的税号、邮箱、地址、电话、银行信息�
 
 | 状态 / 标签 | 用户允许动作（另均可看详情） | 管理员允许动作 | 目标状态 |
 | --- | --- | --- | --- |
-| `pending_review` 待审核 | 看进度 | approve / reject / hold | 待开票 / 已拒绝 / 财务待核查 |
+| `pending_review` 待审核 | 看进度，符合条件时 withdraw | approve / reject / hold | 已撤销 / 待开票 / 已拒绝 / 财务待核查 |
 | `approved_for_issue` 待开票 | 看进度 | 暂存上传、deliver / hold | 待确认 / 财务待核查 |
 | `delivered` 待确认 | 看/下载当前及历史正式文件；confirm / dispute | 查看、必要时 hold | 已确认 / 异议处理中 / 财务待核查 |
 | `confirmed` 已确认 | 下载；次操作“反馈问题” | 查看、必要时 hold | 用户反馈后异议处理中 |
@@ -127,6 +127,7 @@ profiles 和申请快照中的税号、邮箱、地址、电话、银行信息�
 | `awaiting_reconfirmation` 待重新确认 | 同版本 confirm / 继续反馈 | reissue / hold | 已确认 / 异议处理中 / 待确认新版本 / 财务待核查 |
 | `finance_hold` 财务待核查 | 看原因及已正式交付文件；无确认动作 | 核验后 resume；符合严格条件才 reject | 原合法状态 / 已拒绝 |
 | `rejected` 已拒绝 | 看原因；从已释放付款重新申请 | 查看历史 | 原申请不再修改 |
+| `withdrawn` 已撤销 | 查看原订单、资料和时间线，重新申请 | 查看历史 | 终态 |
 
 补充约束：
 
@@ -179,7 +180,7 @@ profiles 和申请快照中的税号、邮箱、地址、电话、银行信息�
 | `PATCH /invoice-profiles/:id` | 完整业务字段 + profile version，原子更新；不改变任何申请快照。 |
 | `DELETE /invoice-profiles/:id` | body 带 version、软删除；已被申请引用仍保留快照。 |
 
-summary 中 processing = pending_review + approved_for_issue + disputed + finance_hold；awaiting_confirmation = delivered + awaiting_reconfirmation；completed = confirmed + rejected。候选 totals 仅含当前真正可申请、已核验且未 claim 的付款，多个 currency 分开，不跨币种相加。invoiced_totals 按本人已正式交付过的申请金额汇总，每笔申请只计一次；审核通过未交付不计，补发及后续确认、异议或暂停不重复累计。记录组采用相同定义；未读数与待办数不同。
+summary 中 processing = pending_review + approved_for_issue + disputed + finance_hold；awaiting_confirmation = delivered + awaiting_reconfirmation；completed = confirmed + rejected + withdrawn。候选 totals 仅含当前真正可申请、已核验且未 claim 的付款，多个 currency 分开，不跨币种相加。invoiced_totals 按本人已正式交付过的申请金额汇总，每笔申请只计一次；审核通过未交付不计，补发及后续确认、异议或暂停不重复累计。记录组采用相同定义；未读数与待办数不同。
 
 候选 DTO 示例（示例 ID/金额，不是种子数据契约）：
 
@@ -200,6 +201,7 @@ summary 中 processing = pending_review + approved_for_issue + disputed + financ
 | Method / Path | 请求及效果 |
 | --- | --- |
 | `POST /invoices` | 1–50个不同付款引用、`profile_id` 或 inline `profile` 二选一、invoice_type、policy_version、备注、user_confirmed=true；返回申请详情。客户端金额/状态/tenant 不被采纳。 |
+| `POST /invoices/:public_id/withdraw` | 本人主站会话提交正整数 version 和 Idempotency-Key。服务端在付款与申请锁内检查待审核状态及开具、交付证据，同事务更新状态、释放本申请全部 claim 并记录事件，成功返回完整详情。 |
 | `POST /invoices/:public_id/confirm` | request version、delivery_version；只确认当前可确认文件，追加事件。 |
 | `POST /invoices/:public_id/attachments` | multipart，purpose 固定 dispute_evidence、单文件20MiB；绑定本人申请，返回 validated attachment ID/元数据，不改变申请状态。 |
 | `POST /invoices/:public_id/disputes` | version、delivery_version、category、description、可选 evidence_attachment_id；初次反馈或同版本继续反馈。仅 delivered/confirmed/awaiting_reconfirmation 创建或重开一个异议轮次。 |

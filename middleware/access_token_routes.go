@@ -82,6 +82,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/invoices/:public_id":                                     accessTokenSessionRule,
 	"GET /api/invoices/:public_id/files/:file_id":                      accessTokenSessionRule,
 	"POST /api/invoices/:public_id/attachments":                        accessTokenSessionRule,
+	"POST /api/invoices/:public_id/withdraw":                           accessTokenSessionRule,
 	"POST /api/invoices/:public_id/confirm":                            accessTokenSessionRule,
 	"POST /api/invoices/:public_id/disputes":                           accessTokenSessionRule,
 	"POST /api/invoices/:public_id/disputes/:dispute_id/messages":      accessTokenSessionRule,

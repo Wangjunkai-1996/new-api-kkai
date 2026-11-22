@@ -19,6 +19,17 @@ import (
 
 func invoiceFixture(t *testing.T) (InvoiceService, InvoiceScope) {
 	t.Helper()
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:invoice-%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	raw, err := db.DB()
+	require.NoError(t, err)
+	raw.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = raw.Close() })
+	return invoiceFixtureWithDB(t, db)
+}
+
+func invoiceFixtureWithDB(t *testing.T, db *gorm.DB) (InvoiceService, InvoiceScope) {
+	t.Helper()
 	t.Setenv("KKAI_INVOICE_KEY_ID", "test-key")
 	t.Setenv("KKAI_INVOICE_KEYS", `{"test-key":"`+base64.StdEncoding.EncodeToString(make([]byte, 32))+`"}`)
 	t.Setenv("KKAI_INVOICE_STORAGE_DIR", "")
@@ -40,14 +51,8 @@ func invoiceFixture(t *testing.T) (InvoiceService, InvoiceScope) {
 		common.OptionMap["InvoicePolicy"] = prior
 		common.OptionMapRWMutex.Unlock()
 	})
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:invoice-%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-	require.NoError(t, err)
-	raw, err := db.DB()
-	require.NoError(t, err)
-	raw.SetMaxOpenConns(1)
-	t.Cleanup(func() { _ = raw.Close() })
 	require.NoError(t, db.AutoMigrate(&model.TopUp{}, &model.MembershipOrder{}, &model.MembershipPaymentReceipt{}, &model.SubscriptionOrder{}, &model.InvoiceRequest{}, &model.InvoiceRequestItem{}, &model.InvoiceOrderClaim{}, &model.InvoiceAttachment{}, &model.InvoiceDelivery{}, &model.InvoiceDispute{}, &model.InvoiceEvent{}, &model.InvoiceEventRead{}, &model.InvoiceOperation{}, &model.InvoiceProfile{}, &model.InvoicePaymentReceipt{}, &model.KKAIOutboxEvent{}))
-	require.NoError(t, db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, username TEXT, email TEXT, deleted_at DATETIME)").Error)
+	require.NoError(t, db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, username TEXT, email TEXT, deleted_at TIMESTAMP NULL)").Error)
 	require.NoError(t, db.Exec("INSERT INTO users (id,tenant_id,username,email) VALUES (1,0,'customer','customer@example.com'), (2,0,'admin','admin@example.com')").Error)
 	require.NoError(t, db.Create(&model.TopUp{Id: 1, UserId: 1, TenantID: 0, TradeNo: "payment-a", PaidMinor: 50000, Currency: "CNY", PaymentProvider: "epay", Status: common.TopUpStatusSuccess, CompleteTime: time.Now().Unix() - 100}).Error)
 	require.NoError(t, db.Create(&model.InvoicePaymentReceipt{TopUpID: 1, UserID: 1, Provider: "epay", ReceiptKey: strings.Repeat("a", 64), AmountMinor: 50000, Currency: "CNY", Status: "verified", PaidAt: time.Now().Unix() - 100, CreatedAt: time.Now().Unix() - 100}).Error)
@@ -92,6 +97,7 @@ func TestInvoiceClaimIdempotencyAndSafeRejection(t *testing.T) {
 	_, err = s.Create(ctx, user, "create-key-three", invoiceCreateInput())
 	require.NoError(t, err)
 }
+
 func TestInvoiceDeliveryReplyReissueAndHistoricalAccess(t *testing.T) {
 	s, user := invoiceFixture(t)
 	common.OptionMapRWMutex.Lock()

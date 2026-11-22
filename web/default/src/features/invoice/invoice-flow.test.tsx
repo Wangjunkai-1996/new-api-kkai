@@ -654,6 +654,72 @@ test('confirmation submits the displayed request and current delivery versions',
   )
 })
 
+test('withdrawal permits cancellation and retries an uncertain result with the original key', async () => {
+  const user = userEvent.setup()
+  const pending: InvoiceRequest = {
+    ...invoice,
+    status: 'pending_review',
+    current_delivery_version: 0,
+    allowed_actions: ['withdraw'],
+  }
+  const withdrawn: InvoiceRequest = {
+    ...pending,
+    status: 'withdrawn',
+    version: pending.version + 1,
+    allowed_actions: [],
+  }
+  const action = vi
+    .spyOn(invoiceApi, 'invoiceAction')
+    .mockRejectedValueOnce(new Error('Network Error'))
+    .mockResolvedValueOnce(withdrawn)
+  const get = vi
+    .spyOn(invoiceApi, 'getInvoice')
+    .mockResolvedValueOnce(pending)
+    .mockResolvedValue(withdrawn)
+  function DetailActions() {
+    const detail = useQuery({
+      queryKey: [...invoiceApi.invoiceKey(42), 'detail', pending.public_id],
+      queryFn: () => invoiceApi.getInvoice(pending.public_id),
+    })
+    return detail.data && <InvoiceUserActions invoice={detail.data} />
+  }
+  renderWithClient(<DetailActions />)
+  const open = await screen.findByRole('button', { name: 'Withdraw request' })
+  await user.click(open)
+  const dialog = within(
+    screen.getByRole('dialog', { name: 'Withdraw this invoice request?' })
+  )
+  expect(
+    dialog.getByText(
+      'Withdrawing releases the associated payments. Submit a new request if needed.'
+    )
+  ).toBeVisible()
+  expect(dialog.queryByRole('textbox')).not.toBeInTheDocument()
+  await user.click(dialog.getByRole('button', { name: 'Cancel' }))
+  expect(action).not.toHaveBeenCalled()
+  await user.click(open)
+  const submit = within(screen.getByRole('dialog')).getByRole('button', {
+    name: 'Withdraw request',
+  })
+  await user.click(submit)
+  expect(await screen.findByRole('alert')).toBeVisible()
+  expect(action).toHaveBeenCalledWith(
+    'inv_1',
+    'withdraw',
+    { version: 8 },
+    expect.any(String)
+  )
+  await user.click(submit)
+  expect(action.mock.calls[1]).toEqual(action.mock.calls[0])
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  )
+  expect(get).toHaveBeenCalledTimes(2)
+  expect(
+    screen.queryByRole('button', { name: 'Withdraw request' })
+  ).not.toBeInTheDocument()
+})
+
 test('feedback keeps the current delivery and submits category, description and evidence', async () => {
   const user = userEvent.setup()
   const action = vi

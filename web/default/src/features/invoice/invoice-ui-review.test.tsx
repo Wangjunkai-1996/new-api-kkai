@@ -94,6 +94,46 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+test('withdrawn details retain the timeline and offer the owner a new request', () => {
+  const withdrawn: InvoiceRequest = {
+    ...invoice,
+    status: 'withdrawn',
+    events: [
+      {
+        id: '1',
+        kind: 'submitted',
+        status: 'pending_review',
+        created_at: invoice.created_at,
+      },
+      {
+        id: '2',
+        kind: 'withdraw',
+        status: 'withdrawn',
+        created_at: invoice.updated_at,
+      },
+    ],
+  }
+  const client = new QueryClient()
+  const view = render(<InvoiceDetail invoice={withdrawn} />, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  })
+  expect(screen.getByText('Withdrawn')).toBeVisible()
+  expect(screen.getByText('Invoice request submitted')).toBeVisible()
+  expect(screen.getByText('Invoice request withdrawn')).toBeVisible()
+  expect(
+    screen.getByRole('link', { name: 'Create a new invoice request' })
+  ).toHaveAttribute('href', '/invoices/new')
+  expect(
+    screen.queryByRole('button', { name: 'Withdraw request' })
+  ).not.toBeInTheDocument()
+  view.rerender(<InvoiceDetail invoice={withdrawn} admin />)
+  expect(
+    screen.queryByRole('link', { name: 'Create a new invoice request' })
+  ).not.toBeInTheDocument()
+})
+
 test('an explicit batch error message takes precedence over a single-payment error code', () => {
   render(
     <InvoiceError

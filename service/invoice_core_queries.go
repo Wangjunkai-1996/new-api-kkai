@@ -44,6 +44,10 @@ func InvoiceAllowedActions(row model.InvoiceRequest, admin bool) []string {
 		}
 	} else {
 		switch row.Status {
+		case model.InvoicePendingReview:
+			if !row.EverDelivered && !row.IssuedEvidence {
+				a = append(a, "withdraw")
+			}
 		case model.InvoiceDelivered, model.InvoiceAwaitingReconfirmation:
 			a = append(a, "confirm", "dispute")
 		case model.InvoiceConfirmed:
@@ -245,7 +249,7 @@ func invoiceListQuery(db *gorm.DB, scope InvoiceScope, f InvoiceFilter, groups b
 	if !scope.Admin {
 		q = q.Where("invoice_requests.user_id = ?", scope.UserID)
 	}
-	statuses := []string{model.InvoicePendingReview, model.InvoiceApprovedForIssue, model.InvoiceDelivered, model.InvoiceConfirmed, model.InvoiceDisputed, model.InvoiceAwaitingReconfirmation, model.InvoiceFinanceHold, model.InvoiceRejected}
+	statuses := []string{model.InvoicePendingReview, model.InvoiceApprovedForIssue, model.InvoiceDelivered, model.InvoiceConfirmed, model.InvoiceDisputed, model.InvoiceAwaitingReconfirmation, model.InvoiceFinanceHold, model.InvoiceRejected, model.InvoiceWithdrawn}
 	if groups {
 		if f.Status != "" {
 			if !slices.Contains(statuses, f.Status) {
@@ -268,7 +272,7 @@ func invoiceListQuery(db *gorm.DB, scope InvoiceScope, f InvoiceFilter, groups b
 			case "awaiting_confirmation":
 				q = q.Where("invoice_requests.status IN ?", []string{model.InvoiceDelivered, model.InvoiceAwaitingReconfirmation})
 			case "completed":
-				q = q.Where("invoice_requests.status IN ?", []string{model.InvoiceConfirmed, model.InvoiceRejected})
+				q = q.Where("invoice_requests.status IN ?", []string{model.InvoiceConfirmed, model.InvoiceRejected, model.InvoiceWithdrawn})
 			default:
 				return nil, invoiceError(400, "VALIDATION_FAILED")
 			}
