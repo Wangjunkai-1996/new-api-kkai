@@ -2,7 +2,7 @@
 
 - **版本**：v0.1
 - **日期**：2026-11-22
-- **状态**：已在本地实现并通过组件测试、翻译检查、类型检查和定向 lint
+- **状态**：2026-11-23 已上线。组件测试、翻译检查、类型检查和定向 lint 通过。见[生产发布记录](./invoice-center-withdrawal-qa.md#生产发布记录)。
 - **关联方案**：[发票申请撤销功能实施方案](./invoice-center-withdrawal-plan.md)
 - **适用范围**：`web/default/src/features/invoice/`
 

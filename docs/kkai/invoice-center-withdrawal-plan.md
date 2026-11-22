@@ -2,7 +2,7 @@
 
 - **版本**：v0.1 方案稿
 - **日期**：2026-11-22
-- **状态**：已在本地实现，定向验证结果见[验收记录](./invoice-center-withdrawal-qa.md#本地验证记录)
+- **状态**：2026-11-23 已上线。见[生产发布记录](./invoice-center-withdrawal-qa.md#生产发布记录)。
 - **基线**：[发票中心开发技术文档](./invoice-center-development.md)、[PRD](./invoice-center-prd.md)、[UI规格](./invoice-center-ui-spec.md)
 
 ## 1. 目标与范围
