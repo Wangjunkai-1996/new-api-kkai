@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 
+import { ApiKeyGroupSignalProvider } from './components/api-key-group-signal'
 import { ApiKeysAddresses } from './components/api-keys-addresses'
 import { ApiKeysDialogs } from './components/api-keys-dialogs'
 import { ApiKeysPrimaryButtons } from './components/api-keys-primary-buttons'
@@ -30,22 +31,24 @@ export function ApiKeys() {
   const { t } = useTranslation()
   return (
     <ApiKeysProvider>
-      <SectionPageLayout fixedContent>
-        <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>
-        <SectionPageLayout.Actions>
-          <ApiKeysPrimaryButtons />
-        </SectionPageLayout.Actions>
-        <SectionPageLayout.Content>
-          <div className='flex h-full min-h-0 flex-col gap-3 overflow-y-auto'>
-            <ApiKeysAddresses />
-            <div className='min-h-48 flex-1'>
-              <ApiKeysTable />
+      <ApiKeyGroupSignalProvider>
+        <SectionPageLayout fixedContent>
+          <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>
+          <SectionPageLayout.Actions>
+            <ApiKeysPrimaryButtons />
+          </SectionPageLayout.Actions>
+          <SectionPageLayout.Content>
+            <div className='flex h-full min-h-0 flex-col gap-3 overflow-y-auto'>
+              <ApiKeysAddresses />
+              <div className='min-h-48 flex-1'>
+                <ApiKeysTable />
+              </div>
             </div>
-          </div>
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
+          </SectionPageLayout.Content>
+        </SectionPageLayout>
 
-      <ApiKeysDialogs />
+        <ApiKeysDialogs />
+      </ApiKeyGroupSignalProvider>
     </ApiKeysProvider>
   )
 }

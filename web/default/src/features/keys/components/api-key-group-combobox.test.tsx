@@ -83,6 +83,9 @@ describe('ApiKeyGroupCombobox', () => {
 
     await user.keyboard('{Enter}')
     const input = screen.getByPlaceholderText('Search by provider or group')
+    await user.click(screen.getByRole('button', { name: 'OpenAI' }))
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(screen.getByRole('option', { name: /企业 Fast/ })).toBeVisible()
     await user.type(input, 'anthropic 0.2x')
     expect(screen.getAllByRole('option')).toHaveLength(1)
     expect(

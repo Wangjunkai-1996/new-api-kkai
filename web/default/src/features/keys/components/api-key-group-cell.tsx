@@ -210,6 +210,7 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
             value={group}
             onValueChange={handleChange}
             compact
+            byModelFamily
             pending={pending}
             disabled={pending}
             onOpen={() => {
@@ -219,25 +220,10 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
             }}
             statusContent={groupStatusContent}
             triggerAriaLabel={`${t('Group')}: ${props.apiKey.name}`}
-            trigger={
-              <span className='flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden'>
-                <GroupBadge
-                  group={group}
-                  displayName={selectedOption?.label}
-                  isAutoGroup={isAutoGroup}
-                  ratio={ratio}
-                  className='max-w-[10rem]'
-                />
-                {isAutoGroup && props.apiKey.cross_group_retry && (
-                  <StatusBadge
-                    label={t('Cross-group')}
-                    variant='info'
-                    copyable={false}
-                    className='hidden shrink-0 text-[10px] xl:inline-flex'
-                  />
-                )}
-              </span>
-            }
+            placeholder={group || t('User Group')}
+            crossGroupRetry={Boolean(
+              isAutoGroup && props.apiKey.cross_group_retry
+            )}
           />
         ) : (
           <Button

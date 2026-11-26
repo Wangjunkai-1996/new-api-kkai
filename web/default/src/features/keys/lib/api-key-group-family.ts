@@ -40,7 +40,7 @@ const OTHER_FAMILY: ApiKeyGroupFamily = {
 // same icon already used for this family elsewhere in the console.
 const PROVIDER_FAMILIES = [
   ['gpt-4o', 'OpenAI', 'GPT', 'ChatGPT', 'Codex', 'Sora', 'o1', 'o3', 'o4'],
-  ['claude-sonnet-4', 'Claude', 'Anthropic'],
+  ['claude-sonnet-4', 'Claude', 'Anthropic', 'Claude Code'],
   ['gemini-2.5-pro', 'Gemini', 'Gemma', 'Imagen', 'Veo', 'Nano Banana'],
   ['deepseek-v3', 'DeepSeek', '深度求索'],
   ['glm-5', 'GLM', 'Zhipu', 'ChatGLM', '智谱', '智譜'],

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
@@ -76,7 +76,7 @@ const userGroups = {
     ratio: 1,
   },
   premium: {
-    display_name: 'Premium',
+    display_name: 'claudecode–满血企业',
     desc: 'Faster models for priority requests',
     ratio: 2,
   },
@@ -161,12 +161,20 @@ describe('ApiKeyGroupCell', () => {
     expect(contextMocks.triggerRefresh).not.toHaveBeenCalled()
   })
 
-  test('sends only the selected canonical group key through the PATCH mutation', async () => {
+  test('finds a group by provider in the inline picker and patches its canonical key', async () => {
     const user = userEvent.setup()
     renderCell()
 
     await openGroupMenu(user)
-    await user.click(screen.getByRole('option', { name: /Premium/ }))
+    await user.type(
+      screen.getByPlaceholderText('Search by provider or group'),
+      'Anthropic'
+    )
+    const family = screen.getByRole('group', { name: 'Claude' })
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    await user.click(
+      within(family).getByRole('option', { name: /claudecode–满血企业/ })
+    )
 
     await waitFor(() =>
       expect(apiMocks.updateApiKeyGroup).toHaveBeenCalledWith(17, 'premium')
@@ -189,7 +197,9 @@ describe('ApiKeyGroupCell', () => {
     renderCell()
 
     const trigger = await openGroupMenu(user)
-    await user.click(screen.getByRole('option', { name: /Premium/ }))
+    await user.click(
+      screen.getByRole('option', { name: /claudecode–满血企业/ })
+    )
 
     await waitFor(() => expect(trigger).toBeDisabled())
     resolveUpdate?.({

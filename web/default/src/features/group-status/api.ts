@@ -17,6 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+import { queryOptions } from '@tanstack/react-query'
+
 import { api } from '@/lib/api'
 
 import type {
@@ -35,4 +37,14 @@ export async function getGroupStatus(
     throw new Error(response.data.message || 'Failed to load group status')
   }
   return response.data.data
+}
+
+export function groupStatusQueryOptions(window: GroupStatusWindow) {
+  return queryOptions({
+    queryKey: ['kkai', 'group-status', window],
+    queryFn: () => getGroupStatus(window),
+    staleTime: window === 'now' ? 10_000 : 30_000,
+    refetchInterval: window === 'now' ? 15_000 : false,
+    refetchIntervalInBackground: false,
+  })
 }

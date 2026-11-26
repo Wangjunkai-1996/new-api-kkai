@@ -30,7 +30,7 @@ import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import { cn } from '@/lib/utils'
 
-import { getGroupStatus } from './api'
+import { groupStatusQueryOptions } from './api'
 import { GroupStatusList } from './components/group-status-list'
 import { GroupStatusSkeleton } from './components/group-status-skeleton'
 import { GroupStatusSummary } from './components/group-status-summary'
@@ -52,13 +52,7 @@ const WINDOW_OPTIONS: { value: GroupStatusWindow; labelKey: string }[] = [
 export function GroupStatusPage() {
   const { t } = useTranslation()
   const [window, setWindow] = useState<GroupStatusWindow>('now')
-  const query = useQuery({
-    queryKey: ['kkai', 'group-status', window],
-    queryFn: () => getGroupStatus(window),
-    staleTime: window === 'now' ? 10_000 : 30_000,
-    refetchInterval: window === 'now' ? 15_000 : false,
-    refetchIntervalInBackground: false,
-  })
+  const query = useQuery(groupStatusQueryOptions(window))
   const groups = useMemo(
     () => sortGroupStatuses(query.data?.groups ?? []),
     [query.data?.groups]

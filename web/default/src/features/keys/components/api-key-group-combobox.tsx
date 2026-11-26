@@ -16,15 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Check, ChevronsUpDown, Loader2 } from 'lucide-react'
 import {
-  Check,
-  ChevronsUpDown,
-  Layers,
-  Loader2,
-  Route,
-  Search,
-} from 'lucide-react'
-import { useMemo, useState, type ComponentProps, type ReactNode } from 'react'
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -42,14 +42,15 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { useMediaQuery } from '@/hooks'
-import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
 import {
   normalizeApiKeyGroupSearch,
   resolveApiKeyGroupFamily,
-  type ApiKeyGroupFamily,
 } from '../lib/api-key-group-family'
+import { ApiKeyGroupFamilyMenu } from './api-key-group-family-menu'
+import { ApiKeyGroupSignal } from './api-key-group-signal'
+import { ApiKeyGroupTrigger } from './api-key-group-trigger'
 import {
   AUTO_GROUP_FRAME_CLASS_NAME,
   AutoGroupFlowBorder,
@@ -76,6 +77,7 @@ type ApiKeyGroupComboboxProps = Pick<
   disabled?: boolean
   compact?: boolean
   byModelFamily?: boolean
+  crossGroupRetry?: boolean
   pending?: boolean
   onOpen?: () => void
   statusContent?: ReactNode
@@ -83,12 +85,6 @@ type ApiKeyGroupComboboxProps = Pick<
   triggerAriaLabel?: string
   'data-slot'?: string
   'data-form-root'?: string
-}
-
-type GroupSection = {
-  family?: ApiKeyGroupFamily
-  label?: string
-  entries: { option: ApiKeyGroupOption; searchText: string }[]
 }
 
 function getDistinctDescription(
@@ -99,22 +95,6 @@ function getDistinctDescription(
   return description
 }
 
-function GroupFamilyIcon({ family }: { family: ApiKeyGroupFamily }) {
-  const Icon = family.kind === 'auto' ? Route : Layers
-  return (
-    <span
-      aria-hidden='true'
-      className='bg-muted/65 text-muted-foreground ring-border/70 grid size-6 shrink-0 place-items-center rounded-md ring-1 ring-inset'
-    >
-      {family.icon ? (
-        getLobeIcon(family.icon, 14)
-      ) : (
-        <Icon className='size-3.5' />
-      )}
-    </span>
-  )
-}
-
 export function ApiKeyGroupCombobox({
   options,
   value,
@@ -123,6 +103,7 @@ export function ApiKeyGroupCombobox({
   disabled,
   compact = false,
   byModelFamily = false,
+  crossGroupRetry,
   pending = false,
   onOpen,
   statusContent,
@@ -137,82 +118,54 @@ export function ApiKeyGroupCombobox({
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [searchValue, setSearchValue] = useState('')
+  const [confirmedValue, setConfirmedValue] = useState<string>()
+  const composing = useRef(false)
   const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const selectedOption = options.find((option) => option.value === value)
   const isAutoSelected =
     selectedOption?.value === 'auto' || Boolean(selectedOption?.isAuto)
   const selectedDescription = getDistinctDescription(selectedOption)
+
   const selectedFamily =
     byModelFamily && selectedOption
       ? resolveApiKeyGroupFamily(selectedOption)
       : undefined
+  const specialFamilyLabels = {
+    auto: t('Automatic routing'),
+    mixed: t('Multiple providers'),
+    other: t('Other groups'),
+  }
+  const familyLabel =
+    selectedFamily?.kind === 'provider'
+      ? selectedFamily.name
+      : selectedFamily && specialFamilyLabels[selectedFamily.kind]
 
-  const sections = useMemo(() => {
-    const sectionsByFamily = new Map<string, GroupSection>()
-    const labels = {
-      auto: t('Automatic routing'),
-      mixed: t('Multiple providers'),
-      other: t('Other groups'),
-    }
-    for (const option of options) {
-      const family = byModelFamily
-        ? resolveApiKeyGroupFamily(option)
-        : undefined
-      const key = family?.name ?? ''
-      let section = sectionsByFamily.get(key)
-      if (!section) {
-        const label =
-          family &&
-          (family.kind === 'provider' ? family.name : labels[family.kind])
-        section = { family, label, entries: [] }
-        sectionsByFamily.set(key, section)
-      }
+  useEffect(() => {
+    if (!confirmedValue || confirmedValue !== value) return
+    const timer = window.setTimeout(() => setConfirmedValue(undefined), 850)
+    return () => window.clearTimeout(timer)
+  }, [confirmedValue, value])
+
+  const filteredOptions = useMemo(() => {
+    const search = normalizeApiKeyGroupSearch(searchValue)
+    if (byModelFamily || !search) return options
+    const words = search.split(' ')
+    return options.filter((option) => {
       const ratio =
         typeof option.ratio === 'number' ? `${option.ratio}x` : option.ratio
-      const searchText = normalizeApiKeyGroupSearch(
-        [
-          section.label,
-          family?.name,
-          ...(family?.aliases ?? []),
-          option.value,
-          option.label,
-          option.desc,
-          ratio,
-        ].join(' ')
+      const terms = normalizeApiKeyGroupSearch(
+        [option.value, option.label, option.desc, ratio].join(' ')
       )
-      section.entries.push({ option, searchText })
-    }
-    const rank = (family?: ApiKeyGroupFamily) => {
-      if (family?.kind === 'auto') return 0
-      if (family?.name === 'OpenAI') return 1
-      if (family?.name === 'Claude') return 2
-      if (family?.kind === 'provider') return 3
-      if (family?.kind === 'mixed') return 4
-      return 5
-    }
-    return [...sectionsByFamily.values()].sort(
-      (a, b) =>
-        rank(a.family) - rank(b.family) ||
-        (a.family?.name ?? '').localeCompare(b.family?.name ?? '', 'en')
-    )
-  }, [byModelFamily, options, t])
-
-  const search = normalizeApiKeyGroupSearch(searchValue)
-  const visibleSections = useMemo(() => {
-    if (!search) return sections
-    const words = search.split(/\s+/)
-    return sections
-      .map((section) => ({
-        ...section,
-        entries: section.entries.filter(({ searchText }) =>
-          words.every((word) => searchText.includes(word))
-        ),
-      }))
-      .filter((section) => section.entries.length > 0)
-  }, [search, sections])
+      return words.every((word) => terms.includes(word))
+    })
+  }, [byModelFamily, options, searchValue])
 
   const handleSelect = (selectedValue: string) => {
-    if (selectedValue !== value) onValueChange(selectedValue)
+    if (!open) return
+    if (selectedValue !== value) {
+      if (byModelFamily) setConfirmedValue(selectedValue)
+      onValueChange(selectedValue)
+    }
     setOpen(false)
     setSearchValue('')
   }
@@ -220,56 +173,109 @@ export function ApiKeyGroupCombobox({
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen)
     if (!nextOpen) setSearchValue('')
-    if (nextOpen) onOpen?.()
+    composing.current = false
+    if (nextOpen) {
+      setConfirmedValue(undefined)
+      onOpen?.()
+    }
   }
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger
-        id={id}
-        render={
-          <Button
-            type='button'
-            variant='outline'
-            role='combobox'
-            aria-expanded={open}
-            data-auto-group-effect={isAutoSelected ? 'trigger' : undefined}
-            aria-label={triggerAriaLabel}
-            aria-describedby={describedBy}
-            aria-invalid={invalid}
-            data-slot={dataSlot ?? 'button'}
-            data-form-root={formRoot}
-            disabled={disabled}
-            className={cn(
-              'relative',
-              compact
-                ? 'hover:bg-muted/70 data-popup-open:bg-muted/70 h-auto min-h-8 max-w-full min-w-0 justify-between gap-1 rounded-md border-transparent bg-transparent px-1.5 py-1 text-start shadow-none transition-[background-color,border-color,box-shadow] data-popup-open:border-ring data-popup-open:ring-ring/20 data-popup-open:ring-[3px]'
-                : 'border-input bg-muted/40 hover:bg-muted/55 hover:text-foreground active:bg-background data-popup-open:border-ring data-popup-open:bg-background data-popup-open:ring-ring/20 h-auto min-h-14 w-full justify-between gap-2 rounded-lg px-3 py-2 text-start shadow-none transition-[background-color,border-color,box-shadow] duration-150 data-popup-open:ring-[3px] sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3',
-              byModelFamily &&
-                'bg-background data-popup-open:bg-background min-h-12 rounded-xl px-3 py-2 sm:min-h-12 sm:gap-2 sm:px-3 sm:py-2 dark:bg-input/25',
-              isAutoSelected &&
-                cn(
-                  AUTO_GROUP_FRAME_CLASS_NAME,
-                  'hover:border-primary/55 data-popup-open:border-primary/55 data-popup-open:ring-primary/20'
-                )
-            )}
-          />
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen, details) => {
+        if (
+          details.reason === 'escape-key' &&
+          (composing.current ||
+            details.event.isComposing ||
+            details.event.keyCode === 229)
+        ) {
+          details.cancel()
+          return
         }
-      >
-        {isAutoSelected && !byModelFamily && (
-          <AutoGroupFlowBorder shouldReduceMotion={shouldReduceMotion} />
-        )}
-        {trigger || (
-          <span className='flex min-w-0 flex-1 items-center justify-between gap-2 sm:gap-3'>
-            <span className='flex min-w-0 items-center gap-2.5'>
-              {selectedFamily && <GroupFamilyIcon family={selectedFamily} />}
+        handleOpenChange(nextOpen)
+      }}
+    >
+      {byModelFamily ? (
+        <PopoverTrigger
+          id={id}
+          disabled={disabled}
+          render={
+            <ApiKeyGroupTrigger
+              role='combobox'
+              aria-expanded={open}
+              aria-label={triggerAriaLabel}
+              aria-invalid={invalid}
+              aria-describedby={describedBy}
+              data-slot={dataSlot ?? 'button'}
+              data-form-root={formRoot}
+              data-auto-group-effect={isAutoSelected ? 'trigger' : undefined}
+              option={selectedOption}
+              family={selectedFamily}
+              familyLabel={familyLabel}
+              placeholder={placeholder}
+              pending={pending}
+              compact={compact}
+              confirmed={Boolean(confirmedValue && confirmedValue === value)}
+              crossGroupRetry={crossGroupRetry}
+              health={
+                selectedOption &&
+                !selectedOption.disabled && (
+                  <ApiKeyGroupSignal
+                    group={selectedOption.value}
+                    variant='trigger'
+                  />
+                )
+              }
+            />
+          }
+          onKeyDown={(event) => {
+            if (
+              !open &&
+              (event.key === 'ArrowDown' || event.key === 'ArrowUp')
+            ) {
+              event.preventDefault()
+              handleOpenChange(true)
+            }
+          }}
+        />
+      ) : (
+        <PopoverTrigger
+          id={id}
+          render={
+            <Button
+              type='button'
+              variant='outline'
+              role='combobox'
+              aria-expanded={open}
+              data-auto-group-effect={isAutoSelected ? 'trigger' : undefined}
+              aria-label={triggerAriaLabel}
+              aria-describedby={describedBy}
+              aria-invalid={invalid}
+              data-slot={dataSlot ?? 'button'}
+              data-form-root={formRoot}
+              disabled={disabled}
+              className={cn(
+                'relative',
+                compact
+                  ? 'hover:bg-muted/70 data-popup-open:bg-muted/70 h-auto min-h-8 max-w-full min-w-0 justify-between gap-1 rounded-md border-transparent bg-transparent px-1.5 py-1 text-start shadow-none transition-[background-color,border-color,box-shadow] data-popup-open:border-ring data-popup-open:ring-ring/20 data-popup-open:ring-[3px]'
+                  : 'border-input bg-muted/40 hover:bg-muted/55 hover:text-foreground active:bg-background data-popup-open:border-ring data-popup-open:bg-background data-popup-open:ring-ring/20 h-auto min-h-14 w-full justify-between gap-2 rounded-lg px-3 py-2 text-start shadow-none transition-[background-color,border-color,box-shadow] duration-150 data-popup-open:ring-[3px] sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3',
+                isAutoSelected &&
+                  cn(
+                    AUTO_GROUP_FRAME_CLASS_NAME,
+                    'hover:border-primary/55 data-popup-open:border-primary/55 data-popup-open:ring-primary/20'
+                  )
+              )}
+            />
+          }
+        >
+          {isAutoSelected && (
+            <AutoGroupFlowBorder shouldReduceMotion={shouldReduceMotion} />
+          )}
+          {trigger || (
+            <span className='flex min-w-0 flex-1 items-center justify-between gap-2 sm:gap-3'>
               <span className='min-w-0'>
-                <span
-                  className={cn(
-                    'block truncate font-medium',
-                    byModelFamily && !selectedOption && 'text-muted-foreground'
-                  )}
-                >
+                <span className='block truncate font-medium'>
                   {selectedOption?.label || placeholder || t('Select a group')}
                 </span>
                 {selectedDescription && (
@@ -278,179 +284,130 @@ export function ApiKeyGroupCombobox({
                   </span>
                 )}
               </span>
+              <span className='hidden sm:block'>
+                <GroupRatioBadge
+                  ratio={selectedOption?.ratio}
+                  isAuto={isAutoSelected}
+                  shouldReduceMotion={shouldReduceMotion}
+                />
+              </span>
             </span>
-            <span className={byModelFamily ? 'shrink-0' : 'hidden sm:block'}>
-              <GroupRatioBadge
-                ratio={selectedOption?.ratio}
-                isAuto={isAutoSelected}
-                shouldReduceMotion={shouldReduceMotion}
-              />
-            </span>
-          </span>
-        )}
-        {pending ? (
-          <Loader2 className='text-muted-foreground h-3.5 w-3.5 shrink-0 animate-spin' />
-        ) : (
-          <ChevronsUpDown
-            aria-hidden='true'
-            className='text-muted-foreground size-3.5 shrink-0'
-          />
-        )}
-      </PopoverTrigger>
+          )}
+          {pending ? (
+            <Loader2 className='text-muted-foreground h-3.5 w-3.5 shrink-0 animate-spin' />
+          ) : (
+            <ChevronsUpDown className='text-muted-foreground h-3.5 w-3.5 shrink-0' />
+          )}
+        </PopoverTrigger>
+      )}
       <PopoverContent
         align='start'
-        aria-label={byModelFamily ? t('Groups') : undefined}
         collisionPadding={12}
         sideOffset={8}
-        className={cn(
-          'data-closed:zoom-out-100 data-open:zoom-in-100 data-[side=bottom]:slide-in-from-top-0 data-[side=left]:slide-in-from-right-0 data-[side=right]:slide-in-from-left-0 data-[side=top]:slide-in-from-bottom-0 w-[min(24rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] min-w-[min(18rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl p-0.5 shadow-lg data-closed:duration-75 data-open:duration-100',
-          byModelFamily &&
-            'ring-border/80 max-h-(--available-height) w-(--anchor-width) min-w-0 max-w-(--available-width) rounded-2xl p-0 shadow-xl motion-reduce:animate-none'
-        )}
+        aria-label={byModelFamily ? t('Groups') : undefined}
+        data-compact={byModelFamily && compact ? true : undefined}
+        className={
+          byModelFamily
+            ? 'kgrp-popover'
+            : 'data-closed:zoom-out-100 data-open:zoom-in-100 data-[side=bottom]:slide-in-from-top-0 data-[side=left]:slide-in-from-right-0 data-[side=right]:slide-in-from-left-0 data-[side=top]:slide-in-from-bottom-0 w-[min(24rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] min-w-[min(18rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl p-0.5 shadow-lg data-closed:duration-75 data-open:duration-100'
+        }
+        onKeyDownCapture={(event) => {
+          if (
+            composing.current ||
+            event.nativeEvent.isComposing ||
+            event.keyCode === 229
+          ) {
+            event.stopPropagation()
+          }
+        }}
         onWheel={(event) => event.stopPropagation()}
         onTouchMove={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <Command
-          label={t('Search groups')}
-          shouldFilter={false}
-          defaultValue={
-            byModelFamily && !selectedOption?.disabled ? value : undefined
-          }
-          className={cn(
-            byModelFamily &&
-              'min-h-0 p-0 **:data-[slot=command-input-wrapper]:shrink-0 **:data-[slot=command-input-wrapper]:p-2.5 **:data-[slot=input-group]:h-10! **:data-[slot=input-group]:rounded-lg!'
-          )}
-        >
-          <CommandInput
-            placeholder={
-              byModelFamily ? t('Search by provider or group') : t('Search...')
-            }
-            value={searchValue}
-            onValueChange={setSearchValue}
-            className={byModelFamily ? 'h-full text-base sm:text-sm' : 'h-8'}
+        {byModelFamily ? (
+          <ApiKeyGroupFamilyMenu
+            options={options}
+            selected={value}
+            onSelect={handleSelect}
+            open={open}
+            statusContent={statusContent}
+            onCompositionChange={(active) => {
+              composing.current = active
+            }}
+            query={searchValue}
+            onQueryChange={setSearchValue}
           />
-          <CommandList
-            label={t('Groups')}
-            className={cn(
-              'max-h-[360px]',
-              byModelFamily &&
-                'min-h-0 max-h-[min(31rem,calc(var(--available-height)-3.75rem))] scroll-py-3 overscroll-contain px-2 pb-2'
-            )}
-          >
-            {statusContent || (
-              <>
-                <CommandEmpty
-                  className={
-                    byModelFamily
-                      ? 'text-muted-foreground flex flex-col items-center gap-2 py-7'
-                      : undefined
-                  }
-                >
-                  {byModelFamily && (
-                    <Search aria-hidden='true' className='size-4' />
-                  )}
-                  {t('No group found.')}
-                </CommandEmpty>
-                {visibleSections.map(({ family, label, entries }) => (
-                  <CommandGroup
-                    key={family?.name ?? ''}
-                    value={family?.name ?? 'groups'}
-                    heading={
-                      family && (
-                        <span className='flex items-center gap-2 text-xs font-semibold'>
-                          <GroupFamilyIcon family={family} />
-                          {label}
-                        </span>
-                      )
-                    }
-                    className={
-                      byModelFamily
-                        ? 'not-first:border-border/65 overflow-visible p-0 not-first:mt-1.5 not-first:border-t not-first:pt-1.5 **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:py-1.5'
-                        : undefined
-                    }
-                  >
-                    {entries.map(({ option }) => {
+        ) : (
+          <Command shouldFilter={false} label={t('Search groups')}>
+            <CommandInput
+              placeholder={t('Search...')}
+              value={searchValue}
+              onValueChange={setSearchValue}
+              className='h-8'
+            />
+            <CommandList className='max-h-[360px]' label={t('Groups')}>
+              {statusContent || (
+                <>
+                  <CommandEmpty>{t('No group found.')}</CommandEmpty>
+                  <CommandGroup>
+                    {filteredOptions.map((option) => {
                       const isAutoOption =
                         option.value === 'auto' || Boolean(option.isAuto)
-                      const isCurrent = value === option.value
-                      const description = getDistinctDescription(option)
                       return (
                         <CommandItem
                           key={option.value}
                           value={option.value}
                           disabled={option.disabled}
-                          data-current={
-                            byModelFamily && isCurrent ? 'true' : undefined
-                          }
                           data-auto-group-effect={
                             isAutoOption ? 'option' : undefined
                           }
                           onSelect={() => handleSelect(option.value)}
                           className={cn(
                             'data-[selected=true]:bg-muted/80 data-[selected=true]:border-border/60 items-start gap-3 rounded-lg border border-transparent px-3 py-2.5 transition-colors data-[disabled=true]:opacity-60 [&>svg:last-child]:hidden',
-                            byModelFamily &&
-                              'data-[current=true]:bg-primary/8 data-[current=true]:border-primary/15 data-[selected=true]:bg-muted data-[selected=true]:border-border min-h-11 items-center gap-2.5 px-2 py-1.5 motion-reduce:transition-none',
                             isAutoOption &&
-                              !byModelFamily &&
                               cn(
                                 AUTO_GROUP_FRAME_CLASS_NAME,
                                 'border-primary/35 data-[selected=true]:border-primary/55'
                               )
                           )}
                         >
-                          {isAutoOption && !byModelFamily && (
+                          {isAutoOption && (
                             <AutoGroupFlowBorder
                               shouldReduceMotion={shouldReduceMotion}
                             />
                           )}
-                          <span className='min-w-0 flex-1'>
-                            <span
-                              title={option.label}
-                              className='block truncate font-medium'
-                            >
-                              {option.label}
-                            </span>
-                            {description && (
-                              <span
-                                title={description}
-                                className='text-muted-foreground block truncate text-xs'
-                              >
-                                {description}
-                              </span>
-                            )}
-                          </span>
-                          <GroupRatioBadge
-                            ratio={option.ratio}
-                            isAuto={isAutoOption}
-                            shouldReduceMotion={
-                              byModelFamily || shouldReduceMotion
-                            }
-                          />
-                          <span
-                            className={cn(
-                              'grid size-4 shrink-0 place-items-center',
-                              byModelFamily
-                                ? 'text-primary'
-                                : 'order-first mt-0.5'
-                            )}
-                          >
-                            {isCurrent && (
+                          <span className='mt-0.5 grid size-4 shrink-0 place-items-center'>
+                            {value === option.value && (
                               <>
                                 <Check aria-hidden='true' className='size-4' />
                                 <span className='sr-only'>{t('selected')}</span>
                               </>
                             )}
                           </span>
+                          <span className='min-w-0 flex-1'>
+                            <span className='block truncate font-medium'>
+                              {option.label}
+                            </span>
+                            {getDistinctDescription(option) && (
+                              <span className='text-muted-foreground block truncate text-xs'>
+                                {getDistinctDescription(option)}
+                              </span>
+                            )}
+                          </span>
+                          <GroupRatioBadge
+                            ratio={option.ratio}
+                            isAuto={isAutoOption}
+                            shouldReduceMotion={shouldReduceMotion}
+                          />
                         </CommandItem>
                       )
                     })}
                   </CommandGroup>
-                ))}
-              </>
-            )}
-          </CommandList>
-        </Command>
+                </>
+              )}
+            </CommandList>
+          </Command>
+        )}
       </PopoverContent>
     </Popover>
   )
