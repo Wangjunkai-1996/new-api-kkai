@@ -29,7 +29,7 @@ func ReserveMembershipBilling(input MembershipReservationInput) (*MembershipBill
 	var result *MembershipBillingRecord
 	err := membershipTransaction(func(tx *gorm.DB) error {
 		var err error
-		result, err = ReserveMembershipBillingTx(tx, input)
+		result, err = reserveMembershipBillingTx(tx, input, true)
 		return err
 	})
 	if err != nil {
@@ -42,6 +42,10 @@ func ReserveMembershipBilling(input MembershipReservationInput) (*MembershipBill
 // ReserveMembershipBillingTx allows task/image acceptance to share the funding
 // transaction. The caller MUST invoke MembershipBillingAfterCommit after commit.
 func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (*MembershipBillingRecord, error) {
+	return reserveMembershipBillingTx(tx, input, false)
+}
+
+func reserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput, freshTransaction bool) (*MembershipBillingRecord, error) {
 	if !MembershipEnabled() {
 		return nil, ErrMembershipDisabled
 	}
@@ -63,6 +67,10 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 	}
 	hash := sha256.Sum256(encoded)
 	fingerprint := hex.EncodeToString(hash[:])
+	var allowLightHold, standardHold bool
+	if input.PilotTextHTTP && input.Scope == MembershipBillingScopeRelay && input.ExpectedAccountID > 0 && input.SubscriptionQuota > 1 {
+		allowLightHold, standardHold = membershipBillingPolicy(membershipHoldUsers, input.UserID)
+	}
 	user, _, err := lockMembershipUserTx(tx, input.UserID)
 	if err != nil {
 		return nil, err
@@ -109,6 +117,14 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
+	if freshTransaction && standardHold {
+		// Earlier reads are locking reads. Wait for the user and request locks
+		// before serializing standard admissions, but before MySQL's RR read view.
+		allowLightHold, err = tryMembershipStandardHoldAdmissionTx(tx)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err := checkMembershipGroupTx(tx, input.GroupKey); err != nil {
 		return nil, err
 	}
@@ -140,8 +156,10 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 	if active && account.Available() >= input.SubscriptionQuota {
 		fullAuthorization = input.SubscriptionQuota
 		record.Source, record.AccountID, record.AccountRevision, record.Snapshot, record.ReservedQuota = MembershipSource, account.ID, account.Revision, input.SubscriptionSnapshot, input.SubscriptionQuota
-		if input.PilotTextHTTP && input.Scope == MembershipBillingScopeRelay && fullAuthorization > 1 && MembershipPilotHoldEnabled(input.UserID) {
-			if err := reduceMembershipTextHoldTx(tx, record); err != nil {
+		// Callers supplying an outer transaction may already have a stale
+		// snapshot. Only the top-level relay transaction admits a standard hold.
+		if allowLightHold && (!standardHold || freshTransaction) {
+			if err := reduceMembershipTextHoldTx(tx, record, standardHold); err != nil {
 				return nil, err
 			}
 		}
@@ -203,7 +221,7 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 	return record, nil
 }
 
-func reduceMembershipTextHoldTx(tx *gorm.DB, record *MembershipBillingRecord) error {
+func reduceMembershipTextHoldTx(tx *gorm.DB, record *MembershipBillingRecord, standard bool) error {
 	var snapshot types.MembershipPricing
 	if err := common.UnmarshalJsonStr(record.Snapshot, &snapshot); err != nil {
 		return err
@@ -211,20 +229,31 @@ func reduceMembershipTextHoldTx(tx *gorm.DB, record *MembershipBillingRecord) er
 	if snapshot.Version != 1 || snapshot.QuotaPerUnit <= 0 || math.IsInf(snapshot.QuotaPerUnit, 0) || math.IsNaN(snapshot.QuotaPerUnit) || int64(snapshot.Price.QuotaToPreConsume) != record.ReservedQuota {
 		return ErrMembershipInvalidInput
 	}
-	// The platform can absorb at most half the original quote and at most
-	// two billing units per request. Keep the full amount in the price snapshot.
-	reduction, err := common.QuotaFromFloatStrict(min(float64(record.ReservedQuota/2), 2*snapshot.QuotaPerUnit))
+	full := record.ReservedQuota
+	targetHold := float64((full + 1) / 2)
+	if standard {
+		targetHold = min(targetHold, math.Ceil(0.25*snapshot.QuotaPerUnit))
+	}
+	// Both policies protect the full quote except for at most two dollars.
+	reduction, err := common.QuotaFromFloatStrict(min(float64(full)-targetHold, 2*snapshot.QuotaPerUnit))
 	if err != nil {
 		return err
 	}
 	if reduction == 0 {
 		return nil
 	}
-	allowed, err := spendMembershipPilotBudgetTx(tx, membershipPilotHold, record.UserID, int64(reduction), snapshot.QuotaPerUnit)
+	var allowed bool
+	if standard {
+		snapshot.StandardHoldRiskMicros = membershipStandardRiskMicros(int64(reduction), snapshot.QuotaPerUnit)
+		allowed, err = membershipStandardHoldFitsTx(tx, record.UserID, snapshot.StandardHoldRiskMicros)
+		snapshot.StandardFullReservedQuota = full
+	} else {
+		allowed, err = spendMembershipPilotBudgetTx(tx, membershipPilotHold, record.UserID, int64(reduction), snapshot.QuotaPerUnit)
+		snapshot.FullReservedQuota = record.ReservedQuota
+	}
 	if err != nil || !allowed {
 		return err
 	}
-	snapshot.FullReservedQuota = record.ReservedQuota
 	encoded, err := common.Marshal(snapshot)
 	if err != nil {
 		return err
@@ -442,9 +471,11 @@ func MembershipBillingAfterCommitContext(ctx context.Context, record *Membership
 		audit := fmt.Sprintf("membership billing overrun request=%s user=%d source=%s authorized=%d actual=%d charged=%d platform_excess=%d", record.RequestID, record.UserID, record.Source, record.ReservedQuota, record.ActualQuota, record.ChargedQuota, record.ExcessQuota)
 		if record.Scope == MembershipBillingScopeRelay && record.Source == MembershipSource {
 			var snapshot types.MembershipPricing
-			if common.UnmarshalJsonStr(record.Snapshot, &snapshot) == nil && snapshot.FullReservedQuota > record.ReservedQuota {
-				pilotExcess := min(record.ActualQuota, snapshot.FullReservedQuota) - record.ChargedQuota
-				audit += fmt.Sprintf(" full_authorization=%d pilot_excess=%d", snapshot.FullReservedQuota, pilotExcess)
+			if common.UnmarshalJsonStr(record.Snapshot, &snapshot) == nil {
+				if full := max(snapshot.StandardFullReservedQuota, snapshot.FullReservedQuota); full > record.ReservedQuota {
+					holdExcess := min(record.ActualQuota, full) - record.ChargedQuota
+					audit += fmt.Sprintf(" full_authorization=%d pilot_excess=%d", full, holdExcess)
+				}
 			}
 		}
 		common.SysError(audit)

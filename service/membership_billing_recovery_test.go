@@ -125,9 +125,11 @@ func TestMembershipRecoveryWorkerCompensatesOnlyEligiblePilotHold(t *testing.T) 
 		disallow, logFailure bool
 		consumeLog, overCap  bool
 		fundsFailure         bool
+		standard             bool
 		wantEarlyRelease     bool
 	}{
 		{name: "eligible", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, wantEarlyRelease: true},
+		{name: "standard", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, standard: true, wantEarlyRelease: true},
 		{name: "observe", mode: "observe", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16},
 		{name: "too recent", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 14},
 		{name: "outside pilot", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, disallow: true},
@@ -135,6 +137,7 @@ func TestMembershipRecoveryWorkerCompensatesOnlyEligiblePilotHold(t *testing.T) 
 		{name: "consume evidence conflict", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, consumeLog: true},
 		{name: "failed log lookup", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, logFailure: true},
 		{name: "over cap", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, overCap: true},
+		{name: "standard over cap", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, standard: true, overCap: true},
 		{name: "failed refund", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, fundsFailure: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -142,7 +145,9 @@ func TestMembershipRecoveryWorkerCompensatesOnlyEligiblePilotHold(t *testing.T) 
 			previousConsume := common.LogConsumeEnabled
 			common.LogConsumeEnabled = true
 			t.Cleanup(func() { common.LogConsumeEnabled = previousConsume })
-			if !test.disallow {
+			if test.standard {
+				t.Setenv("KKAI_MEMBERSHIP_PILOT_EARLY_RELEASE_USER_IDS", "*")
+			} else if !test.disallow {
 				t.Setenv("KKAI_MEMBERSHIP_PILOT_EARLY_RELEASE_USER_IDS", strconv.Itoa(user.Id))
 			} else {
 				t.Setenv("KKAI_MEMBERSHIP_PILOT_EARLY_RELEASE_USER_IDS", "")
@@ -208,7 +213,14 @@ func TestMembershipRecoveryWorkerCompensatesOnlyEligiblePilotHold(t *testing.T) 
 			require.NoError(t, model.DB.First(&account, record.AccountID).Error)
 			if test.wantEarlyRelease {
 				assert.Equal(t, "released", current.State)
-				assert.Contains(t, current.ReviewResolution, "pilot_early_no_evidence_compensation")
+				if test.standard {
+					assert.Equal(t, "standard_early_no_evidence_compensation", current.ReviewReason)
+					var pilotCounters int64
+					require.NoError(t, model.DB.Model(&model.Option{}).Where(map[string]any{"key": "MembershipBillingPilotEarlyReleaseSpent"}).Count(&pilotCounters).Error)
+					assert.Zero(t, pilotCounters)
+				} else {
+					assert.Equal(t, "pilot_early_no_evidence_compensation", current.ReviewReason)
+				}
 				assert.Zero(t, current.ChargedQuota)
 				assert.Equal(t, held.AmountUsed, account.AmountUsed)
 				assert.Zero(t, account.AmountReserved)

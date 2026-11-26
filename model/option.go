@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -29,7 +31,7 @@ type Option struct {
 func AllOption() ([]*Option, error) {
 	var options []*Option
 	var err error
-	err = DB.Not(clause.IN{Column: clause.Column{Name: "key"}, Values: []any{membershipPilotHold, membershipPilotEarlyRelease}}).Find(&options).Error
+	err = DB.Not(clause.IN{Column: clause.Column{Name: "key"}, Values: []any{membershipPilotHold, membershipPilotEarlyRelease, membershipStandardHoldAdmission}}).Find(&options).Error
 	return options, err
 }
 
@@ -227,6 +229,20 @@ func SyncOptionsOnce() error {
 		return err
 	}
 	var syncErrors []error
+	// Publish the all-member default only after reading the stored overrides.
+	// An explicit empty value disables that policy, including on restart.
+	for _, policy := range []struct{ key, env string }{
+		{membershipHoldUsers, "KKAI_MEMBERSHIP_PILOT_HOLD_USER_IDS"},
+		{membershipEarlyReleaseUsers, "KKAI_MEMBERSHIP_PILOT_EARLY_RELEASE_USER_IDS"},
+	} {
+		if !slices.ContainsFunc(options, func(o *Option) bool { return o.Key == policy.key }) {
+			value, set := os.LookupEnv(policy.env)
+			if !set {
+				value = "*"
+			}
+			options = append(options, &Option{Key: policy.key, Value: value})
+		}
+	}
 	policyOptions := make(map[string]string)
 	for _, option := range options {
 		if IsRequestPolicyOption(option.Key) {
@@ -788,15 +804,15 @@ func validateOptionValue(key, value string) error {
 	if key == MembershipBillingRecoveryControlOption {
 		return ErrMembershipRecoveryControlReadOnly
 	}
-	if strings.EqualFold(strings.TrimSpace(key), membershipPilotHold) || strings.EqualFold(strings.TrimSpace(key), membershipPilotEarlyRelease) {
+	if strings.EqualFold(strings.TrimSpace(key), membershipPilotHold) || strings.EqualFold(strings.TrimSpace(key), membershipPilotEarlyRelease) || strings.EqualFold(strings.TrimSpace(key), membershipStandardHoldAdmission) {
 		return common.NewMessage("membership billing pilot budgets are read-only")
 	}
-	if (key == "MembershipPilotHoldUserIDs" || key == "MembershipPilotEarlyReleaseUserIDs") && value != "" {
+	if (key == membershipHoldUsers || key == membershipEarlyReleaseUsers) && value != "" && value != "*" {
 		for item := range strings.SplitSeq(value, ",") {
 			id := strings.TrimSpace(item)
 			n, err := strconv.Atoi(id)
 			if err != nil || n <= 0 || id != strconv.Itoa(n) {
-				return errors.New("membership billing pilot requires a comma-separated list of positive user IDs")
+				return errors.New("membership policy requires *, an empty value, or a comma-separated list of positive user IDs")
 			}
 		}
 	}

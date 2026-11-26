@@ -432,6 +432,12 @@ func TestTryTieredSettle_ReducedMembershipHoldFallback(t *testing.T) {
 	assert.Equal(t, 100, quota)
 	assert.Equal(t, 60, MembershipCharge(info, quota))
 	assert.Equal(t, 100, info.MembershipAssessedQuota)
+
+	info.MembershipPricing.FullReservedQuota = 0
+	info.MembershipPricing.StandardFullReservedQuota = 100
+	_, quota, _ = TryTieredSettle(info, billingexpr.TokenParams{P: 100})
+	assert.Equal(t, 100, quota)
+	assert.Equal(t, 60, MembershipCharge(info, quota))
 }
 
 // ---------------------------------------------------------------------------

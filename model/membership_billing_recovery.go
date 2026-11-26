@@ -381,11 +381,18 @@ func completeMembershipRelayRecovery(ctx context.Context, requestID string, comp
 				if err := common.UnmarshalJsonStr(record.Snapshot, &pricing); err != nil {
 					return err
 				}
-				allowed, err := spendMembershipPilotBudgetTx(tx, membershipPilotEarlyRelease, record.UserID, record.ReservedQuota, pricing.QuotaPerUnit)
+				var allowed bool
+				enabled, standard := membershipBillingPolicy(membershipEarlyReleaseUsers, record.UserID)
+				if standard {
+					allowed, err = membershipStandardReleaseFitsTx(tx, record.UserID, record.ReservedQuota, pricing.QuotaPerUnit, now)
+					reason = membershipStandardCompensationReason
+				} else if enabled {
+					allowed, err = spendMembershipPilotBudgetTx(tx, membershipPilotEarlyRelease, record.UserID, record.ReservedQuota, pricing.QuotaPerUnit)
+					reason = membershipPilotCompensationReason
+				}
 				if err != nil || !allowed {
 					return err
 				}
-				reason = "pilot_early_no_evidence_compensation"
 			} else if record.CreatedAt > now-membershipRelayCompensationDelay || !record.prepareMembershipReview(now) {
 				return ErrMembershipConflict
 			}

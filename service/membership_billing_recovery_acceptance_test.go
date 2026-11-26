@@ -71,6 +71,74 @@ func TestMembershipPilotConcurrentReservationsShareLastTwoDollars(t *testing.T) 
 	}
 }
 
+func TestMembershipStandardConcurrentReservationsShareGlobalExposure(t *testing.T) {
+	for _, dialect := range []string{"postgres", "mysql"} {
+		t.Run(dialect, func(t *testing.T) {
+			f := newMembershipRecoveryAcceptanceFixture(t, dialect, true, 2)
+			t.Setenv("KKAI_MEMBERSHIP_PILOT_HOLD_USER_IDS", "*")
+			// 199 earlier open authorizations leave exactly $2 of global capacity.
+			var prior []model.MembershipBillingRecord
+			for i := range 199 {
+				prior = append(prior, model.MembershipBillingRecord{RequestID: fmt.Sprintf("prior-%d", i),
+					Scope: model.MembershipBillingScopeRelay, Source: model.MembershipSource, State: "reserved",
+					UserID: f.users[1].Id + 1 + i/50, ReservedQuota: 10,
+					Snapshot: `{"standard_full_reserved_quota":30,"standard_hold_risk_micros":2000000,"quota_per_unit":10}`})
+			}
+			require.NoError(t, f.db.Create(&prior).Error)
+			var inputs []model.MembershipReservationInput
+			for i := range f.users {
+				input := f.reservationInput(t, fmt.Sprintf("standard-last-%d", i), i, 100)
+				input.PilotTextHTTP = true
+				input.SubscriptionQuota = 30
+				input.SubscriptionSnapshot = `{"version":1,"quota_per_unit":10,"price":{"QuotaToPreConsume":30}}`
+				inputs = append(inputs, input)
+			}
+			type outcome struct {
+				record *model.MembershipBillingRecord
+				err    error
+			}
+			results := make(chan outcome, len(inputs))
+			start := make(chan struct{})
+			for _, input := range inputs {
+				go func() {
+					<-start
+					record, err := model.ReserveMembershipBilling(input)
+					results <- outcome{record, err}
+				}()
+			}
+			close(start)
+			var outcomes []outcome
+			for range inputs {
+				outcomes = append(outcomes, <-results)
+			}
+			var amounts []int64
+			for _, result := range outcomes {
+				require.NoError(t, result.err)
+				amounts = append(amounts, result.record.ReservedQuota)
+				_, err := model.SettleMembershipBilling(result.record.RequestID, 3)
+				require.NoError(t, err)
+			}
+			assert.ElementsMatch(t, []int64{10, 30}, amounts)
+			inputs[0].RequestID = "standard-capacity-returned"
+			next, err := model.ReserveMembershipBilling(inputs[0])
+			require.NoError(t, err)
+			assert.EqualValues(t, 10, next.ReservedQuota)
+			if dialect == "postgres" {
+				_, err = model.ReleaseMembershipBilling(next.RequestID)
+				require.NoError(t, err)
+				blocker := f.db.Begin()
+				require.NoError(t, blocker.Error)
+				defer blocker.Rollback()
+				require.NoError(t, blocker.Exec("SELECT pg_advisory_xact_lock(?, ?)", 0x4b4b4149, 0x484f4c44).Error)
+				inputs[0].RequestID = "standard-busy-admission"
+				underContention, err := model.ReserveMembershipBilling(inputs[0])
+				require.NoError(t, err)
+				assert.EqualValues(t, 30, underContention.ReservedQuota)
+			}
+		})
+	}
+}
+
 func NewMembershipRecoveryAcceptanceBridge(t *testing.T, dialect string, members bool, users, conflicts int, unlimited bool) MembershipRecoveryAcceptanceBridge {
 	f := newMembershipRecoveryAcceptanceFixture(t, dialect, members, users)
 	records := seedMembershipAcceptanceBacklog(t, f, conflicts, unlimited)

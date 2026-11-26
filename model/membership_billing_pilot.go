@@ -46,34 +46,49 @@ func reconcileMembershipPilotHoldTx(tx *gorm.DB, record *MembershipBillingRecord
 	return nil
 }
 
-func MembershipPilotHoldEnabled(userID int) bool {
-	return membershipPilotUserAllowed("MembershipPilotHoldUserIDs", "KKAI_MEMBERSHIP_PILOT_HOLD_USER_IDS", userID)
-}
+const (
+	membershipHoldUsers         = "MembershipPilotHoldUserIDs"
+	membershipEarlyReleaseUsers = "MembershipPilotEarlyReleaseUserIDs"
+)
 
-func MembershipPilotEarlyReleaseEnabled(userID int) bool {
-	return membershipPilotUserAllowed("MembershipPilotEarlyReleaseUserIDs", "KKAI_MEMBERSHIP_PILOT_EARLY_RELEASE_USER_IDS", userID)
-}
-
-func membershipPilotUserAllowed(option, env string, userID int) bool {
-	if userID <= 0 {
-		return false
-	}
+func membershipPolicyUsers(option string) string {
 	common.OptionMapRWMutex.RLock()
 	raw, configured := common.OptionMap[option]
 	common.OptionMapRWMutex.RUnlock()
-	if !configured {
-		raw = os.Getenv(env)
+	if configured {
+		return raw
 	}
-	if raw == "" {
-		return false
+	if option == membershipHoldUsers {
+		return os.Getenv("KKAI_MEMBERSHIP_PILOT_HOLD_USER_IDS")
+	}
+	return os.Getenv("KKAI_MEMBERSHIP_PILOT_EARLY_RELEASE_USER_IDS")
+}
+
+func MembershipPilotHoldEnabled(userID int) bool {
+	enabled, _ := membershipBillingPolicy(membershipHoldUsers, userID)
+	return enabled
+}
+
+func MembershipPilotEarlyReleaseEnabled(userID int) bool {
+	enabled, _ := membershipBillingPolicy(membershipEarlyReleaseUsers, userID)
+	return enabled
+}
+
+func membershipBillingPolicy(option string, userID int) (enabled, standard bool) {
+	if userID <= 0 {
+		return false, false
+	}
+	raw := membershipPolicyUsers(option)
+	if raw == "*" {
+		return true, true
 	}
 	id := strconv.Itoa(userID)
 	for value := range strings.SplitSeq(raw, ",") {
 		if strings.TrimSpace(value) == id {
-			return true
+			return true, false
 		}
 	}
-	return false
+	return false, false
 }
 
 // The owning funds transaction locks one row per policy. Hold reductions
