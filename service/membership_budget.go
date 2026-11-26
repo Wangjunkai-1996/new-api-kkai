@@ -219,12 +219,11 @@ func prepareRequestBudget(info *relaycommon.RelayInfo, price *types.PriceData, p
 	} else if price.UsePrice {
 		maximum = price.ApplyOtherRatiosToFloat(price.ModelPrice * common.QuotaPerUnit)
 	} else {
-		// Cache categories may overlap in provider usage. Bounding each category is
-		// intentionally conservative; actual settlement retains normal normalization.
-		cacheWriteWeight := max(0, price.CacheCreationRatio) + max(0, price.CacheCreation5mRatio) + max(0, price.CacheCreation1hRatio)
-		// The 12h count is a subset of total writes. Retain the existing
-		// conservative bound, raising it only when the 12h price exceeds it.
-		cacheWriteWeight = max(cacheWriteWeight, price.CacheCreation12hRatio)
+		// Settlement prices only the unsplit remainder at the generic write rate.
+		// Keep both Claude split rates in the bound for inconsistent reply counts.
+		// Non-Claude settlement uses the generic and 12h rates for disjoint subsets.
+		claudeSplitWeight := max(0, price.CacheCreation5mRatio) + max(0, price.CacheCreation1hRatio)
+		cacheWriteWeight := max(0, price.CacheCreationRatio, claudeSplitWeight, price.CacheCreation12hRatio)
 		inputWeight := 1 + max(0, price.CacheRatio) + cacheWriteWeight + max(0, price.ImageRatio) + max(0, price.AudioRatio)
 		outputWeight := max(0, price.CompletionRatio) + max(0, price.AudioRatio*price.AudioCompletionRatio)
 		maximum = price.ApplyOtherRatiosToFloat((input*inputWeight+output*outputWeight)*price.ModelRatio + input*audioPrice/1_000_000*common.QuotaPerUnit)

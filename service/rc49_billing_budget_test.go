@@ -50,15 +50,37 @@ func TestRequestBudgetCoversLongTTLCacheSettlement(t *testing.T) {
 	}
 }
 
-func TestRequestBudgetBounds12hRatioWithoutAddingAnotherWriteCategory(t *testing.T) {
+func TestRequestBudgetCoversRatioPricedCacheWriteSettlement(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	standardPrice := types.PriceData{CacheCreationRatio: 1.25, CacheCreation5mRatio: 1.25, CacheCreation1hRatio: 2, CacheCreation12hRatio: 2.5}
 	for _, tc := range []struct {
 		name    string
 		price   types.PriceData
+		usage   dto.Usage
 		maximum float64
+		settled int
 	}{
-		{"derived 12h ratio already covered", types.PriceData{CacheCreationRatio: 1.25, CacheCreation5mRatio: 1.25, CacheCreation1hRatio: 2, CacheCreation12hRatio: 2.5}, 550},
-		{"larger 12h ratio raises bound", types.PriceData{CacheCreation12hRatio: 40}, 4100},
+		{
+			name: "Claude split uses the generic rate only for the remainder", price: standardPrice, maximum: 425, settled: 155,
+			usage: dto.Usage{UsageSemantic: "anthropic", ClaudeCacheCreation5mTokens: 30, ClaudeCacheCreation1hTokens: 40,
+				PromptTokensDetails: dto.InputTokenDetails{CachedCreationTokens: 100}},
+		},
+		{
+			name: "legacy Claude usage can report both TTL counts independently", price: standardPrice, maximum: 425, settled: 425,
+			usage: dto.Usage{PromptTokens: 100, ClaudeCacheCreation5mTokens: 100, ClaudeCacheCreation1hTokens: 100,
+				PromptTokensDetails: dto.InputTokenDetails{CachedCreationTokens: 100}},
+		},
+		{
+			name: "OpenAI 12h writes can cost more than both Claude TTLs", maximum: 4100, settled: 4000,
+			price: types.PriceData{CacheCreationRatio: 1.25, CacheCreation5mRatio: 1.25, CacheCreation1hRatio: 2, CacheCreation12hRatio: 40},
+			usage: dto.Usage{PromptTokens: 100, PromptTokensDetails: dto.InputTokenDetails{
+				CacheWriteTokens: 100, CacheWriteTokensDetails: &dto.CacheWriteTokenDetails{TTL12hTokens: 100}}},
+		},
+		{
+			name: "generic writes can cost more than both Claude TTLs", maximum: 800, settled: 700,
+			price: types.PriceData{CacheCreationRatio: 7, CacheCreation5mRatio: 1.25, CacheCreation1hRatio: 2, CacheCreation12hRatio: 2.5},
+			usage: dto.Usage{UsageSemantic: "anthropic", PromptTokensDetails: dto.InputTokenDetails{CachedCreationTokens: 100}},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			price := tc.price
@@ -67,10 +89,8 @@ func TestRequestBudgetBounds12hRatioWithoutAddingAnotherWriteCategory(t *testing
 			budget, err := prepareRequestBudget(info, &price, 100, &relaytypes.TokenCountMeta{MaxTokens: 1})
 			require.NoError(t, err)
 			assert.Equal(t, tc.maximum, budget.MaximumBeforeGroup)
-			usage := &dto.Usage{PromptTokens: 100, TotalTokens: 100, PromptTokensDetails: dto.InputTokenDetails{
-				CacheWriteTokens: 100, CacheWriteTokensDetails: &dto.CacheWriteTokenDetails{TTL12hTokens: 100},
-			}}
-			settled := calculateTextQuotaSummary(ctx, info, usage)
+			settled := calculateTextQuotaSummary(ctx, info, &tc.usage)
+			assert.Equal(t, tc.settled, settled.Quota)
 			assert.GreaterOrEqual(t, budget.MaximumBeforeGroup, float64(settled.Quota))
 		})
 	}
