@@ -26,4 +26,4 @@ ncurses-terminfo-base=6.6_p20260516-r0
 nghttp2-libs=1.70.0-r0
 pkgconf=2.5.1-r0
 readline=8.3.3-r1
-zstd-libs=1.5.7-r2
+zstd-libs=1.6.0-r1
