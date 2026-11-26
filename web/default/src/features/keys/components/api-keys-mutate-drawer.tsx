@@ -224,6 +224,25 @@ export function ApiKeysMutateDrawer({
     defaultValues: getApiKeyFormDefaultValues(defaultUseAutoGroup),
   })
   const selectedGroup = useWatch({ control: form.control, name: 'group' })
+  const savedKey = isUpdate ? apiKeyData?.data : undefined
+  const unavailableGroup =
+    savedKey?.group &&
+    groupsData?.data &&
+    !Object.hasOwn(groupsData.data, savedKey.group)
+      ? savedKey.group
+      : undefined
+  const groupOptions = useMemo<ApiKeyGroupOption[]>(() => {
+    if (!unavailableGroup || selectedGroup !== unavailableGroup) return groups
+    return [
+      ...groups,
+      {
+        value: unavailableGroup,
+        label: unavailableGroup,
+        desc: t('Unavailable'),
+        disabled: true,
+      },
+    ]
+  }, [groups, selectedGroup, unavailableGroup, t])
 
   // Load existing data when updating
   useEffect(() => {
@@ -282,9 +301,9 @@ export function ApiKeysMutateDrawer({
 
   const isFormInitialized = initializedTarget === formTarget
 
-  // Correct group after groups load: if the form value is not in available groups, fall back
+  // A saved key can outlive its group. Only replace unsaved choices here.
   useEffect(() => {
-    if (groups.length === 0) return
+    if (groups.length === 0 || selectedGroup === savedKey?.group) return
     const currentGroup = selectedGroup
     if (currentGroup && !groups.some((g) => g.value === currentGroup)) {
       const fallback =
@@ -298,7 +317,7 @@ export function ApiKeysMutateDrawer({
         form.setValue('cross_group_retry', false)
       }
     }
-  }, [groups, form, selectedGroup, autoGroupNames])
+  }, [groups, form, selectedGroup, savedKey?.group, autoGroupNames])
 
   const onSubmit = async (data: ApiKeyFormValues) => {
     if (
@@ -313,6 +332,17 @@ export function ApiKeysMutateDrawer({
       if (!supportsQuotaQuery) delete basePayload.allow_user_quota_query
 
       if (isUpdate && currentRow) {
+        if (
+          savedKey &&
+          unavailableGroup &&
+          data.group === unavailableGroup &&
+          !isAutoGroupName(data.group, autoGroupNames)
+        ) {
+          // The catalog can no longer identify a retired named Auto profile.
+          // Omitting its order lets the server preserve the stored override.
+          delete basePayload.auto_groups
+          basePayload.cross_group_retry = savedKey.cross_group_retry
+        }
         const result = await updateApiKey({
           ...basePayload,
           id: currentRow.id,
@@ -444,7 +474,8 @@ export function ApiKeysMutateDrawer({
                     <FormLabel>{t('Group')}</FormLabel>
                     <FormControl>
                       <ApiKeyGroupCombobox
-                        options={groups}
+                        byModelFamily
+                        options={groupOptions}
                         value={field.value}
                         onValueChange={(group) => {
                           if (group === field.value) return

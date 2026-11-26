@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
 
@@ -48,6 +48,60 @@ const options: ApiKeyGroupOption[] = [
 ]
 
 describe('ApiKeyGroupCombobox', () => {
+  test('searches provider aliases across sections and commits the group key from the keyboard', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <>
+        <label htmlFor='group'>Key group</label>
+        <ApiKeyGroupCombobox
+          byModelFamily
+          id='group'
+          options={[
+            { value: 'cc', label: 'Claude–Cursor', ratio: 0.2 },
+            { value: 'vip', label: 'GPT – 企业 Fast', ratio: 0.25 },
+            { value: 'other', label: '普通专线' },
+          ]}
+          value='vip'
+          onValueChange={onChange}
+        />
+      </>
+    )
+    const trigger = screen.getByRole('combobox', { name: 'Key group' })
+    await user.tab()
+    await user.keyboard('{Enter}')
+    const search = screen.getByPlaceholderText('Search by provider or group')
+    await waitFor(() => expect(search).toHaveFocus())
+    expect(
+      within(screen.getByRole('group', { name: 'OpenAI' })).getByText(
+        'selected'
+      )
+    ).toBeInTheDocument()
+    await user.keyboard('{ArrowDown}{Enter}')
+    expect(onChange).toHaveBeenCalledWith('cc')
+    await waitFor(() => expect(trigger).toHaveFocus())
+
+    await user.keyboard('{Enter}')
+    const input = screen.getByPlaceholderText('Search by provider or group')
+    await user.type(input, 'anthropic 0.2x')
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(
+      within(screen.getByRole('group', { name: 'Claude' })).getByText(
+        'Claude–Cursor'
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'OpenAI' })).toBeNull()
+    await user.type(input, ' missing')
+    expect(screen.getByText('No group found.')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(trigger).toHaveFocus())
+    expect(onChange).toHaveBeenCalledTimes(1)
+    await user.keyboard('{Enter}')
+    expect(
+      screen.getByPlaceholderText('Search by provider or group')
+    ).toHaveValue('')
+  })
+
   test('filters options by display metadata and returns the canonical group key', async () => {
     const onValueChange = vi.fn()
     const user = userEvent.setup()

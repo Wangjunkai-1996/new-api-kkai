@@ -16,10 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import type { ApiKey } from '../../types'
+import { apiKeySchema, type ApiKey } from '../../types'
 
 const contractState = vi.hoisted(() => ({
   capabilities: ['token_user_quota_query'],
@@ -63,8 +70,25 @@ const originalGet = apiClient.get
 const originalPost = apiClient.post
 let renderedDrawer: RenderedDrawer | null = null
 
-function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
+const userGroups = {
+  auto: { desc: 'Automatic routing', ratio: 'auto' },
+  default: { desc: 'Standard access', ratio: 1 },
+  vip: { desc: 'Priority access', ratio: 2 },
+  'enterprise-fast': {
+    display_name: 'GPT – 企业 Fast',
+    desc: 'Priority GPT access',
+    ratio: 0.25,
+  },
+}
+
+function installApiFixtures(
+  createdPayloads: Array<Record<string, unknown>>,
+  currentRow?: ApiKey
+) {
   apiClient.get = async (url) => {
+    if (currentRow && url === `/api/token/${currentRow.id}`) {
+      return { data: { success: true, data: currentRow } }
+    }
     switch (url) {
       case '/api/status':
         return {
@@ -73,16 +97,7 @@ function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
       case '/api/user/models':
         return { data: { success: true, data: [] } }
       case '/api/user/self/groups':
-        return {
-          data: {
-            success: true,
-            data: {
-              auto: { desc: 'Automatic routing', ratio: 'auto' },
-              default: { desc: 'Standard access', ratio: 1 },
-              vip: { desc: 'Priority access', ratio: 2 },
-            },
-          },
-        }
+        return { data: { success: true, data: userGroups } }
       case '/api/token/auto-groups':
         return {
           data: {
@@ -102,7 +117,7 @@ function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
   }
 }
 
-async function renderCreateDrawer(): Promise<void> {
+async function renderDrawer(currentRow?: ApiKey): Promise<void> {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -119,14 +134,7 @@ async function renderCreateDrawer(): Promise<void> {
   )
   queryClient.setQueryData(
     ['user-groups'],
-    {
-      success: true,
-      data: {
-        auto: { desc: 'Automatic routing', ratio: 'auto' },
-        default: { desc: 'Standard access', ratio: 1 },
-        vip: { desc: 'Priority access', ratio: 2 },
-      },
-    },
+    { success: true, data: userGroups },
     { updatedAt: freshAt }
   )
   queryClient.setQueryData(
@@ -143,7 +151,11 @@ async function renderCreateDrawer(): Promise<void> {
     <QueryClientProvider client={queryClient}>
       <I18nextProvider i18n={i18n}>
         <ApiKeysProvider>
-          <ApiKeysMutateDrawer open onOpenChange={() => undefined} />
+          <ApiKeysMutateDrawer
+            open
+            currentRow={currentRow}
+            onOpenChange={() => undefined}
+          />
         </ApiKeysProvider>
       </I18nextProvider>
     </QueryClientProvider>
@@ -222,11 +234,92 @@ afterEach(() => {
   }
 })
 
+describe('API key provider group selection', () => {
+  test('creates a key with the selected group identifier when searching by provider', async () => {
+    const payloads: Array<Record<string, unknown>> = []
+    installApiFixtures(payloads)
+    await renderDrawer()
+    changeInput(getControlByLabel('Name'), 'team key')
+    fireEvent.click(screen.getByRole('combobox', { name: 'Group' }))
+    fireEvent.change(
+      screen.getByPlaceholderText('Search by provider or group'),
+      {
+        target: { value: 'openai' },
+      }
+    )
+    const family = screen.getByRole('group', { name: 'OpenAI' })
+    fireEvent.click(
+      within(family).getByRole('option', { name: /GPT – 企业 Fast/ })
+    )
+    fireEvent.click(findButton('Save changes', true))
+
+    await waitFor(() => expect(payloads).toHaveLength(1))
+    expect(payloads[0]).toMatchObject({
+      group: 'enterprise-fast',
+      cross_group_retry: false,
+    })
+  })
+
+  test.each([false, true])(
+    'edits a key with a retired group (replace it: %s)',
+    async (replaceGroup) => {
+      const key = apiKeySchema.parse({
+        id: 7,
+        name: 'Existing key',
+        key: '',
+        status: 1,
+        group: 'retired-profile',
+        auto_groups: ['vip'],
+        cross_group_retry: true,
+        unlimited_quota: true,
+        remain_quota: 0,
+        used_quota: 0,
+        expired_time: -1,
+        created_time: 1,
+        accessed_time: 0,
+        model_limits_enabled: false,
+      })
+      installApiFixtures([], key)
+      const put = vi
+        .spyOn(api, 'put')
+        .mockResolvedValue({ data: { success: true } })
+      await renderDrawer(key)
+
+      const trigger = screen.getByRole('combobox', { name: 'Group' })
+      expect(trigger).toHaveTextContent('retired-profile')
+      expect(trigger).toHaveTextContent('Unavailable')
+      if (replaceGroup) {
+        fireEvent.click(trigger)
+        expect(
+          screen.getByRole('option', { name: /retired-profile/ })
+        ).toHaveAttribute('aria-disabled', 'true')
+        const family = screen.getByRole('group', { name: 'OpenAI' })
+        fireEvent.click(
+          within(family).getByRole('option', { name: /GPT – 企业 Fast/ })
+        )
+      }
+      changeInput(getControlByLabel('Name'), 'Renamed')
+      fireEvent.click(findButton('Save changes', true))
+      await waitFor(() => expect(put).toHaveBeenCalledTimes(1))
+      const [url, payload] = put.mock.calls[0]
+      expect(url).toBe('/api/token/')
+      expect(payload).toMatchObject({
+        id: key.id,
+        name: 'Renamed',
+        group: replaceGroup ? 'enterprise-fast' : key.group,
+        cross_group_retry: !replaceGroup,
+      })
+      if (replaceGroup) expect(payload).toHaveProperty('auto_groups', [])
+      else expect(payload).not.toHaveProperty('auto_groups')
+    }
+  )
+})
+
 describe('API keys mutate drawer Auto group integration', () => {
   test('inherits the root Auto order and sends an empty override for every batch-created key', async () => {
     const createdPayloads: Array<Record<string, unknown>> = []
     installApiFixtures(createdPayloads)
-    await renderCreateDrawer()
+    await renderDrawer()
 
     const groupTrigger = getControlByLabel('Group')
     expect(groupTrigger.textContent?.includes('Automatic routing')).toBe(true)
@@ -259,7 +352,7 @@ describe('API keys mutate drawer Auto group integration', () => {
   test('restores the selected profile default order after changing groups', async () => {
     const createdPayloads: Array<Record<string, unknown>> = []
     installApiFixtures(createdPayloads)
-    await renderCreateDrawer()
+    await renderDrawer()
 
     const autoOrderControl = getControlByLabel('Auto group order')
     const addGroupTrigger = autoOrderControl.querySelector<HTMLButtonElement>(
@@ -407,7 +500,7 @@ describe('API key expiry across editing sessions', () => {
     async (action) => {
       const payloads: Array<Record<string, unknown>> = []
       installApiFixtures(payloads)
-      await renderCreateDrawer()
+      await renderDrawer()
       changeInput(getControlByLabel('Name'), 'no-expiry')
       fireEvent.click(screen.getByRole('button', { name: '1 Month' }))
       expect(screen.getByLabelText('Time')).toBeEnabled()
@@ -427,7 +520,7 @@ describe('API keys mutate drawer user quota query switch', () => {
   test('sends false for a new key after the switch, which starts on, is turned off', async () => {
     const createdPayloads: Array<Record<string, unknown>> = []
     installApiFixtures(createdPayloads)
-    await renderCreateDrawer()
+    await renderDrawer()
 
     fireEvent.click(findButton('Advanced Settings', true))
     const quotaQuerySwitch = await screen.findByRole('switch', {
@@ -448,7 +541,7 @@ test('omits the quota permission when creating a key on the rollback backend', a
   contractState.capabilities = []
   const payloads: Array<Record<string, unknown>> = []
   installApiFixtures(payloads)
-  await renderCreateDrawer()
+  await renderDrawer()
   fireEvent.click(findButton('Advanced Settings', true))
   expect(
     screen.queryByRole('switch', { name: 'Allow querying user quota' })
