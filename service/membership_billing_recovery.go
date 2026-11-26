@@ -200,7 +200,7 @@ func (w *membershipBillingRecoveryWorker) run(parent context.Context) error {
 		return errors.Join(append(failures, ctx.Err())...)
 	}
 	phase, stop = context.WithTimeout(ctx, 6*time.Second)
-	err = w.due(phase, mode == "apply", &counts)
+	err = w.due(phase, control, &counts)
 	stop()
 	if err != nil {
 		failures = append(failures, err)
@@ -432,9 +432,9 @@ func (w *membershipBillingRecoveryWorker) deferRecord(ctx context.Context, recor
 	return model.DeferMembershipBillingRecovery(ctx, record.RequestID, recovery.Revision, code, conflict, now)
 }
 
-func (w *membershipBillingRecoveryWorker) due(ctx context.Context, apply bool, counts *membershipBillingRecoveryCounts) error {
+func (w *membershipBillingRecoveryWorker) due(ctx context.Context, control model.MembershipRecoveryControl, counts *membershipBillingRecoveryCounts) error {
 	states := []string{"cache_pending"}
-	if apply {
+	if control.Mode == "apply" {
 		states = []string{"ready", "cache_pending", "pending"}
 	}
 	var failures []error
@@ -455,19 +455,10 @@ func (w *membershipBillingRecoveryWorker) due(ctx context.Context, apply bool, c
 				break
 			}
 			counts.scanned++
+			var completed *model.MembershipBillingRecord
 			switch state {
 			case "ready":
-				var record *model.MembershipBillingRecord
-				record, err = model.ResolveMembershipRelayEvidence(phase, row.RequestID)
-				if err == nil && record != nil && record.Applied {
-					adjusted++
-					counts.quota += record.ChargedQuota
-					if record.State == "released" {
-						counts.released++
-					} else {
-						counts.settled++
-					}
-				}
+				completed, err = model.ResolveMembershipRelayEvidence(phase, row.RequestID)
 			case "cache_pending":
 				var record model.MembershipBillingRecord
 				err = model.DB.WithContext(phase).First(&record, "request_id = ?", row.RequestID).Error
@@ -501,10 +492,24 @@ func (w *membershipBillingRecoveryWorker) due(ctx context.Context, apply bool, c
 							err = model.RecordMembershipRelayEvidence(phase, evidence)
 						}
 					} else if err == nil {
-						// P2 has no verified receipt interface yet. An absent local
-						// log remains unknown until the independent aged fallback.
-						err = model.DeferMembershipBillingRecovery(phase, row.RequestID, row.Revision, "receipt_lookup_unavailable", false, now)
+						if adjusted < membershipRecoveryAdjustmentBudget && record.EligibleForEarlyMembershipCompensation(now) {
+							completed, err = model.TryCompensateEarlyMembershipRelay(phase, row.RequestID, control)
+						}
+						if err == nil && completed == nil {
+							// Absent local evidence leaves the request to backoff
+							// and the independent two-hour fallback.
+							err = model.DeferMembershipBillingRecovery(phase, row.RequestID, row.Revision, "receipt_lookup_unavailable", false, now)
+						}
 					}
+				}
+			}
+			if err == nil && completed != nil && completed.Applied {
+				adjusted++
+				counts.quota += completed.ChargedQuota
+				if completed.State == "released" {
+					counts.released++
+				} else {
+					counts.settled++
 				}
 			}
 			if err != nil {

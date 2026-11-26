@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -17,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
+	"github.com/tidwall/gjson"
 )
 
 // PrepareRequestBilling estimates and reserves one request's charge. Transports
@@ -54,6 +56,9 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 		case *dto.ImageRequest:
 			meta = request.GetTokenCountMeta()
 		}
+	}
+	if membershipBilling && (model.MembershipPilotHoldEnabled(info.UserId) || model.MembershipPilotEarlyReleaseEnabled(info.UserId)) {
+		info.MembershipPilotTextHTTP = membershipTextHTTPRequest(c, info, meta)
 	}
 	if needSensitiveCheck && meta != nil {
 		if contains, words := service.CheckSensitiveText(meta.CombineText); contains {
@@ -113,6 +118,168 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 	return service.PreConsumeBilling(c, priceData.QuotaToPreConsume, info)
 }
 
+// Use the original JSON because passthrough channels can forward fields the
+// DTO omits, including background Responses and provider-specific tools.
+func membershipTextHTTPRequest(c *gin.Context, info *relaycommon.RelayInfo, meta *types.TokenCountMeta) bool {
+	if !info.MembershipHTTPRelay || info.IsChannelTest || info.IsPlayground || info.TenantID != 0 ||
+		info.DurableImageExecution || info.MembershipRealtime || c.Request.Method != http.MethodPost ||
+		meta == nil || len(meta.Files) != 0 || meta.ToolsCount != 0 || strings.HasSuffix(info.GetBillingModelName(), "search-preview") ||
+		len(common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)) != 0 {
+		return false
+	}
+	path := c.Request.URL.Path
+	switch path {
+	case "/v1/chat/completions":
+		if info.RelayFormat != types.RelayFormatOpenAI {
+			return false
+		}
+	case "/v1/messages":
+		if info.RelayFormat != types.RelayFormatClaude {
+			return false
+		}
+	case "/v1/responses":
+		if info.RelayFormat != types.RelayFormatOpenAIResponses {
+			return false
+		}
+	default:
+		return false
+	}
+	storage, err := common.GetBodyStorage(c)
+	if err != nil || storage.IsDisk() || storage.Size() > 1<<20 {
+		return false // Keep the pilot away from large or disk-backed payloads.
+	}
+	data, err := storage.Bytes()
+	if err != nil {
+		return false
+	}
+	fields := membershipObjectFields(gjson.ParseBytes(data))
+	inputField := "messages"
+	if path == "/v1/responses" {
+		inputField = "input"
+	}
+	for field, value := range fields {
+		switch field {
+		case "model", "stream", "temperature", "top_p", "top_k", "max_tokens", "max_completion_tokens", "max_output_tokens", "reasoning_effort":
+			if value.IsObject() || value.IsArray() {
+				return false
+			}
+		case "stream_options":
+			options := membershipObjectFields(value)
+			if len(options) != 1 || (options["include_usage"].Type != gjson.True && options["include_usage"].Type != gjson.False) {
+				return false
+			}
+		case "n":
+			if value.Type != gjson.Number || value.Float() != 1 {
+				return false
+			}
+		case "tools":
+			if !value.IsArray() || len(value.Array()) != 0 {
+				return false
+			}
+		case "store":
+			if value.Type != gjson.False {
+				return false
+			}
+		case "system", "instructions":
+			if !membershipTextContent(value) {
+				return false
+			}
+		case inputField:
+		default:
+			return false
+		}
+	}
+	input := fields[inputField]
+	if input.Type == gjson.String {
+		return inputField == "input"
+	}
+	if !input.IsArray() {
+		return false
+	}
+	messages := input.Array()
+	for _, message := range messages {
+		fields := membershipObjectFields(message)
+		if inputField == "input" && fields["type"].String() == "message" {
+			delete(fields, "type")
+		}
+		switch fields["role"].String() {
+		case "system", "developer", "user", "assistant":
+		default:
+			return false
+		}
+		if len(fields) != 2 || !membershipTextContent(fields["content"]) {
+			return false
+		}
+	}
+	return len(messages) > 0
+}
+
+// The pilot must classify the same fields as every upstream parser, even on
+// passthrough channels. An ambiguous object keeps the normal full reservation.
+func membershipObjectFields(value gjson.Result) map[string]gjson.Result {
+	if !value.IsObject() {
+		return nil
+	}
+	fields := make(map[string]gjson.Result)
+	value.ForEach(func(key, field gjson.Result) bool {
+		name := key.String()
+		if _, exists := fields[name]; exists {
+			fields = nil
+			return false
+		}
+		fields[name] = field
+		return true
+	})
+	return fields
+}
+
+func membershipTextContent(content gjson.Result) bool {
+	if content.Type == gjson.String {
+		return true
+	}
+	if !content.IsArray() {
+		return false
+	}
+	parts := content.Array()
+	for _, part := range parts {
+		fields := membershipObjectFields(part)
+		if len(fields) != 2 || fields["text"].Type != gjson.String {
+			return false
+		}
+		switch fields["type"].String() {
+		case "text", "input_text", "output_text":
+		default:
+			return false
+		}
+	}
+	return len(parts) > 0
+}
+
+func membershipFinalReviewReason(c *gin.Context, info *relaycommon.RelayInfo, apiErr *types.NewAPIError) string {
+	const ordinary = "upstream_outcome_unknown"
+	if apiErr == nil || !info.MembershipPilotTextHTTP || info.MembershipPilotStoppedError != apiErr ||
+		info.BillingSource != model.MembershipSource || !model.MembershipPilotEarlyReleaseEnabled(info.UserId) ||
+		(info.ChannelMeta != nil && len(info.ParamOverride) != 0) ||
+		c.Writer.Written() || info.ReceivedResponseCount != 0 || info.SendResponseCount != 0 ||
+		info.BillingHasReportedUsage || info.BillingFailureUsage != nil || info.MembershipHasBillableUsage ||
+		info.MembershipChargedQuota != 0 || info.MembershipAssessedQuota != 0 || info.MembershipViolationFee != 0 ||
+		info.ImageOutputCount != 0 || apiErr.GetPolicyEvidence() != "" ||
+		service.IsViolationFeeCode(apiErr.GetErrorCode()) || service.HasCSAMViolationMarker(apiErr) {
+		return ordinary
+	}
+	if info.ResponsesUsageInfo != nil {
+		if len(info.ResponsesUsageInfo.ImageGenerationCalls) > 0 {
+			return ordinary
+		}
+		for _, tool := range info.ResponsesUsageInfo.BuiltInTools {
+			if tool != nil && tool.CallCount > 0 {
+				return ordinary
+			}
+		}
+	}
+	return model.MembershipPilotEarlyReviewReason
+}
+
 // RefundFailedRequestBilling applies the common final-failure policy after all
 // eligible attempts have ended. A settled BillingSession never refunds again.
 func RefundFailedRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, apiErr *types.NewAPIError) *types.NewAPIError {
@@ -135,10 +302,11 @@ func RefundFailedRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, api
 	}
 	if info.MembershipBillingRequestID != "" && info.BillingOutcomeUnknown {
 		types.ErrOptionWithSkipRetry()(apiErr)
-		if err := service.MarkMembershipBillingUncertain(info.MembershipBillingRequestID, info.ChannelId, "upstream_outcome_unknown"); err != nil {
+		reason := membershipFinalReviewReason(c, info, apiErr)
+		if err := service.MarkMembershipBillingUncertain(info.MembershipBillingRequestID, info.ChannelId, reason); err != nil {
 			logger.LogError(c, "failed to flag membership billing for review: "+err.Error())
 		}
-		logger.LogWarn(c, "membership billing outcome unknown; reservation retained for review: "+info.MembershipBillingRequestID)
+		logger.LogWarn(c, fmt.Sprintf("membership billing outcome unknown: request=%s reason=%s", info.MembershipBillingRequestID, reason))
 		return apiErr
 	}
 	if info.MembershipBillingRequestID != "" && service.ChargeViolationFeeIfNeeded(c, info, apiErr) {

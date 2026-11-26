@@ -267,6 +267,11 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 	tr, err := billingexpr.ComputeTieredQuotaWithRequest(snap, params, requestInput)
 	if err != nil {
 		quota = relayInfo.FinalPreConsumedQuota
+		if pricing := relayInfo.MembershipPricing; pricing != nil && pricing.FullReservedQuota > 0 {
+			// Preserve the fallback assessment for a reduced membership hold.
+			// MembershipCharge still caps the charge at the reserved quota.
+			quota = int(pricing.FullReservedQuota)
+		}
 		if quota <= 0 {
 			quota = snap.EstimatedQuotaAfterGroup
 		}

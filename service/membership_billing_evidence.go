@@ -16,13 +16,17 @@ import (
 func MarkMembershipBillingUncertain(requestID string, channelID int, reason string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+	legacyReason := reason
+	if reason == model.MembershipPilotEarlyReviewReason {
+		legacyReason = "upstream_outcome_unknown"
+	}
 	if !membershipBillingRecoveryWritable(ctx) {
-		return model.MarkMembershipBillingUncertainContext(ctx, requestID, channelID, reason)
+		return model.MarkMembershipBillingUncertainContext(ctx, requestID, channelID, legacyReason)
 	}
 	if err := model.MarkMembershipRelayRecoveryPending(ctx, requestID, channelID, reason); err != nil {
 		// Keep the original durable review marker even if the expansion write
 		// failed. Deadline discovery can recreate the recovery record later.
-		return errors.Join(err, model.MarkMembershipBillingUncertainContext(ctx, requestID, channelID, reason))
+		return errors.Join(err, model.MarkMembershipBillingUncertainContext(ctx, requestID, channelID, legacyReason))
 	}
 	return nil
 }

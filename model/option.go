@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Option struct {
@@ -28,7 +29,7 @@ type Option struct {
 func AllOption() ([]*Option, error) {
 	var options []*Option
 	var err error
-	err = DB.Find(&options).Error
+	err = DB.Not(clause.IN{Column: clause.Column{Name: "key"}, Values: []any{membershipPilotHold, membershipPilotEarlyRelease}}).Find(&options).Error
 	return options, err
 }
 
@@ -786,6 +787,18 @@ func validateOptionValue(key, value string) error {
 	}
 	if key == MembershipBillingRecoveryControlOption {
 		return ErrMembershipRecoveryControlReadOnly
+	}
+	if strings.EqualFold(strings.TrimSpace(key), membershipPilotHold) || strings.EqualFold(strings.TrimSpace(key), membershipPilotEarlyRelease) {
+		return common.NewMessage("membership billing pilot budgets are read-only")
+	}
+	if (key == "MembershipPilotHoldUserIDs" || key == "MembershipPilotEarlyReleaseUserIDs") && value != "" {
+		for item := range strings.SplitSeq(value, ",") {
+			id := strings.TrimSpace(item)
+			n, err := strconv.Atoi(id)
+			if err != nil || n <= 0 || id != strconv.Itoa(n) {
+				return errors.New("membership billing pilot requires a comma-separated list of positive user IDs")
+			}
+		}
 	}
 	if err := operation_setting.ValidateQuotaOption(key, value); err != nil {
 		return err

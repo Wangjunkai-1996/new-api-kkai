@@ -301,6 +301,7 @@ func (MembershipBillingRecord) TableName() string { return "kkai_membership_bill
 type MembershipReservationInput struct {
 	RequestID            string
 	Scope                string
+	PilotTextHTTP        bool `json:"-"` // Admission policy never changes a replayed request's fingerprint.
 	UserID               int
 	TokenID              int
 	TokenKey             string

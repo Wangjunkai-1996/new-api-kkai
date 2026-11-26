@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,59 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestMembershipPilotConcurrentReservationsShareLastTwoDollars(t *testing.T) {
+	for _, dialect := range []string{"postgres", "mysql"} {
+		t.Run(dialect, func(t *testing.T) {
+			f := newMembershipRecoveryAcceptanceFixture(t, dialect, true, 2)
+			t.Setenv("KKAI_MEMBERSHIP_PILOT_HOLD_USER_IDS", strconv.Itoa(f.users[0].Id)+","+strconv.Itoa(f.users[1].Id))
+			// Five previous users have already consumed $98 of the $100 pilot.
+			require.NoError(t, f.db.Create(&model.Option{Key: "MembershipBillingPilotHoldSpent", Value: `{"101":20000000,"102":20000000,"103":20000000,"104":20000000,"105":18000000}`}).Error)
+			var inputs []model.MembershipReservationInput
+			for i := range f.users {
+				input := f.reservationInput(t, fmt.Sprintf("pilot-race-%d", i), i, 100)
+				input.PilotTextHTTP = true
+				// Both full quotes cost $4, and each requests the last $2.
+				input.SubscriptionQuota = 40
+				input.SubscriptionSnapshot = `{"version":1,"quota_per_unit":10,"price":{"QuotaToPreConsume":40}}`
+				inputs = append(inputs, input)
+			}
+			type outcome struct {
+				record *model.MembershipBillingRecord
+				err    error
+			}
+			results := make(chan outcome, len(inputs))
+			start := make(chan struct{})
+			for _, input := range inputs {
+				go func() {
+					<-start
+					record, err := model.ReserveMembershipBilling(input)
+					results <- outcome{record, err}
+				}()
+			}
+			close(start)
+			var amounts []int64
+			var outcomes []outcome
+			for range inputs {
+				outcomes = append(outcomes, <-results)
+			}
+			for _, result := range outcomes {
+				require.NoError(t, result.err)
+				require.Equal(t, model.MembershipSource, result.record.Source)
+				amounts = append(amounts, result.record.ReservedQuota)
+				settled, err := model.SettleMembershipBilling(result.record.RequestID, 10)
+				require.NoError(t, err)
+				assert.EqualValues(t, 10, settled.ChargedQuota)
+			}
+			assert.ElementsMatch(t, []int64{20, 40}, amounts)
+			next := inputs[0]
+			next.RequestID = "pilot-next"
+			record, err := model.ReserveMembershipBilling(next)
+			require.NoError(t, err)
+			assert.EqualValues(t, 20, record.ReservedQuota)
+		})
+	}
+}
 
 func NewMembershipRecoveryAcceptanceBridge(t *testing.T, dialect string, members bool, users, conflicts int, unlimited bool) MembershipRecoveryAcceptanceBridge {
 	f := newMembershipRecoveryAcceptanceFixture(t, dialect, members, users)

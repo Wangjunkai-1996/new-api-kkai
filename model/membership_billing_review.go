@@ -286,7 +286,9 @@ func resolveMembershipBillingReview(input MembershipBillingResolutionInput, syst
 		} else if record.Scope == MembershipBillingScopeMidjourney {
 			result, err = resolveMidjourneyMembershipBillingTx(tx, &record, input)
 		} else if input.Action == "release" {
-			result, err = ReleaseMembershipBillingTx(tx, input.RequestID)
+			// A review can waive an unknown amount, so keep the pilot's risk
+			// allocation. A trusted zero-cost terminal releases it separately.
+			result, err = completeMembershipBillingTx(tx, input.RequestID, 0, true, false)
 		} else {
 			result, err = settleMembershipRelayBillingTx(tx, input.RequestID, input.ActualQuota, record.ReviewChannelID, true)
 		}

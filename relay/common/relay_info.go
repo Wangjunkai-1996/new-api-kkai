@@ -196,16 +196,19 @@ type RelayInfo struct {
 	MembershipRealtime bool
 	// MembershipBillingEnabled reuses the compatibility decision only within
 	// this request; reservation transactions still revalidate account state.
-	MembershipBillingEnabled   *bool
-	MembershipAssessedQuota    int
-	MembershipChargedQuota     int
-	MembershipBillingRequestID string
-	BillingOutcomeUnknown      bool
-	MembershipHasBillableUsage bool
-	BillingHasReportedUsage    bool
-	BillingFailureUsage        any
-	MembershipViolationFee     int
-	MembershipDeadline         time.Time
+	MembershipBillingEnabled    *bool
+	MembershipHTTPRelay         bool // Set only by the normal HTTP relay controller.
+	MembershipPilotTextHTTP     bool
+	MembershipPilotStoppedError *types.NewAPIError
+	MembershipAssessedQuota     int
+	MembershipChargedQuota      int
+	MembershipBillingRequestID  string
+	BillingOutcomeUnknown       bool
+	MembershipHasBillableUsage  bool
+	BillingHasReportedUsage     bool
+	BillingFailureUsage         any
+	MembershipViolationFee      int
+	MembershipDeadline          time.Time
 
 	// QuotaClamp is set (non-nil) when a quota conversion saturated at the
 	// supported single-request bound (or NaN fallback) while computing this request's charge.

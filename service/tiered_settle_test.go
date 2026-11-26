@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -410,6 +411,27 @@ func TestTryTieredSettle_ErrorFallbackToEstimatedQuotaAfterGroup(t *testing.T) {
 	if result != nil {
 		t.Fatal("result should be nil on error fallback")
 	}
+}
+
+func TestTryTieredSettle_ReducedMembershipHoldFallback(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		MembershipBillingRequestID: "member-pilot",
+		MembershipPricing:          &types.MembershipPricing{FullReservedQuota: 100},
+		FinalPreConsumedQuota:      60,
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode:              "tiered_expr",
+			ExprString:               `invalid expr!!!`,
+			ExprHash:                 billingexpr.ExprHashString(`invalid expr!!!`),
+			GroupRatio:               1.0,
+			EstimatedQuotaAfterGroup: 100,
+		},
+	}
+	ok, quota, result := TryTieredSettle(info, billingexpr.TokenParams{P: 100})
+	require.True(t, ok)
+	assert.Nil(t, result)
+	assert.Equal(t, 100, quota)
+	assert.Equal(t, 60, MembershipCharge(info, quota))
+	assert.Equal(t, 100, info.MembershipAssessedQuota)
 }
 
 // ---------------------------------------------------------------------------

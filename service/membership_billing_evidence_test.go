@@ -129,6 +129,27 @@ func TestMembershipEvidenceUnknownNeverBecomesZero(t *testing.T) {
 	assert.Zero(t, self.Account.AmountUsed)
 }
 
+func TestMembershipPilotEarlyReviewRequiresWritableRecovery(t *testing.T) {
+	_, user := setupMembershipServiceTest(t)
+	enableMembershipEvidenceFixture(t)
+	for _, mode := range []string{"observe", "apply"} {
+		membershipBillingRecoveryMode.Store(mode)
+		info := reserveMembershipEvidenceFixture(t, user, "early-review-"+mode)
+		require.NoError(t, model.MarkMembershipBillingDispatched(info.RequestId, 3, common.GetTimestamp()+300))
+		require.NoError(t, MarkMembershipBillingUncertain(info.RequestId, 3, model.MembershipPilotEarlyReviewReason))
+		record, err := model.GetMembershipBillingRecord(info.RequestId)
+		require.NoError(t, err)
+		if mode == "observe" {
+			assert.Equal(t, "upstream_outcome_unknown", record.ReviewReason)
+			continue
+		}
+		assert.Equal(t, model.MembershipPilotEarlyReviewReason, record.ReviewReason)
+		var recovery model.MembershipBillingRecovery
+		require.NoError(t, model.DB.First(&recovery, "request_id = ?", info.RequestId).Error)
+		assert.Equal(t, model.MembershipRecoveryPending, recovery.State)
+	}
+}
+
 func TestMembershipEvidenceRefundCannotEraseLocalFee(t *testing.T) {
 	c, user := setupMembershipServiceTest(t)
 	enableMembershipEvidenceFixture(t)

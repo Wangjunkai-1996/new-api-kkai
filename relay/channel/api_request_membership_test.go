@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -172,6 +173,9 @@ func TestMembershipTransportDistinguishesFailureBeforeAndAfterWrite(t *testing.T
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx, info := membershipTransportFixture(t)
+			info.MembershipPilotTextHTTP = true
+			info.BillingSource = model.MembershipSource
+			require.NoError(t, model.DB.Model(&model.MembershipBillingRecord{}).Where("request_id = ?", info.RequestId).Update("source", model.MembershipSource).Error)
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				connection, _, err := w.(http.Hijacker).Hijack()
 				if assert.NoError(t, err) {
@@ -188,6 +192,13 @@ func TestMembershipTransportDistinguishesFailureBeforeAndAfterWrite(t *testing.T
 			require.Error(t, err)
 			assert.Nil(t, response)
 			assert.Equal(t, afterWrite, info.BillingOutcomeUnknown)
+			if afterWrite {
+				var apiErr *relaytypes.NewAPIError
+				require.ErrorAs(t, err, &apiErr)
+				assert.Same(t, apiErr, info.MembershipPilotStoppedError)
+			} else {
+				assert.Nil(t, info.MembershipPilotStoppedError)
+			}
 			record, err := model.GetMembershipBillingRecord(info.RequestId)
 			require.NoError(t, err)
 			assert.Equal(t, "reserved", record.State)

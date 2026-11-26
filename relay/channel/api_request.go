@@ -743,7 +743,14 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if err != nil {
 		cancelDispatch()
 		logger.LogError(c, common2.LogText("do request failed: %s", err.Error()))
-		return nil, imageRequestTransportError(err, info, "upstream error: do request failed")
+		apiErr := imageRequestTransportError(err, info, "upstream error: do request failed")
+		if info.MembershipPilotTextHTTP && info.BillingSource == model.MembershipSource &&
+			possiblySent.Load() && resp == nil && info.BillingOutcomeUnknown {
+			// Carry this exact failure to the final billing decision. A later
+			// attempt, parser error, or local DB error cannot substitute for it.
+			info.MembershipPilotStoppedError = apiErr
+		}
+		return nil, apiErr
 	}
 	if resp == nil {
 		cancelDispatch()

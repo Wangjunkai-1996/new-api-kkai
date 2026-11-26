@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/types"
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )
@@ -135,9 +136,16 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 	} else if input.ExpectedAccountID != 0 || input.ExpectedRevision != 0 || input.ExpectedReleaseID != 0 {
 		return nil, ErrMembershipQuoteChanged
 	}
+	fullAuthorization := input.WalletQuota
 	if active && account.Available() >= input.SubscriptionQuota {
+		fullAuthorization = input.SubscriptionQuota
 		record.Source, record.AccountID, record.AccountRevision, record.Snapshot, record.ReservedQuota = MembershipSource, account.ID, account.Revision, input.SubscriptionSnapshot, input.SubscriptionQuota
-		update := tx.Model(&MembershipAccount{}).Where("id = ? AND revision = ? AND amount_total - amount_used - amount_reserved >= ? AND status = ? AND expires_at > ?", account.ID, account.Revision, input.SubscriptionQuota, MembershipActive, now).Update("amount_reserved", gorm.Expr("amount_reserved + ?", input.SubscriptionQuota))
+		if input.PilotTextHTTP && input.Scope == MembershipBillingScopeRelay && fullAuthorization > 1 && MembershipPilotHoldEnabled(input.UserID) {
+			if err := reduceMembershipTextHoldTx(tx, record); err != nil {
+				return nil, err
+			}
+		}
+		update := tx.Model(&MembershipAccount{}).Where("id = ? AND revision = ? AND amount_total - amount_used - amount_reserved >= ? AND status = ? AND expires_at > ?", account.ID, account.Revision, fullAuthorization, MembershipActive, now).Update("amount_reserved", gorm.Expr("amount_reserved + ?", record.ReservedQuota))
 		if update.Error != nil {
 			return nil, update.Error
 		}
@@ -162,15 +170,12 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 		if input.TokenKey != "" && token.Key != input.TokenKey {
 			return nil, ErrMembershipInvalidInput
 		}
-		if !token.UnlimitedQuota && int64(token.RemainQuota) < record.ReservedQuota {
+		if !token.UnlimitedQuota && (int64(token.RemainQuota) < fullAuthorization || token.UsedQuota < 0 || int64(token.UsedQuota) > math.MaxInt32-fullAuthorization) {
 			return nil, ErrTaskBillingInsufficientToken
 		}
 		// An unlimited token may have untrackable legacy usage; zero TokenReserved
 		// ensures settlement never refunds usage this request did not record.
 		trackTokenUsage := token.UsedQuota >= 0 && int64(token.UsedQuota) <= math.MaxInt32-record.ReservedQuota
-		if !token.UnlimitedQuota && !trackTokenUsage {
-			return nil, ErrTaskBillingInsufficientToken
-		}
 		if !token.UnlimitedQuota {
 			token.RemainQuota -= int(record.ReservedQuota)
 		}
@@ -196,6 +201,37 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 		return nil, err
 	}
 	return record, nil
+}
+
+func reduceMembershipTextHoldTx(tx *gorm.DB, record *MembershipBillingRecord) error {
+	var snapshot types.MembershipPricing
+	if err := common.UnmarshalJsonStr(record.Snapshot, &snapshot); err != nil {
+		return err
+	}
+	if snapshot.Version != 1 || snapshot.QuotaPerUnit <= 0 || math.IsInf(snapshot.QuotaPerUnit, 0) || math.IsNaN(snapshot.QuotaPerUnit) || int64(snapshot.Price.QuotaToPreConsume) != record.ReservedQuota {
+		return ErrMembershipInvalidInput
+	}
+	// The platform can absorb at most half the original quote and at most
+	// two billing units per request. Keep the full amount in the price snapshot.
+	reduction, err := common.QuotaFromFloatStrict(min(float64(record.ReservedQuota/2), 2*snapshot.QuotaPerUnit))
+	if err != nil {
+		return err
+	}
+	if reduction == 0 {
+		return nil
+	}
+	allowed, err := spendMembershipPilotBudgetTx(tx, membershipPilotHold, record.UserID, int64(reduction), snapshot.QuotaPerUnit)
+	if err != nil || !allowed {
+		return err
+	}
+	snapshot.FullReservedQuota = record.ReservedQuota
+	encoded, err := common.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	record.Snapshot = string(encoded)
+	record.ReservedQuota -= int64(reduction)
+	return nil
 }
 
 func GetMembershipBillingRecord(requestID string) (*MembershipBillingRecord, error) {
@@ -235,16 +271,16 @@ func ReleaseMembershipBilling(requestID string) (*MembershipBillingRecord, error
 }
 
 func SettleMembershipBillingTx(tx *gorm.DB, requestID string, actualQuota int64) (*MembershipBillingRecord, error) {
-	return completeMembershipBillingTx(tx, requestID, actualQuota, false)
+	return completeMembershipBillingTx(tx, requestID, actualQuota, false, true)
 }
 
 // Release is for confirmed zero-cost failure. Callers must not use it while an
 // upstream outcome is unknown; the owning task's recovery state gates this call.
 func ReleaseMembershipBillingTx(tx *gorm.DB, requestID string) (*MembershipBillingRecord, error) {
-	return completeMembershipBillingTx(tx, requestID, 0, true)
+	return completeMembershipBillingTx(tx, requestID, 0, true, true)
 }
 
-func completeMembershipBillingTx(tx *gorm.DB, requestID string, actualQuota int64, release bool) (*MembershipBillingRecord, error) {
+func completeMembershipBillingTx(tx *gorm.DB, requestID string, actualQuota int64, release, knownCost bool) (*MembershipBillingRecord, error) {
 	if tx == nil || requestID == "" || actualQuota < 0 {
 		return nil, ErrMembershipInvalidInput
 	}
@@ -327,6 +363,11 @@ func completeMembershipBillingTx(tx *gorm.DB, requestID string, actualQuota int6
 			}
 		}
 	}
+	if knownCost {
+		if err := reconcileMembershipPilotHoldTx(tx, &record, actualQuota, charged); err != nil {
+			return nil, err
+		}
+	}
 	record.ActualQuota, record.ChargedQuota, record.ExcessQuota = actualQuota, charged, actualQuota-charged
 	record.State, record.SettledAt, record.Applied = "settled", common.GetTimestamp(), true
 	if release {
@@ -398,7 +439,15 @@ func MembershipBillingAfterCommitContext(ctx context.Context, record *Membership
 		common.SysError(fmt.Sprintf("membership token refund adjusted after administrative change request=%s token=%d unapplied_quota=%d unapplied_usage=%d", record.RequestID, record.TokenID, record.TokenRefundUnapplied, record.TokenUsedRefundUnapplied))
 	}
 	if record.ExcessQuota > 0 {
-		common.SysError(fmt.Sprintf("membership billing overrun request=%s user=%d source=%s authorized=%d actual=%d charged=%d platform_excess=%d", record.RequestID, record.UserID, record.Source, record.ReservedQuota, record.ActualQuota, record.ChargedQuota, record.ExcessQuota))
+		audit := fmt.Sprintf("membership billing overrun request=%s user=%d source=%s authorized=%d actual=%d charged=%d platform_excess=%d", record.RequestID, record.UserID, record.Source, record.ReservedQuota, record.ActualQuota, record.ChargedQuota, record.ExcessQuota)
+		if record.Scope == MembershipBillingScopeRelay && record.Source == MembershipSource {
+			var snapshot types.MembershipPricing
+			if common.UnmarshalJsonStr(record.Snapshot, &snapshot) == nil && snapshot.FullReservedQuota > record.ReservedQuota {
+				pilotExcess := min(record.ActualQuota, snapshot.FullReservedQuota) - record.ChargedQuota
+				audit += fmt.Sprintf(" full_authorization=%d pilot_excess=%d", snapshot.FullReservedQuota, pilotExcess)
+			}
+		}
+		common.SysError(audit)
 	}
 	return errors.Join(failures...)
 }

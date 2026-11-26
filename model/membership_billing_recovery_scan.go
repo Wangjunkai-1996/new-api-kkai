@@ -206,7 +206,7 @@ func DeferMembershipBillingRecovery(ctx context.Context, requestID string, revis
 		// Scheduling never touches funds. Keep Ledger -> Recovery order, but
 		// do not block unrelated requests on this member's account lock.
 		var record MembershipBillingRecord
-		if err := lockForUpdate(tx).Select("state", "billing_scope").First(&record, "request_id = ?", requestID).Error; err != nil {
+		if err := lockForUpdate(tx).Select("state", "billing_scope", "review_reason", "review_started_at").First(&record, "request_id = ?", requestID).Error; err != nil {
 			return err
 		}
 		if record.Scope != MembershipBillingScopeRelay {
@@ -223,7 +223,11 @@ func DeferMembershipBillingRecovery(ctx context.Context, requestID string, revis
 			return nil // A concurrent result already superseded this attempt.
 		}
 		seconds := int64(60) << min(max(recovery.AttemptCount, 0), 4)
-		updates := map[string]any{"next_attempt_at": now + min(seconds, 900), "attempt_count": recovery.AttemptCount + 1, "last_checked_at": now, "last_error_code": code, "revision": revision + 1, "updated_at": now}
+		next := now + min(seconds, 900)
+		if !conflict && record.ReviewReason == MembershipPilotEarlyReviewReason && record.ReviewStartedAt > now-membershipPilotReviewGrace && record.ReviewStartedAt <= now {
+			next = min(next, record.ReviewStartedAt+membershipPilotReviewGrace)
+		}
+		updates := map[string]any{"next_attempt_at": next, "attempt_count": recovery.AttemptCount + 1, "last_checked_at": now, "last_error_code": code, "revision": revision + 1, "updated_at": now}
 		if conflict && record.State == "reserved" {
 			updates["state"] = "conflict"
 		}

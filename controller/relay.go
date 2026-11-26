@@ -143,6 +143,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
 	}
+	relayInfo.MembershipHTTPRelay = true
 	defer func() {
 		recovered := recover()
 		resultErr := newAPIError

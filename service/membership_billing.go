@@ -126,6 +126,7 @@ func preConsumeMembershipBilling(info *relaycommon.RelayInfo) *relaytypes.NewAPI
 	if err != nil {
 		return membershipBillingError(err)
 	}
+	input.PilotTextHTTP = info.MembershipPilotTextHTTP
 	record, err := model.ReserveMembershipBilling(input)
 	if err != nil {
 		return membershipBillingError(err)

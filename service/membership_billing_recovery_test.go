@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
@@ -111,6 +113,122 @@ func TestMembershipRecoveryWorkerModesKeepEarlyEvidenceAndAgedFallbackSeparate(t
 				var young model.MembershipBillingRecovery
 				require.NoError(t, model.DB.First(&young, "request_id = ?", "young-ready").Error)
 				assert.Equal(t, model.MembershipRecoveryReady, young.State)
+			}
+		})
+	}
+}
+
+func TestMembershipRecoveryWorkerCompensatesOnlyEligiblePilotHold(t *testing.T) {
+	for _, test := range []struct {
+		name, mode, reason   string
+		stoppedMinutes       int64
+		disallow, logFailure bool
+		consumeLog, overCap  bool
+		fundsFailure         bool
+		wantEarlyRelease     bool
+	}{
+		{name: "eligible", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, wantEarlyRelease: true},
+		{name: "observe", mode: "observe", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16},
+		{name: "too recent", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 14},
+		{name: "outside pilot", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, disallow: true},
+		{name: "historical reason", mode: "apply", reason: "upstream_outcome_unknown", stoppedMinutes: 16},
+		{name: "consume evidence conflict", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, consumeLog: true},
+		{name: "failed log lookup", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, logFailure: true},
+		{name: "over cap", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, overCap: true},
+		{name: "failed refund", mode: "apply", reason: model.MembershipPilotEarlyReviewReason, stoppedMinutes: 16, fundsFailure: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			user := setupMembershipRecoveryWorkerTest(t)
+			previousConsume := common.LogConsumeEnabled
+			common.LogConsumeEnabled = true
+			t.Cleanup(func() { common.LogConsumeEnabled = previousConsume })
+			if !test.disallow {
+				t.Setenv("KKAI_MEMBERSHIP_PILOT_EARLY_RELEASE_USER_IDS", strconv.Itoa(user.Id))
+			} else {
+				t.Setenv("KKAI_MEMBERSHIP_PILOT_EARLY_RELEASE_USER_IDS", "")
+			}
+			require.NoError(t, model.DB.Model(&model.Option{}).
+				Where(map[string]any{"key": model.MembershipBillingRecoveryControlOption}).
+				Update("value", test.mode+":aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").Error)
+
+			record := reserveMembershipRecoveryWorkerTest(t, user, "pilot-hold", false, false)
+			require.Equal(t, model.MembershipSource, record.Source)
+			var held model.MembershipAccount
+			require.NoError(t, model.DB.First(&held, record.AccountID).Error)
+			require.Equal(t, record.ReservedQuota, held.AmountReserved)
+			ctx := context.Background()
+			now := time.Now().Unix()
+			require.NoError(t, model.MarkMembershipBillingDispatched(record.RequestID, 3, now+3600))
+			require.NoError(t, model.MarkMembershipRelayRecoveryPending(ctx, record.RequestID, 3, test.reason))
+			require.NoError(t, model.DB.Model(record).Updates(map[string]any{
+				"created_at": now - 20*60, "dispatched_at": now - 19*60, "review_started_at": now - test.stoppedMinutes*60,
+			}).Error)
+			if test.name == "too recent" {
+				require.NoError(t, model.DB.Model(&model.MembershipBillingRecovery{}).Where("request_id = ?", record.RequestID).Update("attempt_count", 4).Error)
+			}
+			if test.consumeLog {
+				log := model.Log{RequestId: record.RequestID, UserId: user.Id, Type: model.LogTypeConsume, Quota: 1}
+				require.NoError(t, model.LOG_DB.Create(&log).Error)
+			}
+			if test.logFailure {
+				model.LOG_DB = nil
+			}
+			if test.overCap {
+				require.NoError(t, model.DB.Model(record).Update("snapshot", `{"quota_per_unit":1}`).Error)
+			}
+			if test.fundsFailure {
+				const callback = "test:pilot_refund_funds_failure"
+				require.NoError(t, model.DB.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+					if tx.Statement.Table == (model.MembershipAccount{}).TableName() {
+						tx.AddError(errors.New("pilot refund failed"))
+					}
+				}))
+				t.Cleanup(func() { require.NoError(t, model.DB.Callback().Update().Remove(callback)) })
+			}
+			worker := &membershipBillingRecoveryWorker{workerID: "recovery-worker"}
+			err := worker.run(ctx)
+			switch {
+			case test.consumeLog:
+				require.ErrorIs(t, err, model.ErrMembershipConflict)
+			case test.logFailure:
+				require.ErrorContains(t, err, "log database unavailable")
+			case test.fundsFailure:
+				require.ErrorContains(t, err, "pilot refund failed")
+			default:
+				require.NoError(t, err)
+			}
+			current, err := model.GetMembershipBillingRecord(record.RequestID)
+			require.NoError(t, err)
+			if test.name == "too recent" {
+				var recovery model.MembershipBillingRecovery
+				require.NoError(t, model.DB.First(&recovery, "request_id = ?", record.RequestID).Error)
+				assert.Equal(t, now+60, recovery.NextAttemptAt)
+			}
+			var account model.MembershipAccount
+			require.NoError(t, model.DB.First(&account, record.AccountID).Error)
+			if test.wantEarlyRelease {
+				assert.Equal(t, "released", current.State)
+				assert.Contains(t, current.ReviewResolution, "pilot_early_no_evidence_compensation")
+				assert.Zero(t, current.ChargedQuota)
+				assert.Equal(t, held.AmountUsed, account.AmountUsed)
+				assert.Zero(t, account.AmountReserved)
+			} else {
+				assert.Equal(t, "reserved", current.State)
+				assert.Equal(t, held.AmountReserved, account.AmountReserved)
+				var budgetRows int64
+				require.NoError(t, model.DB.Model(&model.Option{}).Where(map[string]any{"key": "MembershipBillingPilotEarlyReleaseSpent"}).Count(&budgetRows).Error)
+				assert.Zero(t, budgetRows)
+			}
+			if test.overCap {
+				var recovery model.MembershipBillingRecovery
+				require.NoError(t, model.DB.First(&recovery, "request_id = ?", record.RequestID).Error)
+				assert.Greater(t, recovery.NextAttemptAt, now)
+				require.NoError(t, model.DB.Model(record).Update("created_at", now-2*3600-1).Error)
+				require.NoError(t, worker.run(ctx))
+				current, err = model.GetMembershipBillingRecord(record.RequestID)
+				require.NoError(t, err)
+				assert.Equal(t, "released", current.State)
+				assert.Equal(t, "no_evidence_compensation", current.ReviewReason)
 			}
 		})
 	}

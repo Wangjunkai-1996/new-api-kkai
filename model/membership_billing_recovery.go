@@ -10,6 +10,28 @@ import (
 	"gorm.io/gorm"
 )
 
+// Only the HTTP text foreground path can attest that dispatch stopped before
+// any response or usage was observed. Generic uncertainty and orphan markers
+// retain the standard compensation delay.
+const MembershipPilotEarlyReviewReason = "pilot_http_text_transport_stopped"
+const membershipPilotReviewGrace int64 = 15 * 60
+
+func (record *MembershipBillingRecord) EligibleForEarlyMembershipCompensation(now int64) bool {
+	if record.Scope != MembershipBillingScopeRelay || record.Source != MembershipSource ||
+		record.State != "reserved" || record.ReviewReason != MembershipPilotEarlyReviewReason ||
+		record.ReservedQuota <= 0 || !MembershipPilotEarlyReleaseEnabled(record.UserID) {
+		return false
+	}
+	if record.CreatedAt <= now-membershipRelayCompensationDelay || record.DispatchedAt < record.CreatedAt ||
+		record.DispatchedAt <= 0 || record.ReviewChannelID <= 0 || record.ReviewStartedAt < record.DispatchedAt ||
+		record.ReviewStartedAt > now-membershipPilotReviewGrace {
+		return false
+	}
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.LogConsumeEnabled
+}
+
 type membershipRelayEvidencePayload struct {
 	MembershipRelayEvidenceInput
 	Conflicts []membershipRelayEvidenceConflict `json:"conflicts,omitempty"`
@@ -244,7 +266,7 @@ func MarkMembershipRelayRecoveryPending(ctx context.Context, requestID string, c
 }
 
 func ResolveMembershipRelayEvidence(ctx context.Context, requestID string) (*MembershipBillingRecord, error) {
-	return completeMembershipRelayRecovery(ctx, requestID, false)
+	return completeMembershipRelayRecovery(ctx, requestID, false, nil)
 }
 
 // CompensateExpiredMembershipRelay only compensates an aged, eligible relay
@@ -255,6 +277,19 @@ func CompensateExpiredMembershipRelay(ctx context.Context, requestID string) (*M
 	if !errors.Is(err, errMembershipRecoveryNoEvidence) {
 		return record, err
 	}
+	return compensateMembershipRelayAfterLogCheck(ctx, requestID, nil)
+}
+
+// TryCompensateEarlyMembershipRelay returns nil when discovery should back off
+// and leave the original two-hour fallback in charge.
+func TryCompensateEarlyMembershipRelay(ctx context.Context, requestID string, control MembershipRecoveryControl) (*MembershipBillingRecord, error) {
+	if ctx == nil || control.Mode != "apply" || ctx.Value(membershipRecoveryGuardKey{}) == nil {
+		return nil, ErrMembershipRecoveryControl
+	}
+	return compensateMembershipRelayAfterLogCheck(ctx, requestID, &control)
+}
+
+func compensateMembershipRelayAfterLogCheck(ctx context.Context, requestID string, pilot *MembershipRecoveryControl) (*MembershipBillingRecord, error) {
 	if LOG_DB == nil {
 		return nil, errors.New("membership billing log database unavailable")
 	}
@@ -263,20 +298,28 @@ func CompensateExpiredMembershipRelay(ctx context.Context, requestID string) (*M
 		return nil, err
 	}
 	if count != 0 {
+		if pilot != nil {
+			return nil, nil // Rediscover and authenticate this new receipt next round.
+		}
 		return nil, ErrMembershipConflict
 	}
-	return completeMembershipRelayRecovery(ctx, requestID, true)
+	return completeMembershipRelayRecovery(ctx, requestID, true, pilot)
 }
 
 var errMembershipRecoveryNoEvidence = errors.New("membership recovery has no trusted terminal evidence")
 
-func completeMembershipRelayRecovery(ctx context.Context, requestID string, compensate bool) (*MembershipBillingRecord, error) {
+func completeMembershipRelayRecovery(ctx context.Context, requestID string, compensate bool, pilot *MembershipRecoveryControl) (*MembershipBillingRecord, error) {
 	if strings.TrimSpace(requestID) == "" || len(requestID) > 128 {
 		return nil, ErrMembershipInvalidInput
 	}
 	var result *MembershipBillingRecord
 	err := membershipRecoveryTransaction(ctx, func(tx *gorm.DB) error {
 		result = nil
+		if pilot != nil {
+			if err := RequireMembershipRecoveryControlTx(tx, *pilot); err != nil {
+				return err
+			}
+		}
 		record, recovery, err := lockMembershipRecoveryTx(tx, requestID)
 		if err != nil {
 			return err
@@ -327,7 +370,23 @@ func completeMembershipRelayRecovery(ctx context.Context, requestID string, comp
 			if !compensate {
 				return errMembershipRecoveryNoEvidence
 			}
-			if record.CreatedAt > common.GetTimestamp()-membershipRelayCompensationDelay || !record.prepareMembershipReview(common.GetTimestamp()) {
+			now := common.GetTimestamp()
+			if pilot != nil {
+				if !record.EligibleForEarlyMembershipCompensation(now) {
+					return nil
+				}
+				var pricing struct {
+					QuotaPerUnit float64 `json:"quota_per_unit"`
+				}
+				if err := common.UnmarshalJsonStr(record.Snapshot, &pricing); err != nil {
+					return err
+				}
+				allowed, err := spendMembershipPilotBudgetTx(tx, membershipPilotEarlyRelease, record.UserID, record.ReservedQuota, pricing.QuotaPerUnit)
+				if err != nil || !allowed {
+					return err
+				}
+				reason = "pilot_early_no_evidence_compensation"
+			} else if record.CreatedAt > now-membershipRelayCompensationDelay || !record.prepareMembershipReview(now) {
 				return ErrMembershipConflict
 			}
 		} else {
@@ -336,7 +395,7 @@ func completeMembershipRelayRecovery(ctx context.Context, requestID string, comp
 		if action == "settle" {
 			result, err = settleMembershipRelayBillingTx(tx, requestID, actual, record.ReviewChannelID, billable)
 		} else {
-			result, err = ReleaseMembershipBillingTx(tx, requestID)
+			result, err = completeMembershipBillingTx(tx, requestID, 0, true, recovery.EvidenceKind == MembershipEvidenceZero)
 		}
 		if err != nil {
 			return err

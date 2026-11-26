@@ -8,6 +8,7 @@ import (
 // MembershipPricing contains only billing facts. Request bodies, headers and
 // credential values must never be copied into the durable funding ledger.
 type MembershipPricing struct {
+	FullReservedQuota       int64                        `json:"full_reserved_quota,omitempty"` // Original authorization for a reduced membership hold.
 	MaxInputTokens          int                          `json:"max_input_tokens,omitempty"`
 	ViolationFeeBeforeGroup float64                      `json:"violation_fee_before_group,omitempty"`
 	MaxOutputTokens         int                          `json:"max_output_tokens,omitempty"`

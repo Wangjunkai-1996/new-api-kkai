@@ -161,3 +161,20 @@ curl --silent --show-error --include --request POST http://127.0.0.1:3001/api/st
 共享核账入口为 `/api/membership/admin/billing-reviews`。图片会员组合已通过本地模拟
 上游/R2 服务验证；外部沙箱与模型场景执行后，再把实际命令、事件 ID 和结果补进验证记录。
 不以本机数据库通过替代真实支付或上游联调，也不运行全仓测试来替代这些场景。
+
+## 5. 同步文本暂占试点
+
+本节对应本地候选实现。两个名单均默认为空。应用更新后可通过已有的 Root 管理接口 `PUT /api/option/` 分别设置，值为逗号分隔的用户数字 ID。使用空字符串可关闭相应试点。服务进程和后台 writer 按现有设置同步周期读取变更。没有持久设置时，隔离测试也可以通过表中的环境变量注入名单。
+
+| 管理设置 | 测试环境变量 | 作用 |
+| --- | --- | --- |
+| `MembershipPilotHoldUserIDs` | `KKAI_MEMBERSHIP_PILOT_HOLD_USER_IDS` | 符合条件的会员金额度最多少暂占原报价的一半，每笔最多少占 $2。完整报价仍用于会员余额、有限令牌和整笔钱包回退判断。 |
+| `MembershipPilotEarlyReleaseUserIDs` | `KKAI_MEMBERSHIP_PILOT_EARLY_RELEASE_USER_IDS` | 在恢复模式 `apply` 下，已派发的 HTTP 传输失败并结束、未收到响应且未向用户输出时，从记录停止时间起满 15 分钟进入补偿资格。 |
+
+首轮支持 Chat Completions、Claude Messages 和 Responses 的同步纯文本 HTTP 请求，包括符合条件的流式请求。请求体最多 1 MiB，需要驻留内存并且字段可识别。工具、多模态、外部会话、渠道参数覆盖、异步任务和钱包使用原流程。已写出流事件或心跳的请求使用原复核流程。普通上游 5xx 也沿用原流程。
+
+减占风险上限设为每用户 $20、全试点 $100。预留时先占风险预算，知道费用后将预算调整为本笔新增少收。确认零费用时返还全部本笔风险预算。无法取证的补偿和人工豁免保留该笔风险预算。单笔新增少收可按账本的 `min(actual_quota, snapshot.full_reserved_quota) - charged_quota` 复核，按快照 `quota_per_unit` 换算。预算耗尽时新请求使用完整暂占。
+
+提前补偿按实际释放面额另计，单笔上限 $6、每用户累计 $35、全试点累计 $100。两项合计上限 $200。后台成功查询空消费日志后，在资金事务内再次核对账本、可信证据、冲突状态及预算。需开启消费日志并保留最近两小时的日志。后台按轮扫描，15 分钟是最早具备资格的时间。有可信用量按原价结算，有冲突继续复核，预算不足保留原两小时流程。
+
+预算保存在现有 `options` 表中，单位为微美元。减占和提前释放分别使用 `MembershipBillingPilotHoldSpent`、`MembershipBillingPilotEarlyReleaseSpent`。两项与对应账本变更一起提交，通用设置接口禁止改写。重启和名单变更均保留预算。旧版本可以按账本原有字段完成结算，回退期间处理的减占单可能保留未用风险预算。
