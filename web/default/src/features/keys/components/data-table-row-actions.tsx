@@ -258,6 +258,16 @@ export function DataTableRowActions<TData>({
             <Link size={16} />
           </DropdownMenuShortcut>
         </DropdownMenuItem>
+        {apiKey.video_webhook && (
+          <DropdownMenuItem
+            onClick={() => {
+              setCurrentRow(apiKey)
+              setOpen('video-webhook')
+            }}
+          >
+            {t('Seedance 2.5 webhook')}
+          </DropdownMenuItem>
+        )}
         {(showCCSwitchFallback || hasChatPresets) && <DropdownMenuSeparator />}
         {showCCSwitchFallback && (
           <DropdownMenuItem

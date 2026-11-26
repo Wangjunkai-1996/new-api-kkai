@@ -53,6 +53,8 @@ func main() {
 		membershipBillingRecoveryControllerProof string
 		rc49Expand                               string
 		rc49ControllerProof                      string
+		videoWebhookExpand                       string
+		videoWebhookControllerProof              string
 		videoMediaMetadataExpand                 string
 		videoMediaMetadataControllerProof        string
 	)
@@ -89,7 +91,32 @@ func main() {
 	flag.StringVar(&rc49ControllerProof, "rc49-controller-proof", "", "fixed root rc49 controller proof mount for apply or repair-index")
 	flag.StringVar(&videoMediaMetadataExpand, "video-media-metadata-expand", "", "canonical21-preserving media metadata expansion: plan/status/check, or root-proof apply")
 	flag.StringVar(&videoMediaMetadataControllerProof, "video-media-metadata-controller-proof", "", "fixed root media metadata controller proof mount for apply")
+	flag.StringVar(&videoWebhookExpand, "video-webhook-expand", "", "optional video webhook schema: plan/check, or root-proof apply")
+	flag.StringVar(&videoWebhookControllerProof, "video-webhook-controller-proof", "", "fixed root video webhook controller proof mount for apply")
 	flag.Parse()
+	if videoWebhookExpand != "" || videoWebhookControllerProof != "" {
+		flag.Visit(func(f *flag.Flag) {
+			switch f.Name {
+			case "video-webhook-expand", "video-webhook-controller-proof", "dsn", "dsn-stdin", "timeout", "json":
+			default:
+				log.Fatalf("--video-webhook-expand cannot be combined with --%s", f.Name)
+			}
+		})
+		if !jsonOutput || flag.NArg() != 0 {
+			log.Fatal("--video-webhook-expand requires --json")
+		}
+		dsn, err := resolveMigrationDSN(dsn, dsnFromStdin, os.Stdin)
+		if err != nil {
+			log.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		if err := runVideoWebhookExpansion(ctx, dsn, videoWebhookExpand, videoWebhookControllerProof, os.Stdout); err != nil {
+			log.Fatalf("KKAI video webhook expansion: %v", err)
+		}
+		return
+	}
+
 	if videoMediaMetadataControllerProof != "" && videoMediaMetadataExpand != "apply" {
 		log.Fatal("--video-media-metadata-controller-proof is only valid for --video-media-metadata-expand apply")
 	}

@@ -60,7 +60,7 @@ func WalletPaymentMutationGuard() gin.HandlerFunc {
 
 // Historical financial maintenance requires an interactive root session even
 // when the root account also owns a broad personal access token.
-func WalletPaymentBatchGuard() gin.HandlerFunc {
+func PlatformRootSessionOriginGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		_, session := GetSessionAuthIdentity(c)
 		if !session || c.GetBool("use_access_token") || c.GetInt("role") != common.RoleRootUser || common.GetContextKeyInt64(c, constant.ContextKeyTenantID) != model.PlatformTenantID {

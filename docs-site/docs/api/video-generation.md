@@ -27,7 +27,7 @@ API Base URL 固定为 `https://api.kkrich.ltd`。不要使用其他平台或渠
 
 ## 接口总览
 
-视频生成是异步任务：创建任务后保存公开任务 ID，轮询原任务，完成后再从本站下载。
+视频生成是异步任务：创建任务后保存公开任务 ID，轮询原任务，完成后再从本站下载。业务系统如需接收成功或失败通知，可参阅 [Seedance 2.5 终态 Webhook](#seedance-25-webhook)。
 
 | 用途 | 方法 | 本站地址 |
 | --- | --- | --- |
@@ -676,6 +676,104 @@ if (!downloaded) {
 ```
 
 收到后应保存 `data`、请求时间、模型和本地业务单号，查询原任务或联系支持。禁止自动重发创建请求。
+
+## Seedance 2.5 终态 Webhook {#seedance-25-webhook}
+
+业务系统可以为指定的视频任务订阅一次终态事件。生成成功时收到下载地址，失败时收到错误码和原因。
+
+**开放范围**　本节供主站 API Token 试点联调使用。开通后，令牌菜单会显示「Seedance 2.5 回调」。适用模型包括本页四个 2.5 正式模型名和 `seedance-2.5` 兼容别名。
+
+1. 在控制台打开对应 API 令牌的菜单，选择 **Seedance 2.5 回调**，登记公网 HTTPS 443 地址。URL 可带路径，且须通过 TLS 验证。使用无查询参数、无片段和无用户信息的地址。
+2. 创建后立即保存端点 ID 与签名密钥。在接收端实现以下验证应答，再点击 **验证**。切换版本后，新任务用新端点，旧任务继续使用登记时的版本。撤销一个版本会停止该版本的后续投递。
+3. 在原有 JSON 创建请求上增加 `X-KKRICH-Webhook: terminal`。如需关联业务，增加 `X-KKRICH-Client-Reference: order-5821`，允许 1–128 个 ASCII 字母、数字、点、下划线或连字符。两个创建接口都支持。
+4. 保存创建响应的 `id`，并检查响应头 `X-KKRICH-Webhook: registered`。缺少该回执时按原任务 ID 查询，重新提交可能产生额外任务和费用。未验证端点返回 409，未开放或暂停登记返回 503，无效头值或不支持的模型返回 400。
+
+例如，先导出环境变量 `KKAI_API_KEY`，再提交一次任务。两套创建接口均使用以下回调请求头。加上 `-i` 可同时看到登记回执和任务 ID。
+
+```bash
+curl -i 'https://api.kkrich.ltd/v1/video/generations' \
+  -H "Authorization: Bearer $KKAI_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -H 'X-KKRICH-Webhook: terminal' \
+  -H 'X-KKRICH-Client-Reference: order-5821' \
+  -d '{"model":"sd_2.5_special_720p","prompt":"海边灯塔，镜头缓慢推近","ratio":"16:9","duration":5,"generate_audio":false}'
+```
+
+### 回流字段
+
+| 字段 | 类型 / 出现条件 | 含义 |
+| --- | --- | --- |
+| `version` | 整数，必有 | 当前为 1 |
+| `event_id` | 字符串，必有 | 去重键，自动和人工重投均沿用 |
+| `event_type` | 字符串，必有 | `video.completed` 或 `video.failed` |
+| `task_id` | 字符串，必有 | 创建返回的公开任务 ID |
+| `client_reference` | 字符串，提交时指定才有 | 客户业务单号 |
+| `model` | 字符串，必有 | 提交的公开模型名，保留别名 |
+| `status` | 字符串，必有 | `SUCCESS` 或 `FAILURE` |
+| `finished_at` | 整数，必有 | 网关记录的任务结束时间，Unix 秒 |
+| `result_url` | 字符串，仅成功 | 主站下载地址，下载时需携带任务所属账号的有效 Token |
+| `error_code` | 字符串，仅失败 | 平台错误分类。未知分类为 `generation_failure` |
+| `fail_reason` | 字符串，仅失败 | 可展示的失败说明 |
+
+同步提交错误由创建接口返回。已受理的任务在确认终态后发送通知。处于排队、生成中或结果未知时，可用原任务 ID 查询进度。
+
+### 成功与失败通知示例
+
+**成功通知**包含本站下载入口。用任务所属账号的有效 Token 请求 `result_url` 即可下载视频。
+
+```json
+{
+  "version": 1,
+  "event_id": "evt_example01",
+  "event_type": "video.completed",
+  "task_id": "task_example01",
+  "client_reference": "order-5821",
+  "model": "sd_2.5_special_720p",
+  "status": "SUCCESS",
+  "finished_at": 1795651240,
+  "result_url": "https://api.kkrich.ltd/v1/videos/task_example01/content"
+}
+```
+
+**失败通知**示例中，客户提交任务时省略了业务单号，因此正文中也省略 `client_reference`。
+
+```json
+{
+  "version": 1,
+  "event_id": "evt_example02",
+  "event_type": "video.failed",
+  "task_id": "task_example02",
+  "model": "seedance-2.5",
+  "status": "FAILURE",
+  "finished_at": 1795651300,
+  "error_code": "content_policy_violation",
+  "fail_reason": "Video generation failed the content policy check."
+}
+```
+
+### 验签与应答
+
+接收端按 `X-KKRICH-Webhook-Key-Id` 选择该端点版本的签名密钥。平台以 HTTP POST 发送 JSON。读取原始 HTTP 正文字节，使用 `X-KKRICH-Webhook-Timestamp`（Unix 秒）和 `X-KKRICH-Webhook-Signature` 验签。下面的 Python 示例只依赖标准库。
+
+```python
+import hashlib
+import hmac
+import re
+import time
+
+def verify(secret, timestamp, signature, raw_body):
+    if not re.fullmatch(r"[0-9]{1,12}", timestamp) or abs(time.time() - int(timestamp)) > 300:
+        return False
+    if not re.fullmatch(r"v1=[0-9a-f]{64}", signature):
+        return False
+    message = timestamp.encode("ascii") + b"." + raw_body
+    expected = "v1=" + hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+```
+
+地址验证时，收到形如 `{"event_type":"webhook.challenge","challenge":"demo-01"}` 的已签名请求，在 5 秒内用 2xx 返回 `{"challenge":"demo-01"}`。业务事件请在同一事务内按唯一 `event_id` 落库并登记待处理业务，再返回 200 或 204。已处理的重复事件也返回 2xx。视频下载可以异步进行。
+
+临时网络错误、408、429 和 5xx 会自动重投，首次退避约 5 秒，间隔最长 1 小时，累计 12 次失败进入死信。重定向、其余 4xx、证书校验失败和已撤销的授权会停止自动投递。控制台可看最近 30 条记录，支持人员可用公开的 `task_id` 或 `event_id` 定位问题。仍在处理的任务保留至结束，结束记录按 30 天阈值清理。
 
 ## 上线前检查
 

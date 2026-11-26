@@ -61,11 +61,11 @@ func InvoiceAssetStoreFromEnvironment(ctx context.Context) (InvoiceAssetStore, e
 	if os.Getenv("KKAI_INVOICE_S3_PRIVATE") != "true" {
 		return nil, invoiceError(http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE")
 	}
-	accessKey, err := invoiceSecret("KKAI_INVOICE_S3_ACCESS_KEY_ID")
+	accessKey, err := readMountedSecret("KKAI_INVOICE_S3_ACCESS_KEY_ID")
 	if err != nil {
 		return nil, invoiceError(http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE")
 	}
-	secretKey, err := invoiceSecret("KKAI_INVOICE_S3_SECRET_ACCESS_KEY")
+	secretKey, err := readMountedSecret("KKAI_INVOICE_S3_SECRET_ACCESS_KEY")
 	if err != nil {
 		return nil, invoiceError(http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE")
 	}

@@ -15,6 +15,7 @@ func CORS() gin.HandlerFunc {
 	config.AllowCredentials = true
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	config.AllowHeaders = []string{"*"}
+	config.ExposeHeaders = []string{"X-KKRICH-Webhook"}
 	platformCORS := cors.New(config)
 	return func(c *gin.Context) {
 		if tenantID := common.GetContextKeyInt64(c, constant.ContextKeyTenantID); tenantID > 0 {

@@ -37,6 +37,9 @@ func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
 		respondTaskError(c, service.TaskErrorWrapperLocal(errors.New("task submission returned no result"), "task_submit_failed", http.StatusInternalServerError))
 		return
 	}
+	if c.GetBool("video_webhook_requested") {
+		c.Header(service.VideoWebhookHeader, "registered")
+	}
 	if otherRatios := outcome.RelayInfo.PriceData.OtherRatios(); otherRatios != nil {
 		if encoded, err := common.Marshal(otherRatios); err == nil {
 			c.Header("X-New-Api-Other-Ratios", string(encoded))

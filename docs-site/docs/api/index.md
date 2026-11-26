@@ -3,7 +3,7 @@ title: "API 接入"
 description: "KKRICH / KKAI New API 的 OpenAI 兼容接入总览。"
 outline: [2, 3]
 ---
-生成接口：[图片生成 API](/api/image-generation) · [Seedance 视频生成 API](/api/video-generation)。图片工具教程见 [用 Codex 生图](/apps/codex-image) 和 [Cherry Studio 生图](/apps/image2)。
+生成接口：[图片生成 API](/api/image-generation) · [Seedance 视频生成 API](/api/video-generation) · [Seedance 2.5 Webhook 回流字段与验签](/api/video-generation#seedance-25-webhook)。图片工具教程见 [用 Codex 生图](/apps/codex-image) 和 [Cherry Studio 生图](/apps/image2)。
 
 <!-- Recovered from the public production rendering on 2026-08-25. -->
 <div class="kkr-recovered-page" v-pre>

@@ -26,7 +26,7 @@ func invoiceKeys() (string, map[string][]byte, error) {
 	if id == "" || len(id) > 48 || strings.ContainsAny(id, ".:") {
 		return "", nil, invoiceError(503, "ENCRYPTION_UNAVAILABLE")
 	}
-	raw, err := invoiceSecret("KKAI_INVOICE_KEYS")
+	raw, err := readMountedSecret("KKAI_INVOICE_KEYS")
 	if err != nil || common.UnmarshalJsonStr(raw, &encoded) != nil {
 		return "", nil, invoiceError(503, "ENCRYPTION_UNAVAILABLE")
 	}

@@ -68,6 +68,9 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 	if err := registerKKAIOutboxDeliveryJob(registry, outboxWorker); err != nil {
 		return err
 	}
+	if err := registerVideoWebhookJobs(registry, workerID); err != nil {
+		return err
+	}
 	if err := RegisterVideoStudioBackgroundJobs(registry, workerID); err != nil {
 		return err
 	}

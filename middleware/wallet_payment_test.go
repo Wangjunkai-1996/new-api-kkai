@@ -107,7 +107,7 @@ func TestWalletPaymentBatchGuardRequiresPlatformRootSessionAndOrigin(t *testing.
 					c.Set("session_version", int64(1))
 				}
 				common.SetContextKey(c, constant.ContextKeyTenantID, test.tenant)
-			}, WalletPaymentBatchGuard())
+			}, PlatformRootSessionOriginGuard())
 			engine.POST("/run", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 			request := httptest.NewRequest(http.MethodPost, "https://wallet.example.test/run", nil)
 			if test.origin != "" {

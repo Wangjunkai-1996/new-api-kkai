@@ -29,7 +29,7 @@ func registerWalletPaymentRoutes(api *gin.RouterGroup) {
 	admin.GET("/orders/:trade_no/admin", controller.GetAdminWalletTopUpOrder)
 	admin.POST("/orders/:trade_no/admin-reconcile", middleware.WalletPaymentMutationGuard(), middleware.WalletPaymentRateLimit("check"), controller.AdminReconcileWalletTopUpOrder)
 
-	runs := api.Group("/user/topup/reconcile-runs", middleware.RootAuth(), middleware.DisableCache(), middleware.WalletPaymentBatchGuard())
+	runs := api.Group("/user/topup/reconcile-runs", middleware.RootAuth(), middleware.DisableCache(), middleware.PlatformRootSessionOriginGuard())
 	runs.GET("/:run_id", controller.GetWalletPaymentRun)
 	runs.POST("/report", middleware.UserCriticalRateLimit("wallet-payment-report"), controller.ReportWalletPaymentRun)
 	runs.POST("", middleware.UserCriticalRateLimit("wallet-payment-batch"), controller.StartWalletPaymentRun)

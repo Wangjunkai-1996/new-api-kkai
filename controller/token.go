@@ -42,6 +42,7 @@ type tokenRequest struct {
 }
 
 type tokenResponse struct {
+	VideoWebhook bool `json:"video_webhook,omitempty"`
 	*model.Token
 	AutoGroups []string `json:"auto_groups"`
 }
@@ -70,7 +71,7 @@ func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
 	if len(autoGroups) == 0 {
 		autoGroups = nil
 	}
-	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups}
+	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups, VideoWebhook: token.TenantID == model.PlatformTenantID && service.VideoWebhookTokenEnabled(token.Id)}
 }
 
 func buildMaskedTokenResponses(tokens []*model.Token) []*tokenResponse {

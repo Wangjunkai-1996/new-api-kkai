@@ -13,7 +13,9 @@ import (
 
 const videoMediaMetadataControllerProofPath = "/run/video-media-metadata-expansion/proof.json"
 
-type videoMediaMetadataControllerProof struct {
+type videoMediaMetadataControllerProof = canonical21ExpansionProof
+
+type canonical21ExpansionProof struct {
 	Schema            string                `json:"schema"`
 	Protocol          string                `json:"protocol"`
 	Operation         string                `json:"operation"`
@@ -64,28 +66,32 @@ func validateVideoMediaMetadataControllerProof(proof *videoMediaMetadataControll
 	if proof.SourceVersion != status.CurrentVersion || proof.TargetVersion != status.TargetVersion || proof.SourceDigest != status.SourceDigest || proof.PlanChecksum != status.PlanChecksum || proof.ExpansionDigest != status.ExpansionDigest || proof.DatabaseName != status.DatabaseName || proof.DatabaseSchema != status.DatabaseSchema || proof.DatabaseName == "" || proof.DatabaseSchema == "" {
 		return fmt.Errorf("video media metadata controller proof does not match the exact database and expansion plan")
 	}
+	return validateCanonical21ExpansionRuntimeEvidence(proof, now, kkaimigrate.ValidateVideoMediaMetadataRuntimeContract)
+}
+
+func validateCanonical21ExpansionRuntimeEvidence(proof *canonical21ExpansionProof, now time.Time, validateRuntimeContract func(kkaimigrate.SchemaContract) error) error {
 	if len(proof.InstalledInfraSHA) != 40 || !tenantProofHex.MatchString(proof.InstalledInfraSHA) || !tenantProofImage(proof.ImageID) || len(proof.Nonce) != 32 || !tenantProofHex.MatchString(proof.Nonce) {
-		return fmt.Errorf("invalid video media metadata controller artifact identity")
+		return fmt.Errorf("invalid expansion controller artifact identity")
 	}
 	if proof.IssuedAt <= 0 || proof.IssuedAt > now.Unix() || proof.ExpiresAt <= now.Unix() || proof.ExpiresAt <= proof.IssuedAt || proof.ExpiresAt-proof.IssuedAt > 120 {
-		return fmt.Errorf("video media metadata controller proof is expired or has an invalid validity window")
+		return fmt.Errorf("expansion controller proof is expired or has an invalid validity window")
 	}
 	if len(proof.Runtimes) != 3 {
-		return fmt.Errorf("video media metadata controller proof requires active, rollback and writer runtime evidence")
+		return fmt.Errorf("expansion controller proof requires active, rollback and writer runtime evidence")
 	}
 	roles, containers, processes := map[string]bool{}, map[string]bool{}, map[int64]bool{}
 	for _, instance := range proof.Runtimes {
 		if (instance.Role != "active" && instance.Role != "rollback" && instance.Role != "writer") || roles[instance.Role] || instance.Name == "" || len(instance.ContainerID) != 64 || !tenantProofHex.MatchString(instance.ContainerID) || containers[instance.ContainerID] || !tenantProofImage(instance.ImageID) || instance.Version == "" {
-			return fmt.Errorf("video media metadata controller runtime identities are invalid or repeated")
+			return fmt.Errorf("expansion controller runtime identities are invalid or repeated")
 		}
 		startedAt, err := time.Parse(time.RFC3339Nano, instance.ContainerStartedAt)
 		if err != nil || startedAt.Unix() <= 0 || startedAt.Unix() > proof.IssuedAt || instance.ContainerInitStartTicks == 0 || instance.ApplicationPID <= 0 || processes[instance.ApplicationPID] || instance.ApplicationStartTicks < instance.ContainerInitStartTicks || !shopMountNamespace.MatchString(instance.ApplicationMountNamespace) || instance.ApplicationExecutableDevice == 0 || instance.ApplicationExecutableInode == 0 || len(instance.ApplicationCgroupSHA256) != 64 || !tenantProofHex.MatchString(instance.ApplicationCgroupSHA256) {
-			return fmt.Errorf("video media metadata controller runtime process identities are invalid or repeated")
+			return fmt.Errorf("expansion controller runtime process identities are invalid or repeated")
 		}
 		if instance.TenantRoutingEnabled == nil || instance.TenantAware == nil || !*instance.TenantAware || instance.SeparateLogDatabase == nil || *instance.SeparateLogDatabase || instance.SchemaContract.SchemaManagement != "external" {
 			return fmt.Errorf("video media metadata expansion requires tenant-aware external runtimes and main-database logs")
 		}
-		if err := kkaimigrate.ValidateVideoMediaMetadataRuntimeContract(instance.SchemaContract.SchemaContract); err != nil {
+		if err := validateRuntimeContract(instance.SchemaContract.SchemaContract); err != nil {
 			return err
 		}
 		roles[instance.Role], containers[instance.ContainerID], processes[instance.ApplicationPID] = true, true, true

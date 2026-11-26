@@ -466,6 +466,16 @@ func submitPreparedTask(c *gin.Context, info *relaycommon.RelayInfo, adaptor cha
 	task := buildProvisionalTask(c, platform, info, existingTask)
 	result.Task = task
 	if err := persistProvisionalTask(c, task); err != nil {
+		if errors.Is(err, model.ErrVideoWebhookNotReady) {
+			taskErr := service.TaskErrorWrapperLocal(model.ErrVideoWebhookNotReady, "webhook_endpoint_not_ready", http.StatusConflict)
+			taskErr.NoRetry = true
+			return result, taskErr
+		}
+		if errors.Is(err, model.ErrVideoWebhookPersistence) {
+			taskErr := service.TaskErrorWrapperLocal(model.ErrVideoWebhookPersistence, "webhook_unavailable", http.StatusServiceUnavailable)
+			taskErr.NoRetry = true
+			return result, taskErr
+		}
 		return result, service.TaskErrorWrapperLocal(err, "persist_task_failed", http.StatusInternalServerError)
 	}
 	if info.Billing != nil || !info.PriceData.FreeModel {
