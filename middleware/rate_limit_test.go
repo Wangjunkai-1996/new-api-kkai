@@ -89,6 +89,26 @@ func TestRedisUserRateLimiterSharesExistingUserWindow(t *testing.T) {
 	assert.Equal(t, common.RateLimitKeyExpirationDuration, redisServer.TTL(key))
 }
 
+var tokenUsageMemoryTestAccounts atomic.Int32
+
+func TestTokenUsageMemoryLimitSendsRetryAfter(t *testing.T) {
+	previous := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = previous })
+	engine := gin.New()
+	accountID := 871392 + int(tokenUsageMemoryTestAccounts.Add(1))
+	engine.GET("/usage", func(c *gin.Context) { c.Set("id", accountID) }, TokenUsageRateLimit(),
+		func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	for range 30 {
+		require.Equal(t, http.StatusNoContent, performRateLimitRequest(engine, "/usage", "192.0.2.50:1234").Code)
+	}
+	response := performRateLimitRequest(engine, "/usage", "192.0.2.50:1234").Result()
+	t.Cleanup(func() { require.NoError(t, response.Body.Close()) })
+	assert.Equal(t, http.StatusTooManyRequests, response.StatusCode)
+	assert.Equal(t, "60", response.Header.Get("Retry-After"))
+}
+
 func TestRedisRateLimitTenantIsolation(t *testing.T) {
 	for _, scope := range []string{"ip", "user", "email"} {
 		t.Run(scope, func(t *testing.T) {

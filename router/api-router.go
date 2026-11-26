@@ -316,15 +316,8 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.POST("/batch/keys", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
 		}
 
-		usageRoute := apiRouter.Group("/usage")
-		usageRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
-		{
-			tokenUsageRoute := usageRoute.Group("/token")
-			tokenUsageRoute.Use(middleware.TokenAuthReadOnly())
-			{
-				tokenUsageRoute.GET("/", controller.GetTokenUsage)
-			}
-		}
+		apiRouter.GET("/usage/token/", middleware.CORS(), middleware.TokenAuthReadOnly(),
+			middleware.TokenUsageRateLimit(), controller.GetTokenUsage)
 
 		redemptionRoute := apiRouter.Group("/redemption")
 		redemptionRoute.Use(middleware.AdminAuth())

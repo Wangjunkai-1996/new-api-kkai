@@ -157,6 +157,20 @@ func UserCriticalRateLimit(scope string) func(c *gin.Context) {
 	)
 }
 
+// TokenUsageRateLimit gives authenticated balance polling its own per-account window.
+func TokenUsageRateLimit() gin.HandlerFunc {
+	const windowSeconds = 60
+	limit := userRateLimitFactory(30, windowSeconds, "token-usage")
+	return func(c *gin.Context) {
+		c.Writer.Header().Add("Access-Control-Expose-Headers", "Retry-After")
+		limit(c)
+		if c.IsAborted() && c.Writer.Status() == http.StatusTooManyRequests && c.Writer.Header().Get("Retry-After") == "" {
+			// The memory limiter reports only admission. A full window is a safe retry delay.
+			c.Header("Retry-After", strconv.Itoa(windowSeconds))
+		}
+	}
+}
+
 func DownloadRateLimit() func(c *gin.Context) {
 	return rateLimitFactory(common.DownloadRateLimitNum, common.DownloadRateLimitDuration, "DW")
 }
