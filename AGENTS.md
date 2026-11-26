@@ -70,13 +70,15 @@ manual production deployer. Staging loads and verifies the image, replaces only
 the idle slot, and exposes it through a private candidate proxy. It does not
 switch the public router, stable alias, writer, Redis, release pointers, or
 rollback pointers.
-Promotion is a separate explicit operator action after exact-version acceptance.
-An instruction to build and blue-green deploy to production is standing
-operator authorization for both stage and promotion once the exact candidate
-version and the smallest affected workflow pass. Do not pause for duplicate
-approval at that point. A build-only or stage-only request does not authorize
-promotion, and any version mismatch, candidate failure, newly discovered risk,
-or scope change requires stopping before promotion.
+An authorized production release proceeds through frontend activation or backend
+promotion once its technical gates pass. The user performs real, signed-in
+business acceptance after release by default. Record the affected workflows for
+the user and run production business tests only when the user asks. Complete
+delivery without waiting for a test account or a separate acceptance reply.
+Fixes to issues reported during acceptance of that release follow the same
+authorized delivery workflow. A build-only or stage-only request ends at its
+requested step. Stop on a version mismatch, a known release-related failure,
+a newly discovered risk, or a change of scope.
 
 The promote wrapper finalizes the canary internally. Do not unconditionally
 finalize a second time. For an interrupted finalize, use the recorded rollout

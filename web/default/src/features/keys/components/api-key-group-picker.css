@@ -393,7 +393,9 @@ For commercial licensing, please contact support@quantumnous.com
 .kgrp-body {
   display: grid;
   grid-template-columns: clamp(104px, 23cqi, 130px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
+  max-height: 30rem;
 }
 .kgrp-side {
   min-height: 0;
@@ -463,10 +465,9 @@ For commercial licensing, please contact support@quantumnous.com
   font-variant-numeric: tabular-nums;
 }
 .kgrp-list {
-  height: 318px;
   min-width: 0;
   min-height: 0;
-  max-height: 100%;
+  max-height: none;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -811,7 +812,7 @@ For commercial licensing, please contact support@quantumnous.com
     display: none;
   }
   .kgrp-list {
-    height: 292px;
+    max-height: 292px;
     padding-inline: 6px;
   }
   .kgrp-row {
