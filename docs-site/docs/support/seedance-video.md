@@ -97,7 +97,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 
 处理：从本站 `/v1/models` 响应复制完整模型名。沿用 Seedance 2.0 命名规则的 2.5 正式客户模型名为：
 `sd_2.5_special_720p`、`sd_2.5_special_1080p`、`sd_2.5_special_720p_with_video_ref`、
-`sd_2.5_special_1080p_with_video_ref`；原有 `seedance-2.5` 仍作为 720p 兼容别名；2.0 使用 [完整模型矩阵](/api/video-generation#seedance-2-0-特价版)
+`sd_2.5_special_1080p_with_video_ref`。「Seedance 视频」分组的 720p 普通任务使用 `sd_2.5_special_720p`。2.0 使用 [完整模型矩阵](/api/video-generation#seedance-2-0-特价版)
 中的名称。模型是否可用仍以当前 Token 返回结果为准。
 
 ### 时长错误

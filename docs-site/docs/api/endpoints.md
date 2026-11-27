@@ -52,7 +52,7 @@ Content-Type: application/json
 
 Seedance 2.0 接受 4-15 秒整数；沿用 2.0 命名规则的四个 Seedance 2.5 正式客户模型名（`sd_2.5_special_720p`、
 `sd_2.5_special_1080p`、`sd_2.5_special_720p_with_video_ref`、
-`sd_2.5_special_1080p_with_video_ref`）接受 4-30 秒整数，原有 `seedance-2.5` 仍作为 720p 兼容别名。普通 2.5 名称用于文生/单图参考，
+`sd_2.5_special_1080p_with_video_ref`）接受 4-30 秒整数。「Seedance 视频」分组按完整模型名路由。普通 2.5 名称用于文生/单图参考，
 `_with_video_ref` 正式名称必须提供单个 `reference_video`。缺失、`null`、空字符串、`0` 或 `1-3`
 按 4 秒处理；负数、小数、非法字符串和超过模型上限的值返回 400。完整字段和响应协议参见
 [Seedance 视频生成 API](./video-generation)。

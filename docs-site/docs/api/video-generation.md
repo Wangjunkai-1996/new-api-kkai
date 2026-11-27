@@ -71,14 +71,13 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 | 客户模型名 | 时长 | 分辨率 | 参考方式 |
 | --- | --- | --- | --- |
-| `seedance-2.5` | 4-30 秒整数 | 720p | 兼容别名；文生或图片参考 |
 | `sd_2.5_special_720p` | 4-30 秒整数 | 720p | 文生或图片参考 |
 | `sd_2.5_special_1080p` | 4-30 秒整数 | 1080p | 文生或图片参考 |
 | `sd_2.5_special_720p_with_video_ref` | 4-30 秒整数 | 720p | 必须视频参考 |
 | `sd_2.5_special_1080p_with_video_ref` | 4-30 秒整数 | 1080p | 必须视频参考 |
 
 四个 `sd_2.5_special_*` 名称沿用既有 Seedance 2.0 命名规则，是本站正式客户模型名，
-分别对应四个计费能力档；原有 `seedance-2.5` 仅作为 720p 兼容别名保留。上述名称都支持：
+分别对应四个计费档位。「Seedance 视频」分组提交 720p 普通任务时请使用完整名称 `sd_2.5_special_720p`。四个型号都支持以下参数。
 
 - `ratio`：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
 - `generate_audio`：接受布尔值 `true` 或 `false`，建议显式传值。
@@ -681,7 +680,7 @@ if (!downloaded) {
 
 业务系统可以为指定的视频任务订阅一次终态事件。生成成功时收到下载地址，失败时收到错误码和原因。
 
-**开放范围**　本节供主站 API Token 试点联调使用。开通后，令牌菜单会显示「Seedance 2.5 回调」。适用模型包括本页四个 2.5 正式模型名和 `seedance-2.5` 兼容别名。
+**开放范围**　本节供主站 API Token 试点联调使用。开通后，令牌菜单会显示「Seedance 2.5 回调」。在「Seedance 视频」分组中，请使用本页列出的四个 2.5 正式模型名。
 
 1. 在控制台打开对应 API 令牌的菜单，选择 **Seedance 2.5 回调**，登记公网 HTTPS 443 地址。URL 可带路径，且须通过 TLS 验证。使用无查询参数、无片段和无用户信息的地址。
 2. 创建后立即保存端点 ID 与签名密钥。在接收端实现以下验证应答，再点击 **验证**。切换版本后，新任务用新端点，旧任务继续使用登记时的版本。撤销一个版本会停止该版本的后续投递。
@@ -743,7 +742,7 @@ curl -i 'https://api.kkrich.ltd/v1/video/generations' \
   "event_id": "evt_example02",
   "event_type": "video.failed",
   "task_id": "task_example02",
-  "model": "seedance-2.5",
+  "model": "sd_2.5_special_720p",
   "status": "FAILURE",
   "finished_at": 1795651300,
   "error_code": "content_policy_violation",
