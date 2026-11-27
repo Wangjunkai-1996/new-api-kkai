@@ -84,9 +84,9 @@ describe('group status card', () => {
 
     expect(screen.getByText('Multiplier')).toBeInTheDocument()
     expect(screen.getByText('x0.75')).toBeInTheDocument()
-    expect(screen.getByText('Cache hit rate (24h)')).toHaveAttribute(
+    expect(screen.getByText('Request cache hit rate (24h)')).toHaveAttribute(
       'title',
-      'Requests with more than 30% cached input, as a share of successful text requests with reported usage in the last 24 hours. Non-streaming requests with zero cached input are excluded.'
+      'A request counts as a hit when more than 30% of its input tokens come from cache. Counts successful text requests with reported usage that meet the model’s minimum input length for caching, if known. Non-streaming requests must also have cached input.'
     )
     expect(screen.getByText('92.84%')).toBeInTheDocument()
     expect(screen.queryByText('Samples: 128')).not.toBeInTheDocument()
@@ -107,7 +107,7 @@ describe('group status card', () => {
       />
     )
 
-    expect(screen.queryByText(/Cache hit rate/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Request cache hit rate (24h)')).not.toBeInTheDocument()
   })
 
   test('keeps stale health neutral while retaining valid 24-hour cache stats', () => {
@@ -131,7 +131,7 @@ describe('group status card', () => {
     expect(screen.queryByText('Data stale')).not.toBeInTheDocument()
     expect(screen.queryByText('100%')).not.toBeInTheDocument()
     expect(screen.queryByText('300ms')).not.toBeInTheDocument()
-    expect(screen.getByText('Cache hit rate (24h)')).toBeInTheDocument()
+    expect(screen.getByText('Request cache hit rate (24h)')).toBeInTheDocument()
     expect(screen.getByText('90%')).toBeInTheDocument()
     expect(screen.getByText('Last 60 requests')).toBeInTheDocument()
     expect(screen.queryByText(/ago$/)).not.toBeInTheDocument()

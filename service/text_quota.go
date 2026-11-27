@@ -1,9 +1,11 @@
 package service
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -485,6 +487,21 @@ func isGroupStatusCacheEligibleRequest(relayInfo *relaycommon.RelayInfo) bool {
 		strings.HasSuffix(requestURL.Path, ":streamGenerateContent")
 }
 
+// OpenAI prompt caching starts at 1,024 input tokens for these hosted model
+// families. OpenAI-compatible providers can use different cache policies.
+const openAIPromptCacheMinTokens = 1024
+
+var openAIPromptCacheModel = regexp.MustCompile(`^(gpt-(4o|4\.[15]|5|6)|chatgpt-4o|o[134]|codex-mini)([.-]|$)`)
+
+func usesOpenAIPromptCacheMinimum(info *relaycommon.RelayInfo) bool {
+	model := cmp.Or(info.GetUpstreamModelName(), info.OriginModelName)
+	if info.ResponseModel != nil && info.ResponseModel.ReturnedModel != "" {
+		model = info.ResponseModel.ReturnedModel
+	}
+	model = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "openai/")
+	return model == "codex-auto-review" || openAIPromptCacheModel.MatchString(model)
+}
+
 func groupStatusCacheUsage(relayInfo *relaycommon.RelayInfo, rejected bool, localCountTokens bool, originUsage *dto.Usage, summary textQuotaSummary) *perfmetrics.CacheUsage {
 	if rejected ||
 		!isGroupStatusCacheEligibleRequest(relayInfo) ||
@@ -508,6 +525,9 @@ func groupStatusCacheUsage(relayInfo *relaycommon.RelayInfo, rejected bool, loca
 			cacheDenominator += summary.CacheTokens
 		}
 		if cacheDenominator <= 0 || summary.CacheTokens > cacheDenominator {
+			return nil
+		}
+		if cacheDenominator < openAIPromptCacheMinTokens && usesOpenAIPromptCacheMinimum(relayInfo) {
 			return nil
 		}
 		return &perfmetrics.CacheUsage{

@@ -78,6 +78,7 @@ func TestKKAIGroupCacheTrackingIgnoresPreviousGenerationMarkers(t *testing.T) {
 		"kkai:group-status:cache-v2:started_at",
 		"kkai:group-status:cache-v3:started_at",
 		"kkai:group-status:cache-v4:started_at",
+		"kkai:group-status:cache-v5:started_at",
 	} {
 		require.NoError(t, client.Set(
 			context.Background(), key, time.Now().Add(-time.Hour).Unix(), 0,
@@ -92,7 +93,7 @@ func TestKKAIGroupCacheTrackingIgnoresPreviousGenerationMarkers(t *testing.T) {
 	assert.Zero(t, result.CacheTrackingStartedAt)
 }
 
-func TestKKAIGroupCacheCountersIgnoreMixedStreamLegacySamples(t *testing.T) {
+func TestKKAIGroupCacheCountersIgnorePreviousGenerationInSharedBuckets(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
@@ -100,7 +101,7 @@ func TestKKAIGroupCacheCountersIgnoreMixedStreamLegacySamples(t *testing.T) {
 	common.RedisEnabled = true
 	common.RDB = client
 	ctx := context.Background()
-	group := "mixed-stream-legacy-cache"
+	group := "mixed-generation-cache"
 	now := time.Now()
 	buckets := []struct {
 		prefix     string
@@ -115,7 +116,6 @@ func TestKKAIGroupCacheCountersIgnoreMixedStreamLegacySamples(t *testing.T) {
 			"req": 3, "ok": 3,
 			"cache_v4_tracked": 2, "cache_v4_n": 2, "cache_v4_hit": 2,
 			"cache_v4_prompt": 200, "cache_v4_read": 200,
-			// A previously collected streaming zero-cache sample is still valid.
 			"cache_v5_tracked": 1, "cache_v5_n": 1, "cache_v5_hit": 0,
 			"cache_v5_prompt": 100, "cache_v5_read": 0,
 		}).Err())
@@ -127,8 +127,8 @@ func TestKKAIGroupCacheCountersIgnoreMixedStreamLegacySamples(t *testing.T) {
 		StartTime:                    now.Add(-time.Second),
 		IsStream:                     false,
 		PerformanceCacheUsageKnown:   true,
-		PerformanceCachePromptTokens: 1000,
-		PerformanceCacheReadTokens:   900,
+		PerformanceCachePromptTokens: 4096,
+		PerformanceCacheReadTokens:   3072,
 	}, nil)
 
 	startTs, endTs := now.Add(-time.Minute).Unix(), time.Now().Unix()
@@ -148,10 +148,10 @@ func TestKKAIGroupCacheCountersIgnoreMixedStreamLegacySamples(t *testing.T) {
 		}
 		assert.Equal(t, int64(4), requests)
 		assert.Equal(t, int64(4), successes)
-		assert.Equal(t, int64(2), samples)
+		assert.Equal(t, int64(1), samples)
 		assert.Equal(t, int64(1), hits)
-		assert.Equal(t, int64(1100), promptTokens)
-		assert.Equal(t, int64(900), readTokens)
+		assert.Equal(t, int64(4096), promptTokens)
+		assert.Equal(t, int64(3072), readTokens)
 	}
 	for _, bucket := range buckets {
 		bucketTs := now.Unix() - now.Unix()%bucket.resolution
@@ -162,6 +162,11 @@ func TestKKAIGroupCacheCountersIgnoreMixedStreamLegacySamples(t *testing.T) {
 		assert.Equal(t, "2", values["cache_v4_hit"])
 		assert.Equal(t, "200", values["cache_v4_prompt"])
 		assert.Equal(t, "200", values["cache_v4_read"])
+		assert.Equal(t, "1", values["cache_v5_tracked"])
+		assert.Equal(t, "1", values["cache_v5_n"])
+		assert.Equal(t, "0", values["cache_v5_hit"])
+		assert.Equal(t, "100", values["cache_v5_prompt"])
+		assert.Equal(t, "0", values["cache_v5_read"])
 	}
 }
 
@@ -574,6 +579,8 @@ func TestKKAIGroupRedisPayloadParsing(t *testing.T) {
 		"cache_v3_prompt": "200", "cache_v3_read": "200",
 		"cache_v4_tracked": "2", "cache_v4_n": "2", "cache_v4_hit": "2",
 		"cache_v4_prompt": "200", "cache_v4_read": "200",
+		"cache_v5_tracked": "2", "cache_v5_n": "2", "cache_v5_hit": "2",
+		"cache_v5_prompt": "200", "cache_v5_read": "200",
 	})
 	assert.Equal(t, int64(2), wrongVersionBucket.RequestCount)
 	assert.Zero(t, wrongVersionBucket.CacheTrackedCount)

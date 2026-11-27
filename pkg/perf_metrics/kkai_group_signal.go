@@ -24,15 +24,13 @@ const (
 	kkaiGroupMinuteTTL         = 70 * time.Minute
 	kkaiGroupHistoricalTTL     = 26 * time.Hour
 
-	// Keep v5's existing streaming samples and also collect non-streaming
-	// requests with positive cached input. v4 includes non-streaming zero-cache
-	// requests that cannot be removed from its aggregates.
-	kkaiGroupCacheTrackingMarkerKey = "kkai:group-status:cache-v5:started_at"
-	kkaiGroupCacheTrackedField      = "cache_v5_tracked"
-	kkaiGroupCacheSampleField       = "cache_v5_n"
-	kkaiGroupCacheHitField          = "cache_v5_hit"
-	kkaiGroupCachePromptField       = "cache_v5_prompt"
-	kkaiGroupCacheReadField         = "cache_v5_read"
+	// v5 aggregates include short prompts and cannot be filtered by length.
+	kkaiGroupCacheTrackingMarkerKey = "kkai:group-status:cache-v6:started_at"
+	kkaiGroupCacheTrackedField      = "cache_v6_tracked"
+	kkaiGroupCacheSampleField       = "cache_v6_n"
+	kkaiGroupCacheHitField          = "cache_v6_hit"
+	kkaiGroupCachePromptField       = "cache_v6_prompt"
+	kkaiGroupCacheReadField         = "cache_v6_read"
 )
 
 type KKAIGroupBucket struct {

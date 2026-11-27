@@ -67,17 +67,18 @@ one successful request.
 Cache hit rate always uses the last 24 hours, independently of the selected
 health window. It is the share of eligible successful text requests with
 reported, non-estimated usage whose cached input exceeds 30% of the normalized
-prompt context. Only non-streaming client requests with zero cache-read tokens
-are excluded from the eligible samples. Streaming requests with zero cache-read
-tokens remain in the denominator; non-streaming requests with positive cache-read
-tokens are included, even when their cached input does not exceed the 30% hit
-threshold. The original client stream flag determines whether a request is
-non-streaming, including when the relay streams internally. All requests still
-contribute to health and request counts.
+prompt context. Recognized OpenAI GPT-4o, GPT-4.1/4.5, GPT-5/6, o-series and
+Codex models require at least 1,024 normalized input tokens. The model reported
+by the upstream takes precedence over its mapped request model. Models with
+unknown cache requirements keep their existing eligibility.
 
-The existing Redis v5 cache counters are retained without resetting accumulated
-samples. Buckets written before this correction contain streaming samples only,
-so that portion of the 24-hour window lacks eligible non-streaming requests;
-those samples cannot be reconstructed from the aggregates and age out normally.
-Earlier v4 counters remain ignored. Cache hit rate is hidden when Redis is
-unavailable or there are no hits.
+For eligible lengths, streaming requests with zero cache-read tokens count as
+misses. Non-streaming requests need a positive cache read to enter the sample.
+The original client stream flag applies even when the relay streams internally.
+Short requests still contribute to health and request counts.
+
+Redis v6 counters accumulate samples under this rule. Earlier counters combine
+different input lengths and cannot be converted. During a rolling update the
+rate covers requests sampled by updated instances. It covers a full window
+after all traffic has used the new rule for 24 hours. The card hides the rate
+when Redis is unavailable or there are no hits.

@@ -195,10 +195,10 @@ export function GroupStatusCard(props: { group: GroupStatusEntry }) {
               <span
                 className='text-muted-foreground'
                 title={t(
-                  'Requests with more than 30% cached input, as a share of successful text requests with reported usage in the last 24 hours. Non-streaming requests with zero cached input are excluded.'
+                  'A request counts as a hit when more than 30% of its input tokens come from cache. Counts successful text requests with reported usage that meet the model’s minimum input length for caching, if known. Non-streaming requests must also have cached input.'
                 )}
               >
-                {t('Cache hit rate (24h)')}
+                {t('Request cache hit rate (24h)')}
               </span>
               <span className='font-semibold tabular-nums'>
                 {formatPercent(cacheHitRate)}
