@@ -160,7 +160,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 
 把提交响应中的 `id` 保存到变量，然后轮询同一个任务。建议从 20 秒间隔开始，逐步退避到最多 60 秒。
 
-如果业务系统需要接收完成或失败通知，Seedance 2.5 的试点 Token 可在创建任务时订阅回调。接入步骤和回流字段见 [终态 Webhook](/api/video-generation#seedance-25-webhook)。
+如果业务系统需要接收完成或失败通知，使用主站 API Token 可在创建 Seedance 2.5 任务时订阅回调。接入步骤和回流字段见 [终态 Webhook](/api/video-generation#seedance-25-webhook)。
 
 ```bash
 TASK_ID="task_01JVIDEOEXAMPLE"
