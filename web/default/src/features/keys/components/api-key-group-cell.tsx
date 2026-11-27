@@ -22,6 +22,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import type { CellContext } from '@tanstack/react-table'
 import { isAxiosError } from 'axios'
 import { ArrowRightLeft, Edit3, Loader2, RotateCw } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
@@ -45,6 +46,12 @@ import { useApiKeys } from './api-keys-provider'
 
 type ApiKeyGroupCellProps = {
   apiKey: ApiKey
+}
+
+// TanStack mounts the cell function as a component. Its identity must survive
+// the column rebuild for the table's relative timestamps.
+export function ApiKeyGroupColumn({ row }: CellContext<ApiKey, unknown>) {
+  return <ApiKeyGroupCell apiKey={row.original} />
 }
 
 export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {

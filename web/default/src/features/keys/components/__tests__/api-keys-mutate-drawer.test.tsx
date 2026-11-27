@@ -214,6 +214,12 @@ function selectComboboxOption(
   optionDescription: string
 ): void {
   fireEvent.click(trigger)
+  const groupSearch = screen.queryByPlaceholderText(
+    'Search by provider or group'
+  )
+  if (groupSearch instanceof HTMLInputElement) {
+    changeInput(groupSearch, optionDescription)
+  }
   const option = [
     ...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]'),
   ].find((candidate) => candidate.textContent?.includes(optionDescription))

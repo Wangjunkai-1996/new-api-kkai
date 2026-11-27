@@ -197,6 +197,7 @@ describe('ApiKeyGroupCell', () => {
     renderCell()
 
     const trigger = await openGroupMenu(user)
+    await user.click(screen.getByRole('button', { name: 'Claude' }))
     await user.click(
       screen.getByRole('option', { name: /claudecode–满血企业/ })
     )

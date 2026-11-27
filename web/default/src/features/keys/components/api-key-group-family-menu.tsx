@@ -60,6 +60,21 @@ function familyRank(family: ApiKeyGroupFamily) {
   return 5
 }
 
+function revealInScrollport(container: HTMLElement, item: HTMLElement) {
+  const box = container.getBoundingClientRect()
+  const target = item.getBoundingClientRect()
+  if (target.top < box.top) {
+    container.scrollTop += target.top - box.top
+  } else if (target.bottom > box.bottom) {
+    container.scrollTop += target.bottom - box.bottom
+  }
+  if (target.left < box.left) {
+    container.scrollLeft += target.left - box.left
+  } else if (target.right > box.right) {
+    container.scrollLeft += target.right - box.right
+  }
+}
+
 export function ApiKeyGroupFamilyMenu(props: {
   options: ApiKeyGroupOption[]
   selected?: string
@@ -71,7 +86,9 @@ export function ApiKeyGroupFamilyMenu(props: {
   statusContent?: ReactNode
 }) {
   const { t } = useTranslation()
-  const [familyFilter, setFamilyFilter] = useState<string | null>(null)
+  // Undefined follows the saved group until the user chooses a provider or All.
+  const [familyFilter, setFamilyFilter] = useState<string | null>()
+  const [cursor, setCursor] = useState<string>()
   const { query, onQueryChange: setQuery } = props
   const [details, setDetails] = useState(false)
   const detailsId = useId()
@@ -79,6 +96,7 @@ export function ApiKeyGroupFamilyMenu(props: {
   const railRef = useRef<HTMLDivElement>(null)
   const plateRef = useRef<HTMLSpanElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const activeRowRef = useRef<HTMLDivElement>(null)
   const filterMotion = useRef<Animation | undefined>(undefined)
   const sections = useMemo(() => {
     const families = new Map<string, Section>()
@@ -120,9 +138,18 @@ export function ApiKeyGroupFamilyMenu(props: {
     )
   }, [props.options, t])
   const search = normalizeApiKeyGroupSearch(query)
+  const selectedFamily = sections.find(({ entries }) =>
+    entries.some(
+      ({ option }) => option.value === props.selected && !option.disabled
+    )
+  )?.family.name
+  const requestedFamily =
+    familyFilter === undefined ? selectedFamily : familyFilter
   const activeFamily =
-    !search && sections.some((s) => s.family.name === familyFilter)
-      ? familyFilter
+    !search &&
+    requestedFamily &&
+    sections.some((s) => s.family.name === requestedFamily)
+      ? requestedFamily
       : null
   const visible = useMemo(() => {
     if (!search) {
@@ -141,9 +168,42 @@ export function ApiKeyGroupFamilyMenu(props: {
       .filter((s) => s.entries.length)
   }, [activeFamily, search, sections])
 
+  const enabledKeys = useMemo(
+    () =>
+      visible.flatMap(({ entries }) =>
+        entries
+          .filter(({ option }) => !option.disabled)
+          .map(({ option }) => option.value)
+      ),
+    [visible]
+  )
+  const startingKey =
+    !search && props.selected && enabledKeys.includes(props.selected)
+      ? props.selected
+      : enabledKeys[0]
+  const activeKey =
+    cursor && enabledKeys.includes(cursor) ? cursor : startingKey
+  const showingStatus = Boolean(props.statusContent)
+
   useLayoutEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = 0
-  }, [activeFamily, query])
+    const list = listRef.current
+    const row = activeRowRef.current
+    if (!props.open || !list) return
+    // cmdk sets this ID on navigation, but not for an externally supplied value.
+    if (!row) {
+      inputRef.current?.removeAttribute('aria-activedescendant')
+      list.removeAttribute('aria-activedescendant')
+      return
+    }
+    inputRef.current?.setAttribute('aria-activedescendant', row.id)
+    list.setAttribute('aria-activedescendant', row.id)
+    if (cursor) return
+    const revealRow = () => revealInScrollport(list, row)
+    revealRow()
+    const observer = new ResizeObserver(revealRow)
+    observer.observe(list)
+    return () => observer.disconnect()
+  }, [props.open, activeKey, cursor, showingStatus])
 
   // The rail switches from a vertical list to a horizontally scrollable strip.
   useLayoutEffect(() => {
@@ -152,21 +212,23 @@ export function ApiKeyGroupFamilyMenu(props: {
     const selected = rail?.querySelector<HTMLButtonElement>(
       'button[aria-pressed="true"]'
     )
-    if (!rail || !plate || !selected) return
+    if (!props.open || !rail || !plate || !selected) return
     const measure = () => {
       plate.style.setProperty('--kgrp-plate-x', `${selected.offsetLeft}px`)
       plate.style.setProperty('--kgrp-plate-y', `${selected.offsetTop}px`)
       plate.style.setProperty('--kgrp-plate-w', `${selected.offsetWidth}px`)
       plate.style.setProperty('--kgrp-plate-h', `${selected.offsetHeight}px`)
+      if (rail.parentElement) revealInScrollport(rail.parentElement, selected)
     }
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(rail)
     ro.observe(selected)
     return () => ro.disconnect()
-  }, [activeFamily, sections, props.open])
+  }, [activeFamily, sections, props.open, showingStatus])
 
   const changeFamily = (family: string | null) => {
+    setCursor(undefined)
     setFamilyFilter(family)
     setQuery('')
     filterMotion.current?.cancel()
@@ -186,10 +248,8 @@ export function ApiKeyGroupFamilyMenu(props: {
       label={t('Search groups')}
       shouldFilter={false}
       loop
-      defaultValue={
-        props.options.find((o) => o.value === props.selected && !o.disabled)
-          ?.value
-      }
+      value={activeKey ?? ''}
+      onValueChange={setCursor}
       className='kgrp-command'
       onCompositionStart={() => props.onCompositionChange(true)}
       onCompositionEnd={() => props.onCompositionChange(false)}
@@ -198,7 +258,10 @@ export function ApiKeyGroupFamilyMenu(props: {
         <CommandInput
           ref={inputRef}
           value={query}
-          onValueChange={setQuery}
+          onValueChange={(next) => {
+            setCursor(undefined)
+            setQuery(next)
+          }}
           placeholder={t('Search by provider or group')}
           autoComplete='off'
         />
@@ -211,6 +274,7 @@ export function ApiKeyGroupFamilyMenu(props: {
               if (event.key !== 'Escape') event.stopPropagation()
             }}
             onClick={() => {
+              setCursor(undefined)
               setQuery('')
               inputRef.current?.focus()
             }}
@@ -305,6 +369,9 @@ export function ApiKeyGroupFamilyMenu(props: {
                     return (
                       <CommandItem
                         key={option.value}
+                        ref={
+                          option.value === activeKey ? activeRowRef : undefined
+                        }
                         value={option.value}
                         disabled={option.disabled}
                         data-current={current || undefined}

@@ -59,6 +59,7 @@ describe('ApiKeyGroupCombobox', () => {
           id='group'
           options={[
             { value: 'cc', label: 'Claude–Cursor', ratio: 0.2 },
+            { value: 'gpt-basic', label: 'GPT basic' },
             { value: 'vip', label: 'GPT – 企业 Fast', ratio: 0.25 },
             { value: 'other', label: '普通专线' },
           ]}
@@ -77,14 +78,22 @@ describe('ApiKeyGroupCombobox', () => {
         'selected'
       )
     ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'OpenAI' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(screen.getByRole('option', { name: /企业 Fast/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
     await user.keyboard('{ArrowDown}{Enter}')
-    expect(onChange).toHaveBeenCalledWith('cc')
+    expect(onChange).toHaveBeenCalledWith('gpt-basic')
     await waitFor(() => expect(trigger).toHaveFocus())
 
     await user.keyboard('{Enter}')
     const input = screen.getByPlaceholderText('Search by provider or group')
     await user.click(screen.getByRole('button', { name: 'OpenAI' }))
-    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(screen.getAllByRole('option')).toHaveLength(2)
     expect(screen.getByRole('option', { name: /企业 Fast/ })).toBeVisible()
     await user.type(input, 'anthropic 0.2x')
     expect(screen.getAllByRole('option')).toHaveLength(1)
@@ -103,6 +112,88 @@ describe('ApiKeyGroupCombobox', () => {
     expect(
       screen.getByPlaceholderText('Search by provider or group')
     ).toHaveValue('')
+  })
+
+  test('anchors late options and preserves manual browsing across refresh, then restores the saved group on reopen', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    const available = [
+      { value: 'gpt-one', label: 'GPT one' },
+      { value: 'gpt-two', label: 'GPT two' },
+      { value: 'cc-one', label: 'Claude one' },
+      { value: 'cc-two', label: 'Claude two' },
+    ]
+    const picker = (options: ApiKeyGroupOption[], value = 'cc-two') => (
+      <ApiKeyGroupCombobox
+        byModelFamily
+        triggerAriaLabel='Token group'
+        options={options}
+        value={value}
+        onValueChange={onChange}
+      />
+    )
+    const { rerender } = render(picker(available.slice(0, 2)))
+    const trigger = screen.getByRole('combobox', { name: 'Token group' })
+    await user.click(trigger)
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    rerender(picker(available))
+    expect(screen.getByRole('button', { name: 'Claude' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(screen.getByRole('option', { name: /Claude two/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    await user.click(screen.getByRole('button', { name: 'OpenAI' }))
+    const input = screen.getByPlaceholderText('Search by provider or group')
+    await user.click(input)
+    await user.keyboard('{ArrowDown}')
+    rerender(picker(available.map((item) => ({ ...item, ratio: 0.5 }))))
+    expect(screen.getByRole('button', { name: 'OpenAI' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(screen.getByRole('option', { name: /GPT two/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    await user.keyboard('{Escape}')
+    await user.click(trigger)
+    expect(screen.getByRole('button', { name: 'Claude' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(screen.getByRole('option', { name: /Claude two/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    await user.keyboard('{Escape}')
+    rerender(
+      picker(
+        [
+          ...available,
+          { value: 'retired', label: 'Claude Legacy', disabled: true },
+        ],
+        'retired'
+      )
+    )
+    await user.click(trigger)
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(
+      screen.getByRole('option', { name: /Claude Legacy/ })
+    ).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('option', { name: /GPT one/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    expect(onChange).not.toHaveBeenCalled()
   })
 
   test('filters options by display metadata and returns the canonical group key', async () => {

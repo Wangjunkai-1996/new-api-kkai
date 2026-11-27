@@ -28,7 +28,7 @@ import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { API_KEY_STATUSES } from '../constants'
 import type { ApiKey } from '../types'
-import { ApiKeyGroupCell } from './api-key-group-cell'
+import { ApiKeyGroupColumn } from './api-key-group-cell'
 import { ApiKeyQuotaCell } from './api-key-quota-cell'
 import {
   ApiKeyActivityCell,
@@ -123,7 +123,7 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
       {
         accessorKey: 'group',
         header: t('Group'),
-        cell: ({ row }) => <ApiKeyGroupCell apiKey={row.original} />,
+        cell: ApiKeyGroupColumn,
         size: 300,
         minSize: 280,
         meta: { mobileHidden: true },

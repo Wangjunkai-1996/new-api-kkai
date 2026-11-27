@@ -45,6 +45,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import zh from '@/i18n/locales/zh.json'
 import { api } from '@/lib/api'
+import { STATUS_QUERY_KEY } from '@/lib/status-query'
 import {
   DEFAULT_CURRENCY_CONFIG,
   useSystemConfigStore,
@@ -350,8 +351,38 @@ async function renderKeysPage(status = 1, overrides: Partial<ApiKey> = {}) {
     </I18nextProvider>
   )
   await screen.findByText(currentKey.name)
-  return { post, put }
+  return { post, put, client }
 }
+
+it('keeps the open group picker and its search when table timestamps refresh', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+  try {
+    const { client } = await renderKeysPage()
+    act(() => {
+      client.setQueryData(STATUS_QUERY_KEY, {
+        console_contract: {
+          format_version: 1,
+          api_contracts: [4],
+          capabilities: ['token_group_inline'],
+        },
+      })
+    })
+    const user = userEvent.setup()
+    const picker = await screen.findByRole('combobox', {
+      name: 'Group: production',
+    })
+    await user.click(picker)
+    const search = screen.getByPlaceholderText('Search by provider or group')
+    await user.type(search, 'default')
+    act(() => vi.advanceTimersByTime(30_000))
+    expect(picker).toBeInTheDocument()
+    expect(picker).toHaveAttribute('aria-expanded', 'true')
+    expect(search).toHaveFocus()
+    expect(search).toHaveValue('default')
+  } finally {
+    vi.useRealTimers()
+  }
+})
 
 it('combines creation and last use while keeping expiry, models and IP restrictions separate', async () => {
   await renderKeysPage()

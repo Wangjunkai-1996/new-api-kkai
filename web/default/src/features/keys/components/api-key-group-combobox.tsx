@@ -117,6 +117,7 @@ export function ApiKeyGroupCombobox({
 }: ApiKeyGroupComboboxProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [menuSession, setMenuSession] = useState(0)
   const [searchValue, setSearchValue] = useState('')
   const [confirmedValue, setConfirmedValue] = useState<string>()
   const composing = useRef(false)
@@ -175,6 +176,7 @@ export function ApiKeyGroupCombobox({
     if (!nextOpen) setSearchValue('')
     composing.current = false
     if (nextOpen) {
+      if (byModelFamily) setMenuSession((session) => session + 1)
       setConfirmedValue(undefined)
       onOpen?.()
     }
@@ -326,6 +328,7 @@ export function ApiKeyGroupCombobox({
       >
         {byModelFamily ? (
           <ApiKeyGroupFamilyMenu
+            key={menuSession}
             options={options}
             selected={value}
             onSelect={handleSelect}

@@ -20,16 +20,16 @@ For commercial licensing, please contact support@quantumnous.com
 .kgrp-trigger,
 .kgrp-popover {
   color-scheme: light;
-  --kgrp-paper: light-dark(#fffefa, #29292f);
-  --kgrp-sidebar: light-dark(#f7f6f3, #232329);
-  --kgrp-hover: light-dark(#f1eff3, #33323a);
-  --kgrp-ink: light-dark(#282831, #f1eff4);
-  --kgrp-subtle: light-dark(#605d69, #b8b5c3);
-  --kgrp-line: light-dark(#dedbe1, #403e48);
-  --kgrp-violet: light-dark(#624b96, #cec0f0);
-  --kgrp-selected: light-dark(#eee9f5, #3a3545);
+  --kgrp-paper: light-dark(#fcfdfd, #21282c);
+  --kgrp-sidebar: light-dark(#f2f5f5, #1b2226);
+  --kgrp-hover: light-dark(#ecf1f2, #2b353a);
+  --kgrp-ink: light-dark(#182d32, #edf6f7);
+  --kgrp-subtle: light-dark(#4a6066, #b5c6ca);
+  --kgrp-line: light-dark(#d7e1e2, #38454a);
+  --kgrp-accent: light-dark(#155e6a, #9cdeea);
+  --kgrp-selected: light-dark(#dfedef, #263c42);
   --kgrp-edge: light-dark(#ffffffcf, #ffffff17);
-  --kgrp-focus: light-dark(#7557af, #c6aff2);
+  --kgrp-focus: light-dark(#187786, #85cedc);
   --kgrp-success: light-dark(#32674e, #9ac8ab);
   --kgrp-failure: light-dark(#a24935, #e29b83);
   --kgrp-spring: cubic-bezier(0.23, 1.38, 0.36, 1);
@@ -40,6 +40,7 @@ For commercial licensing, please contact support@quantumnous.com
   color-scheme: dark;
 }
 .kgrp-trigger {
+  --kgrp-subtle: light-dark(#294147, #b5c6ca);
   display: block;
   width: 100%;
   min-width: 0;
@@ -67,14 +68,9 @@ For commercial licensing, please contact support@quantumnous.com
   align-items: center;
   column-gap: clamp(8px, 2cqi, 14px);
   padding: 19px clamp(12px, 3cqi, 20px);
-  border: 1px solid light-dark(#c5bdce, #57515f);
+  border: 1px solid light-dark(#adbec0, #42545a);
   border-radius: inherit;
-  background: linear-gradient(
-    115deg,
-    light-dark(#fdfcfe, #393541),
-    light-dark(#f2eff6, #292731) 57%,
-    light-dark(#e5e1ed, #35323c)
-  );
+  background: light-dark(#eff5f5, #202b30);
   box-shadow:
     inset 0 1px 0 var(--kgrp-edge),
     0 3px 8px #0001;
@@ -83,22 +79,18 @@ For commercial licensing, please contact support@quantumnous.com
   content: '';
   position: absolute;
   z-index: -1;
-  inset: -110% -10% -110% 16%;
+  inset: 0;
   pointer-events: none;
-  transform: rotate(-15deg);
-  background: repeating-radial-gradient(
-    ellipse 54% 70% at 73% 112%,
-    transparent 0 7px,
-    light-dark(#9886b641, #9888a94b) 7.6px 8.3px,
-    transparent 9px 12px
-  );
-  mask-image: linear-gradient(
-    92deg,
-    transparent 1%,
-    #0008 30%,
-    #000d 55%,
-    transparent 77%
-  );
+  background: url('../../../assets/keys/photonic-circuit.webp') center / cover;
+  filter: invert(1) hue-rotate(180deg);
+  mask-image: linear-gradient(105deg, #0003, #0003 33%, #000c 52%, #0003 72%);
+}
+.dark .kgrp-card::before {
+  filter: none;
+}
+.kgrp-trigger[data-compact] .kgrp-card::before {
+  background-position: left center;
+  mask-image: linear-gradient(105deg, #0002 48%, #0007 82%, #0004);
 }
 .kgrp-stamp {
   display: grid;
@@ -106,12 +98,12 @@ For commercial licensing, please contact support@quantumnous.com
   width: 49px;
   height: 49px;
   border-radius: 14px;
-  border: 1px solid light-dark(#cbc4d4, #615c66);
-  color: light-dark(#574965, #e1d8ea);
+  border: 1px solid light-dark(#b6c8ca, #52676d);
+  color: light-dark(#34525a, #d4e9ec);
   background: linear-gradient(
     145deg,
-    light-dark(#faf9fc, #514d57),
-    light-dark(#e6e1ec, #302d34)
+    light-dark(#fbfdfd, #3c4b50),
+    light-dark(#dce7e8, #263238)
   );
   box-shadow:
     inset 0 1px 0 var(--kgrp-edge),
@@ -185,8 +177,8 @@ For commercial licensing, please contact support@quantumnous.com
   white-space: nowrap;
 }
 .kgrp-card .kgrp-ratio {
-  background: light-dark(#f6f3f9ab, #332f3bc2);
-  border-color: light-dark(#cbc5d2, #5a545f);
+  background: light-dark(#f6fafacc, #233037dd);
+  border-color: light-dark(#b6c8cb, #465d63);
   color: var(--kgrp-ink);
 }
 .kgrp-unavailable {
@@ -200,10 +192,10 @@ For commercial licensing, please contact support@quantumnous.com
   width: 25px;
   height: 25px;
   place-items: center;
-  border: 1px solid light-dark(#c9c2d1, #5d5664);
+  border: 1px solid light-dark(#b2c3c6, #4c6066);
   border-radius: 50%;
   color: var(--kgrp-subtle);
-  background: light-dark(#f5f2f8ad, #332f3ba8);
+  background: light-dark(#f2f7f7e6, #1e2b30e6);
 }
 .kgrp-handle svg {
   transition: transform 0.3s var(--kgrp-spring);
@@ -212,8 +204,8 @@ For commercial licensing, please contact support@quantumnous.com
   transform: rotate(180deg);
 }
 .kgrp-trigger[data-confirmed] .kgrp-handle {
-  color: light-dark(white, #292335);
-  background: var(--kgrp-violet);
+  color: light-dark(white, #15292f);
+  background: var(--kgrp-accent);
   border-color: transparent;
   animation: kgrp-press 0.3s var(--kgrp-spring);
 }
@@ -292,7 +284,7 @@ For commercial licensing, please contact support@quantumnous.com
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--kgrp-line);
-  border-block-start-color: light-dark(#d3cdd8, #58565e);
+  border-block-start-color: light-dark(#c1cfd1, #48585f);
   border-radius: 14px;
   background: var(--kgrp-paper);
   box-shadow:
@@ -427,7 +419,7 @@ For commercial licensing, please contact support@quantumnous.com
   height: var(--kgrp-plate-h, 0);
   transform: translate(var(--kgrp-plate-x, 0), var(--kgrp-plate-y, 0));
   border-radius: 8px;
-  border: 1px solid light-dark(#d7d0e0, #554e60);
+  border: 1px solid light-dark(#c1d7da, #3f5960);
   background: var(--kgrp-selected);
   box-shadow:
     inset 0 1px 0 var(--kgrp-edge),
@@ -452,7 +444,7 @@ For commercial licensing, please contact support@quantumnous.com
   text-align: start;
 }
 .kgrp-rail button[aria-pressed='true'] {
-  color: var(--kgrp-violet);
+  color: var(--kgrp-accent);
   font-weight: 600;
 }
 .kgrp-rail button:hover:not([aria-pressed='true']) {
@@ -563,12 +555,12 @@ For commercial licensing, please contact support@quantumnous.com
   inset-inline-start: 0;
   inset-block: 11px;
   width: 2px;
-  background: var(--kgrp-violet);
+  background: var(--kgrp-accent);
   border-radius: 2px;
 }
 .kgrp-row[data-current='true'] .kgrp-row-title,
 .kgrp-row > .kgrp-tick {
-  color: var(--kgrp-violet);
+  color: var(--kgrp-accent);
 }
 .kgrp-row > svg:last-child {
   display: none;
@@ -663,7 +655,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .kgrp-ticks [data-result='none'] {
   height: 3px;
-  background: light-dark(#aca8b3, #777180);
+  background: light-dark(#9eacb0, #71858b);
 }
 .kgrp-rate {
   font-size: 11px;
@@ -747,6 +739,10 @@ For commercial licensing, please contact support@quantumnous.com
     height: 40px;
     border-radius: 11px;
   }
+  .kgrp-card::before {
+    background-position: left center;
+    mask-image: linear-gradient(105deg, #0002 43%, #0006 67%, #0003 89%);
+  }
   .kgrp-stamp .kgrp-brand svg {
     width: 25px;
     height: 25px;
@@ -771,6 +767,13 @@ For commercial licensing, please contact support@quantumnous.com
   }
   .kgrp-signal[data-variant='trigger'] .kgrp-rate {
     font-size: 21px;
+  }
+}
+@container kgrp-menu (width > 520px) {
+  .kgrp-body:has([data-family='all'][aria-pressed='false']):not(
+      :has(.kgrp-row:nth-child(4))
+    ) {
+    max-height: 13.5rem;
   }
 }
 @container kgrp-menu (max-width: 520px) {
